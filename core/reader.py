@@ -357,11 +357,16 @@ def read_sketch(sketch_path: str, workdir: str | None = None,
 
     log("Claude is reading the sketch (forensic examination)…")
     t0 = time.time()
+    # On Windows, when the server runs windowless (pythonw / the silent VBS), a
+    # console child like claude.exe pops its OWN black console window. CREATE_NO_
+    # WINDOW keeps it hidden. (0 on Linux, so the cloud build is unaffected.)
+    _no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
         proc = subprocess.Popen(
             [exe, "-p", prompt, "--permission-mode", "acceptEdits"],
             cwd=workdir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, encoding="utf-8", errors="replace")
+            text=True, encoding="utf-8", errors="replace",
+            creationflags=_no_window)
     except Exception as e:
         return {"plan": None, "pages": pages, "log": "",
                 "error": f"Could not start the Claude CLI: {e}"}

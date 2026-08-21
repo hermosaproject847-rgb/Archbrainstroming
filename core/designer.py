@@ -113,11 +113,13 @@ def design(answers: dict, workdir: str | None = None,
     log("Claude is designing the plan from your brief…")
     t0 = time.time()
     import subprocess
-    try:
+    _no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # hide claude's
+    try:                                                     # console on Windows
         proc = subprocess.Popen(
             [exe, "-p", prompt, "--permission-mode", "acceptEdits"],
             cwd=workdir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, encoding="utf-8", errors="replace")
+            text=True, encoding="utf-8", errors="replace",
+            creationflags=_no_window)
     except Exception as e:
         return {"plan": None, "log": "",
                 "error": f"Could not start the Claude CLI: {e}"}
