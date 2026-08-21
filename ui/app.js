@@ -1922,7 +1922,7 @@ function redraw() {
     if (S.beamView) regenBeam();
     else if (S.sectionView) regenSection();
     else doRender();
-  }, 160);
+  }, 90);
 }
 async function doRender() {
   if (!S.plan) return;
