@@ -19,7 +19,10 @@ import traceback
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
-import webview  # noqa: E402
+try:                                 # desktop-only (native window); absent on
+    import webview  # noqa: E402     # the web host, where dialogs are disabled
+except Exception:                    # so a missing pywebview must not break import
+    webview = None
 
 from core import combined, library, pipeline, reader  # noqa: E402
 
