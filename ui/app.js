@@ -1600,7 +1600,12 @@ async function savePlan(saveAs = false) {
   // WEB: no native save dialog — download the plan as a .json the browser can
   // re-open later with Open Plan (a direct download from this click gesture).
   if (isWeb()) {
-    const base = (S.saveName || "plan").replace(/\.[^.]+$/, "") || "plan";
+    let base = (S.saveName || "plan").replace(/\.[^.]+$/, "") || "plan";
+    if (saveAs) {
+      const nm = prompt("Save as — file name:", base);
+      if (nm === null) return;                 // cancelled
+      base = (nm.trim().replace(/\.[^.]+$/, "")) || base;
+    }
     const name = base + ".json";
     const blob = new Blob([JSON.stringify(S.plan, null, 2)],
                           { type: "application/json" });
@@ -2231,19 +2236,6 @@ if ($("#quizGo")) $("#quizGo").onclick = async () => {
 };
 
 // Save the current plan into the template library
-if ($("#btnTemplate")) $("#btnTemplate").onclick = async () => {
-  if (!S.plan) return status("open or design a plan first");
-  const label = prompt("Template name (e.g. \"3BHK 25x50 duplex\"):",
-    (S.plan.title && S.plan.title.plan_name) || "Bungalow");
-  if (label === null) return;
-  const r = await api().save_template(S.plan, label);
-  if (!r.ok) return fail(r);
-  const m = r.meta || {};
-  status(`saved to template library — “${m.name}” (${m.bedrooms} BR, `
-    + `${Math.round(m.plot_w)}×${Math.round(m.plot_d)}); library now has `
-    + `${r.count}. The Questionnaire will fit it to a new plot.`);
-};
-
 $("#btnElec").onclick = async () => {
   if (!S.plan) return status("read or load a plan first");
   if (!(S.plan.furniture || []).length && !confirm(
@@ -2677,6 +2669,7 @@ $("#notesGo").onclick = async () => {
 };
 
 $("#btnSave").onclick = () => savePlan(false);
+if ($("#btnSaveAs")) $("#btnSaveAs").onclick = () => savePlan(true);
 
 if ($("#btnLoad")) $("#btnLoad").onclick = async () => {
   // WEB: the native file dialog does not exist — read the saved .json in the
