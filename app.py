@@ -296,6 +296,39 @@ class Api:
         except Exception as e:
             return self._fail(e)
 
+    # -- async read (web) ------------------------------------------------
+    # An AI read takes ~1-2 min. Behind a proxy / Cloudflare tunnel a single
+    # request held that long returns 502. So the web build starts the read as a
+    # background job and POLLS for the result with quick requests instead.
+    _read_jobs: dict = {}
+
+    def read_async_start(self, path: str, notes: str = "",
+                         fresh: bool = False) -> dict:
+        import uuid
+        job = uuid.uuid4().hex
+        Api._read_jobs[job] = {"done": False, "result": None}
+
+        def worker():
+            try:
+                res = self.read_path(path, notes, fresh)
+            except Exception as e:
+                res = {"ok": False, "error": str(e)}
+            Api._read_jobs[job] = {"done": True, "result": res}
+
+        threading.Thread(target=worker, daemon=True).start()
+        return {"ok": True, "job": job}
+
+    def read_async_status(self, job: str = "") -> dict:
+        j = Api._read_jobs.get(job)
+        if not j:
+            return {"ok": False, "error": "unknown job"}
+        if not j["done"]:
+            return {"ok": True, "done": False}
+        # keep the store small — hand the result over once and drop it
+        Api._read_jobs.pop(job, None)
+        return {"ok": True, "done": True,
+                "result": j["result"] or {"ok": False, "error": "no result"}}
+
     # -- draw ------------------------------------------------------------
     def number_walls(self, plan: dict, split: bool = True) -> dict:
         """Split walls at room boundaries and renumber them W1, W2, …"""

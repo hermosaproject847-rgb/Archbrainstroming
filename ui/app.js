@@ -2056,11 +2056,26 @@ $("#btnOpen").onclick = async () => {
       return;
     }
     const isImg = /\.(png|jpe?g|pdf)$/i.test(f.name || "");
-    busy(true, isImg
-      ? "Reading the drawing with AI — this can take a minute…"
-      : "Importing the DXF…", isImg);
-    const rr = await api().read_path(f.path, "", false);
-    busy(false);
+    let rr;
+    if (isImg) {
+      // AI read takes ~1-2 min — run it as a background JOB and poll, so the
+      // Cloudflare tunnel never times the single request out (502).
+      busy(true, "Reading the drawing with AI — this can take a minute…", true);
+      const st = await api().read_async_start(f.path, "", false);
+      if (!st.ok) { busy(false); return fail(st); }
+      rr = { ok: false, error: "read timed out — try again" };
+      for (let i = 0; i < 160; i++) {          // up to ~8 min
+        await _sleep(3000);
+        const s = await api().read_async_status(st.job);
+        if (s && s.ok && s.done) { rr = s.result; break; }
+        if (s && !s.ok) { rr = s; break; }
+      }
+      busy(false);
+    } else {
+      busy(true, "Importing the DXF…");
+      rr = await api().read_path(f.path, "", false);
+      busy(false);
+    }
     if (!rr.ok) return fail(rr);
     if (rr.plan) {
       setPlan(rr.plan);

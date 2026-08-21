@@ -45,9 +45,18 @@ _DESKTOP_ONLY = {"pick_sketch", "pick_sketches", "load_plan_json",
                  "open_login"}
 
 
+def _no_cache(resp):
+    # the UI files change between sessions; tell the browser to always
+    # revalidate so a stale app.js / index.html is never used after an update.
+    resp.set_header("Cache-Control", "no-cache, no-store, must-revalidate")
+    resp.set_header("Pragma", "no-cache")
+    resp.set_header("Expires", "0")
+    return resp
+
+
 @web.get("/")
 def index():
-    return static_file("index.html", root=UI)
+    return _no_cache(static_file("index.html", root=UI))
 
 
 @web.get("/health")
@@ -111,7 +120,7 @@ def download():
 
 @web.get("/<filepath:path>")
 def statics(filepath):
-    return static_file(filepath, root=UI)
+    return _no_cache(static_file(filepath, root=UI))
 
 
 if __name__ == "__main__":
