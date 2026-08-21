@@ -40,8 +40,9 @@ web = Bottle()
 
 # methods that open a NATIVE dialog / the file explorer — meaningless on the web,
 # where the browser handles files. The UI uses /upload and /download instead.
-_DESKTOP_ONLY = {"pick_sketch", "pick_sketches", "save_plan_json", "open_folder",
-                 "open_output_folder", "open_login"}
+_DESKTOP_ONLY = {"pick_sketch", "pick_sketches", "load_plan_json",
+                 "save_plan_json", "open_folder", "open_output_folder",
+                 "open_login"}
 
 
 @web.get("/")
@@ -115,5 +116,18 @@ def statics(filepath):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8080"))
-    print(f"SketchToPlan web on http://0.0.0.0:{port}  (AI read disabled)")
-    bottle.run(web, host="0.0.0.0", port=port, server="wsgiref", quiet=False)
+    # waitress is a real production WSGI server (threaded, correct Content-Length
+    # behind a proxy). wsgiref — the stdlib fallback — is single-threaded and can
+    # send a response the cloud proxy truncates, which the browser then sees as an
+    # empty body ("Unexpected end of JSON input"). Prefer waitress; fall back to
+    # wsgiref only if it is not installed (e.g. a bare desktop checkout).
+    try:
+        from waitress import serve
+        print(f"SketchToPlan web (waitress) on http://0.0.0.0:{port}  "
+              f"(AI read disabled)")
+        serve(web, host="0.0.0.0", port=port, threads=8,
+              channel_timeout=300)
+    except ImportError:
+        print(f"SketchToPlan web (wsgiref fallback) on http://0.0.0.0:{port}")
+        bottle.run(web, host="0.0.0.0", port=port, server="wsgiref",
+                   quiet=False)

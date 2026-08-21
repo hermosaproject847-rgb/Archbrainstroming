@@ -1,6 +1,7 @@
 # SketchToPlan web build — server-side Python deps (Linux host).
 # pywebview is NOT needed here (that is only for the desktop shell).
 bottle
+waitress
 shapely
 ezdxf
 matplotlib
