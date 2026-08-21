@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ARCH BRAIN STORMING</title>
+<link rel="icon" type="image/png" href="appicon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ── login gate ─────────────────────────────────────────── -->
+<div id="login" class="login hidden" style="display:none">
+  <div class="login-card">
+    <div class="login-brand">ARCH&nbsp;BRAIN&nbsp;STORMING</div>
+    <div class="login-sub">Sign in to continue</div>
+    <input id="loginUser" class="login-inp" type="text" placeholder="User name" autocomplete="off">
+    <input id="loginPass" class="login-inp" type="password" placeholder="Password" autocomplete="off">
+    <button id="loginGo" class="btn primary login-btn">Sign in</button>
+    <div id="loginErr" class="login-err"></div>
+  </div>
+</div>
+
+<header class="bar">
+  <div class="brand">ARCH&nbsp;BRAIN&nbsp;STORMING</div>
+
+  <button id="btnOpen"   class="btn primary" title="Open a drawing — sketch (PNG / JPG / PDF) or a CAD file (DXF)">Open Drawing</button>
+  <button id="btnLoad"   class="btn" title="Open a previously saved plan (.json) — your old files">Open Plan</button>
+  <button id="btnPdf2Dxf" class="btn" title="Convert a VECTOR PDF drawing straight to an editable DXF — geometry only (lines, curves, text), no AI, fully offline. Turns a PDF drawing into a CAD file in seconds.">PDF → DXF</button>
+  <button id="btnOpenFloors" class="btn" title="Open SEVERAL drawings at once — one per floor. Each is read into its own floor (Ground / First / Second …) and you can edit and export them together.">Open Floors (multi)</button>
+  <button id="btnRead"   class="btn accent" disabled title="Read the drawing into an editable plan">Read Drawing</button>
+  <button id="btnQuiz"   class="btn primary" title="Design a floor plan from a short questionnaire — Claude designs it from your brief (plot, floors, rooms) to NBC standards. Needs the Claude CLI (same as Read Drawing).">Questionnaire</button>
+  <button id="btnFurn"   class="btn accent" disabled title="Lay out furniture over the finished plan — standard sizes, clearances and Vaastu">Furniture Layout</button>
+  <button id="btnElec"   class="btn accent" disabled title="Lay out the electrical and lighting over the furnished plan — lux targets, fan rules, boards, circuits and load">Electrical Layout</button>
+  <button id="btnPlumb"  class="btn accent" disabled title="Lay out the plumbing and drainage over the plan's fixtures — cold and hot water, soil, waste and rain water as separate systems, chambers with computed invert levels">Plumbing Layout</button>
+  <button id="btnFloor"  class="btn accent" disabled title="Set the flooring for every room — tile / marble / wood / granite with size, spacer, start point, skirting and level drop, each editable room by room">Flooring Drawing</button>
+  <button id="btnBoq"    class="btn accent" disabled title="Generate the BOQ (bill of quantities) as an Excel workbook with live formulas — masonry, plaster, flooring, skirting, dado, doors/windows, painting, columns">BOQ</button>
+  <button id="btnSection" class="btn accent" disabled title="Cut a vertical section along a section line — fill the height questionnaire, then it exports the section">Section</button>
+  <button id="btnBeam" class="btn accent" disabled title="Beam layout — put an RCC beam (230 mm default) on every wall, numbered, with a schedule; edit width/depth and rotate each; exports on its own sheet">Beam Layout</button>
+  <button id="btnElev" class="btn accent" disabled title="Elevation — develop the four outer faces (front / rear / left / right) professionally: openings at true positions & heights, plinth, roof, parapet, sunshades and full dimensions. Uses the section-questionnaire heights">Elevation</button>
+  <span class="sep"></span>
+  <button id="btnUndo"   class="btn" disabled title="Undo (Ctrl+Z)">↶</button>
+  <button id="btnRedo"   class="btn" disabled title="Redo (Ctrl+Y)">↷</button>
+  <span class="sep"></span>
+  <button id="btnSave"   class="btn" title="Save the plan (Ctrl+S) — Ctrl+Shift+S to save as">Save</button>
+  <button id="btnTemplate" class="btn" title="Save this plan into the template library — the Questionnaire will fit it to a new plot later. Build the library from your real bungalow plans.">Save as Template</button>
+  <span id="savedAs" class="sub">not saved</span>
+  <span class="sep"></span>
+  <button id="btnSample" class="btn">Sample</button>
+
+  <span class="spacer"></span>
+
+  <label class="field">Sheet
+    <select id="selSheet">
+      <option>A4</option><option selected>A3</option>
+      <option>A2</option><option>A1</option>
+    </select>
+  </label>
+  <label class="field">Orientation
+    <select id="selOrient">
+      <option value="auto" selected>auto</option>
+      <option value="portrait">portrait</option>
+      <option value="landscape">landscape</option>
+    </select>
+  </label>
+
+  <label class="field" title="Show each wall's number on the drawing while you work. Turned off automatically when exporting."><input type="checkbox" id="chkTags" checked> Wall nos.</label>
+  <button id="btnRender" class="btn" disabled>Re-draw</button>
+  <button id="btnExport" class="btn primary" disabled>Export</button>
+  <button id="btnFolder" class="btn ghost">Output&nbsp;folder</button>
+</header>
+
+<main class="split">
+  <!-- ── input drawing ───────────────────────────────────── -->
+  <section class="pane">
+    <div class="pane-head">
+      <span class="ttl">Drawing</span>
+      <span id="sketchName" class="sub">no file</span>
+      <span class="spacer"></span>
+      <div id="pageTabs" class="pages"></div>
+      <button class="mini" data-zoom="sk" data-d="-1">−</button>
+      <button class="mini" data-zoom="sk" data-d="1">+</button>
+      <button class="mini" data-zoom="sk" data-d="0">fit</button>
+    </div>
+    <div id="skView" class="view">
+      <img id="skImg" alt="" draggable="false">
+      <div id="skEmpty" class="empty">
+        <div class="big">Drop a drawing here</div>
+        <div>PNG · JPG · PDF · DXF — or press <b>Open Drawing</b></div>
+      </div>
+    </div>
+  </section>
+
+  <div id="gutter" class="gutter"></div>
+
+  <!-- ── editable plan ───────────────────────────────────── -->
+  <section class="pane">
+    <div class="floorbar" id="floorBar"></div>
+    <div class="pane-head">
+      <span class="ttl">Plan</span>
+      <span id="planInfo" class="sub"></span>
+      <span class="spacer"></span>
+      <button id="btnBackPlan" class="mini hidden" title="Show the floor plan">Plan</button>
+      <button id="btnShowSection" class="mini hidden" title="Show the section (uses the last heights — press the top Section button to change them)">Section</button>
+      <button id="btnShowBeam" class="mini hidden" title="Show the beam layout">Beam</button>
+      <button id="btnShowStruct" class="mini hidden" title="Show ALL structural sheets together — beam layout, plinth framing, roof framing and the typical section">All structural</button>
+      <button class="mini" data-zoom="pl" data-d="-1">−</button>
+      <button class="mini" data-zoom="pl" data-d="1">+</button>
+      <button class="mini" data-zoom="pl" data-d="0">fit</button>
+    </div>
+    <div id="plView" class="view light">
+      <div id="plHolder"></div>
+      <div id="plEmpty" class="empty">
+        <div class="big">No drawing yet</div>
+        <div>Read a drawing, or load a plan</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ── dock ───────────────────────────────────────────────── -->
+<section class="dock">
+  <nav class="tabs">
+    <button class="tab on" data-tab="issues">Checks <b id="badge" class="badge"></b></button>
+    <button class="tab" data-tab="rooms">Rooms</button>
+    <button class="tab" data-tab="walls">Walls</button>
+    <button class="tab" data-tab="openings">Doors / Windows</button>
+    <button class="tab" data-tab="columns">Columns</button>
+    <button class="tab" data-tab="sections">Sections</button>
+    <button class="tab" data-tab="beams">Beams</button>
+    <button class="tab" data-tab="stairs">Stairs</button>
+    <button class="tab" data-tab="steps">Steps</button>
+    <button class="tab" data-tab="furniture">Furniture</button>
+    <button class="tab" data-tab="vaastu">Vaastu</button>
+    <button class="tab" data-tab="elec">Electrical</button>
+    <button class="tab" data-tab="flooring">Flooring</button>
+    <button class="tab" data-tab="layerspanel">Layers</button>
+    <button class="tab" data-tab="title">Title block</button>
+    <button class="tab" data-tab="log">Log</button>
+    <span class="spacer"></span>
+    <label id="editFloorWrap" class="editfloor hidden">Editing:
+      <select id="editFloor" title="Which floor these tables edit — the canvas keeps showing every floor"></select>
+    </label>
+    <span id="status" class="status"></span>
+  </nav>
+
+  <div class="panels">
+    <div class="panel on" id="p-issues"></div>
+    <div class="panel" id="p-rooms"></div>
+    <div class="panel" id="p-walls"></div>
+    <div class="panel" id="p-openings"></div>
+    <div class="panel" id="p-columns"></div>
+    <div class="panel" id="p-sections"></div>
+    <div class="panel" id="p-beams"></div>
+    <div class="panel" id="p-stairs"></div>
+    <div class="panel" id="p-steps"></div>
+    <div class="panel" id="p-furniture"></div>
+    <div class="panel" id="p-vaastu"></div>
+    <div class="panel" id="p-elec"></div>
+    <div class="panel" id="p-flooring"></div>
+    <div class="panel" id="p-layerspanel"></div>
+    <div class="panel" id="p-title"></div>
+    <div class="panel" id="p-log"><pre id="logBox"></pre></div>
+  </div>
+</section>
+
+<div id="busy" class="busy hidden">
+  <div class="spin"></div>
+  <div id="busyMsg">Working…</div>
+  <button id="btnCancel" class="btn ghost hidden">Cancel</button>
+</div>
+
+<!-- notes dialog for the AI read -->
+<div id="notesWrap" class="modal hidden">
+  <div class="modal-box">
+    <h3>Read the sketch</h3>
+    <p class="sub">Anything the sketch does not say clearly — write it here and it
+       overrides the reading. Leave blank to let it read everything itself.</p>
+    <textarea id="notesBox" placeholder="e.g. external walls are 9&quot;, partitions 4&quot;; the plot is 25' x 45'; north is to the top"></textarea>
+    <div class="row">
+      <label class="field" title="A sketch that has been read before is reused instantly. Tick this to read it again from scratch."><input type="checkbox" id="chkFresh"> Read again from scratch</label>
+      <span class="spacer"></span>
+      <button id="notesCancel" class="btn ghost">Cancel</button>
+      <button id="notesGo" class="btn accent">Start reading</button>
+    </div>
+  </div>
+</div>
+
+<!-- section questionnaire: the vertical data a 2D plan does not carry -->
+<div id="secWrap" class="modal hidden">
+  <div class="modal-box">
+    <h3>Section — height details</h3>
+    <p class="sub">A 2D plan has no heights. Fill what applies (leave 0 / skip
+       for anything not wanted). Door &amp; window sill / lintel are taken from
+       the plan automatically.</p>
+    <label class="field"><input type="checkbox" id="secGF" checked> This is the
+       <b>ground floor</b> (adds the plinth below FFL)</label>
+    <div class="row" style="flex-wrap:wrap; gap:10px; margin-top:8px">
+      <label class="field">Plinth (GL→FFL) mm
+        <input type="number" id="secPlinth" value="450" step="25"></label>
+      <label class="field">Floor-to-floor height mm
+        <input type="number" id="secFloor" value="3000" step="50"></label>
+      <label class="field">Slab thickness mm
+        <input type="number" id="secSlab" value="125" step="5"></label>
+      <label class="field">Beam depth mm (0 = none)
+        <input type="number" id="secBeam" value="0" step="25"></label>
+      <label class="field">Number of floors
+        <input type="number" id="secFloors" value="1" min="1" step="1"></label>
+      <label class="field">Parapet mm (0 = none)
+        <input type="number" id="secPara" value="900" step="25"></label>
+      <label class="field" id="secPBTwrap">Plinth beam thickness mm
+        <input type="number" id="secPBT" value="230" step="25"></label>
+      <label class="field" id="secPBHwrap">Plinth beam height mm (0 = none)
+        <input type="number" id="secPBH" value="300" step="25"></label>
+    </div>
+    <label class="field" style="margin-top:8px"><input type="checkbox"
+       id="secFoundSkip" checked> Skip foundation (stop at ground level)</label>
+    <label class="field">Foundation depth mm (only if not skipped)
+      <input type="number" id="secFound" value="1200" step="50" disabled></label>
+    <div class="row" style="margin-top:10px">
+      <span class="sub" id="secInfo"></span>
+      <span class="spacer"></span>
+      <button id="secCancel" class="btn ghost">Cancel</button>
+      <button id="secGo" class="btn accent">Cut section</button>
+    </div>
+  </div>
+</div>
+
+<!-- structural reinforcement / grades used on the framing sheets -->
+<div id="structWrap" class="modal hidden">
+  <div class="modal-box">
+    <h3>Structural — reinforcement & grades (for the framing sheets)</h3>
+    <p class="sub">Standard defaults are filled in. Change any value; it is used
+       on the plinth / roof framing plans and the beam rebar section.</p>
+    <div class="row" style="flex-wrap:wrap; gap:10px; margin-top:8px">
+      <label class="field">Beam top bars<input id="stBeamTop" value="2#10"></label>
+      <label class="field">Beam bottom bars<input id="stBeamBot" value="2#10"></label>
+      <label class="field">Beam stirrup<input id="stStirrup" value='#8@8"C/C'></label>
+      <label class="field">Slab depth<input id="stSlabD" value='5"'></label>
+      <label class="field">Slab main bars<input id="stSlabMain" value='8MM@5"C/C'></label>
+      <label class="field">Slab dist bars<input id="stSlabDist" value='8MM@8"C/C'></label>
+      <label class="field">Concrete grade<input id="stConc" value="M-25"></label>
+      <label class="field">Steel grade<input id="stSteel" value="FE-550"></label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <span class="spacer"></span>
+      <button id="structCancel" class="btn ghost">Cancel</button>
+      <button id="structGo" class="btn accent">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- design a plan from a questionnaire (offline) -->
+<div id="quizWrap" class="modal hidden">
+  <div class="modal-box" style="max-width:640px">
+    <h3>Design a plan from a questionnaire</h3>
+    <p class="sub">No sketch needed — Claude (the same engine as “Read Drawing”)
+       DESIGNS the plan from your brief to NBC standards. Needs the Claude CLI
+       set up. Fill the essentials; edit anything afterwards.</p>
+
+    <div class="row" style="gap:10px; margin-top:8px; align-items:center">
+      <label class="field" style="min-width:260px">Design for floor
+        <select id="qFloor"></select></label>
+      <span class="sub">each floor is designed separately — pick rooms below and
+        Design; add more floors and repeat</span>
+    </div>
+
+    <div class="row" style="flex-wrap:wrap; gap:10px; margin-top:8px">
+      <label class="field">Project<input id="qProject" value="RESIDENCE"></label>
+      <label class="field">Plot width (ft)<input id="qPlotW" type="number" step="any" value="25"></label>
+      <label class="field">Plot depth (ft)<input id="qPlotD" type="number" step="any" value="50"></label>
+      <label class="field">Entry / road side
+        <select id="qEntry"><option value="south">South (front)</option>
+          <option value="north">North</option><option value="east">East</option>
+          <option value="west">West</option></select></label>
+    </div>
+    <div class="row" style="flex-wrap:wrap; gap:10px; margin-top:6px">
+      <label class="field">Set-back front<input id="qSbF" type="number" step="any" value="0"></label>
+      <label class="field">Set-back rear<input id="qSbR" type="number" step="any" value="0"></label>
+      <label class="field">Set-back left<input id="qSbL" type="number" step="any" value="0"></label>
+      <label class="field">Set-back right<input id="qSbRt" type="number" step="any" value="0"></label>
+      <label class="field">Floors (G+…)<input id="qFloors" type="number" min="1" step="1" value="2"></label>
+    </div>
+
+    <h4 style="margin:12px 0 4px">Ground-floor rooms</h4>
+    <div class="row" style="flex-wrap:wrap; gap:10px 16px; align-items:center">
+      <label class="field" style="min-width:150px">Bedrooms<input id="qBeds" type="number" min="0" step="1" value="2"></label>
+      <label class="field" style="min-width:170px">Attached toilets
+        <select id="qAttach"><option value="all">All bedrooms</option>
+          <option value="master">Master only</option>
+          <option value="none">None</option></select></label>
+      <label class="ck"><input type="checkbox" id="qMaster" checked> Master bedroom</label>
+      <label class="ck"><input type="checkbox" id="qLDcombine"> Living + Dining combined</label>
+      <label class="ck"><input type="checkbox" id="qDining" checked> Dining</label>
+      <label class="ck"><input type="checkbox" id="qPowder" checked> Powder toilet</label>
+      <label class="ck"><input type="checkbox" id="qCommonBath"> Common bath</label>
+      <label class="ck"><input type="checkbox" id="qPooja"> Pooja</label>
+      <label class="ck"><input type="checkbox" id="qStore"> Store</label>
+      <label class="ck"><input type="checkbox" id="qUtility"> Utility</label>
+      <label class="ck"><input type="checkbox" id="qStair" checked> Staircase</label>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <span class="spacer"></span>
+      <button id="quizCancel" class="btn ghost">Cancel</button>
+      <button id="quizGo" class="btn accent">Design plan</button>
+    </div>
+  </div>
+</div>
+
+<!-- add a wall, placed properly rather than dropped at the origin -->
+<div id="wallWrap" class="modal hidden">
+  <div class="modal-box">
+    <h3>Add a wall</h3>
+
+    <div class="seg" id="wallMode">
+      <button class="on" data-mode="dir">Direction &amp; length</button>
+      <button data-mode="rooms">Between two rooms</button>
+      <button data-mode="cont">From a wall end</button>
+    </div>
+
+    <div class="wform" id="wf-dir">
+      <label>Runs
+        <select id="wDir"><option value="h">Horizontal (east–west)</option>
+                          <option value="v">Vertical (north–south)</option></select>
+      </label>
+      <label id="wLineLbl">On line Y <input id="wLine" type="number" step="any" value="0"></label>
+      <label id="wStartLbl">Starting at X <input id="wStart" type="number" step="any" value="0"></label>
+      <label>Length (ft) <input id="wLen" type="number" step="any" value="10"></label>
+    </div>
+
+    <div class="wform hidden" id="wf-rooms">
+      <label>Room <select id="wRoomA"></select></label>
+      <label>and room <select id="wRoomB"></select></label>
+      <p class="sub">The wall is placed on the line they share, for the full
+         length they share it.</p>
+    </div>
+
+    <div class="wform hidden" id="wf-cont">
+      <label>From wall <select id="wFromWall"></select></label>
+      <label>at its <select id="wFromEnd">
+          <option value="start">start end</option>
+          <option value="end">end end</option></select></label>
+      <label>Going <select id="wGo">
+          <option value="e">east →</option><option value="w">west ←</option>
+          <option value="n">north ↑</option><option value="s">south ↓</option></select></label>
+      <label>Length (ft) <input id="wLen2" type="number" step="any" value="10"></label>
+    </div>
+
+    <div class="seg thin" id="wThk">
+      <button class="on" data-thk="9" data-ext="1">9&quot; external</button>
+      <button data-thk="4.5" data-ext="0">4½&quot; partition</button>
+      <button data-thk="" data-ext="0">custom</button>
+      <input id="wThkVal" type="number" step="any" value="9" class="hidden">
+    </div>
+
+    <p id="wPreview" class="sub"></p>
+    <div class="row right">
+      <button id="wallCancel" class="btn ghost">Cancel</button>
+      <button id="wallAdd" class="btn accent">Add wall</button>
+    </div>
+  </div>
+</div>
+
+<!-- add a piece of furniture: category first, then the piece -->
+<div id="furnWrap" class="modal hidden">
+  <div class="modal-box wide">
+    <h3>Add furniture</h3>
+    <p class="sub">Pick the category, then the piece. It comes at its standard
+       size, on the wall Vaastu prefers, clear of every door swing.</p>
+
+    <div class="seg" id="furnCats"></div>
+    <div id="furnItems" class="picks"></div>
+
+    <div class="wform">
+      <label>Put it in <select id="furnRoom"></select></label>
+      <label>On the <select id="furnWall">
+          <option value="">wall Vaastu prefers</option>
+          <option value="N">north wall</option>
+          <option value="S">south wall</option>
+          <option value="E">east wall</option>
+          <option value="W">west wall</option></select></label>
+    </div>
+
+    <p id="furnPick" class="sub"></p>
+    <div class="row right">
+      <button id="furnCancel" class="btn ghost">Cancel</button>
+      <button id="furnAdd" class="btn accent" disabled>Add piece</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

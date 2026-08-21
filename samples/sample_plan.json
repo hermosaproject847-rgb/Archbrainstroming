@@ -1,0 +1,55 @@
+{
+  "north_deg": 90,
+  "plot": { "x": -2.5, "y": -2.5, "w": 30, "h": 45 },
+  "title": {
+    "project": "SAMPLE RESIDENCE",
+    "plan_name": "GROUND FLOOR PLAN",
+    "plot_size": "25'-0\" x 42'-6\"",
+    "wall_note": "WALLS: 9\" EXTERNAL, 4\" PARTITION UNLESS NOTED",
+    "revision": "R0",
+    "date": "2026-07-21"
+  },
+  "walls": [
+    { "id": "EX-S", "x1": 0,  "y1": 12, "x2": 25, "y2": 12, "thickness_in": 9, "exterior": true },
+    { "id": "EX-N", "x1": 0,  "y1": 40, "x2": 25, "y2": 40, "thickness_in": 9, "exterior": true },
+    { "id": "EX-W", "x1": 0,  "y1": 12, "x2": 0,  "y2": 40, "thickness_in": 9, "exterior": true },
+    { "id": "EX-E", "x1": 25, "y1": 12, "x2": 25, "y2": 40, "thickness_in": 9, "exterior": true },
+    { "id": "P-1",  "x1": 15, "y1": 12, "x2": 15, "y2": 25, "thickness_in": 4 },
+    { "id": "P-2",  "x1": 15, "y1": 20, "x2": 25, "y2": 20, "thickness_in": 4 },
+    { "id": "P-3",  "x1": 15, "y1": 25, "x2": 15, "y2": 34, "thickness_in": 9 },
+    { "id": "P-4",  "x1": 15, "y1": 34, "x2": 25, "y2": 34, "thickness_in": 4 }
+  ],
+  "rooms": [
+    { "name": "Parking", "x": 0,  "y": 0,  "w": 25, "h": 12, "size_label": "25'-0\" x 12'-0\"", "open_area": true },
+    { "name": "Hall",    "x": 0,  "y": 12, "w": 15, "h": 28, "size_label": "14'-3\" x 27'-3\"" },
+    { "name": "Kitchen", "x": 15, "y": 12, "w": 10, "h": 8,  "size_label": "9'-7\" x 7'-7\"" },
+    { "name": "Toilet",  "x": 15, "y": 20, "w": 10, "h": 5,  "size_label": "9'-7\" x 4'-8\"" },
+    { "name": "Stair",   "x": 15, "y": 25, "w": 10, "h": 9,  "size_label": "9'-3\" x 8'-8\"" },
+    { "name": "Store",   "x": 15, "y": 34, "w": 10, "h": 6,  "size_label": "9'-7\" x 5'-7\"" }
+  ],
+  "openings": [
+    { "type": "door",   "tag": "D1", "wall_id": "EX-S", "pos": 5,   "width": 3.5,
+      "swing": { "room": "Hall", "hinge": "start", "side": "left" } },
+    { "type": "door",   "tag": "D2", "wall_id": "P-1",  "pos": 3,   "width": 3,
+      "swing": { "room": "Kitchen", "hinge": "start", "side": "right" } },
+    { "type": "door",   "tag": "D3", "wall_id": "P-1",  "pos": 9.5, "width": 2.5,
+      "swing": { "room": "Toilet", "hinge": "start", "side": "right" } },
+    { "type": "door",   "tag": "D4", "wall_id": "P-4",  "pos": 6,   "width": 2.5,
+      "swing": { "room": "Store", "hinge": "start", "side": "left" } },
+    { "type": "open",   "tag": "STAIR MOUTH", "wall_id": "P-3", "pos": 1, "width": 7 },
+    { "type": "window", "tag": "W1", "wall_id": "EX-W", "pos": 4,   "width": 5 },
+    { "type": "window", "tag": "W2", "wall_id": "EX-N", "pos": 3,   "width": 5 },
+    { "type": "window", "tag": "W3", "wall_id": "EX-E", "pos": 2,   "width": 4 },
+    { "type": "vent",   "tag": "V1", "wall_id": "EX-E", "pos": 9,   "width": 2 }
+  ],
+  "stairs": [
+    { "x": 15.4, "y": 25.4, "w": 9.2, "h": 8.2, "flights": 2, "treads": 9,
+      "run_axis": "y", "rotation": "ccw", "landing_at": "top", "up_from": "bottom",
+      "well_gap": 0.6, "label": "UP" }
+  ],
+  "dims": [
+    { "axis": "top",  "at": 2.5, "ticks": [0, 15, 25] },
+    { "axis": "left", "at": 2.5, "ticks": [12, 20, 25, 34, 40] }
+  ],
+  "notes": ["Sample plan used to verify the geometry engine."]
+}

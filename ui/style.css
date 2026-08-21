@@ -1,0 +1,325 @@
+:root{
+  --bg:#12141a; --bg2:#181b23; --bg3:#1f232d; --line:#2b3140;
+  --fg:#e7eaf0; --fg2:#98a1b3; --fg3:#6b7488;
+  --pri:#3f6bff; --acc:#12b981; --warn:#e0a53a; --err:#e5484d;
+  --r:8px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font:13px/1.45 "Segoe UI",system-ui,sans-serif;
+  display:flex; flex-direction:column; overflow:hidden;
+  user-select:none;
+}
+
+/* ── login gate ──────────────────────────────────────────── */
+.login{
+  position:fixed; inset:0; z-index:1000;
+  display:flex; align-items:center; justify-content:center;
+  /* the uploaded skyline art if present, else a deep architectural gradient */
+  background:
+    linear-gradient(180deg, rgba(9,11,16,.62), rgba(9,11,16,.82)),
+    url("login-bg.jpg") center/cover no-repeat,
+    linear-gradient(135deg,#8f9299 0%,#b04a52 55%,#20232b 100%);
+}
+.login.hidden{display:none}
+.login-card{
+  width:340px; padding:34px 30px; border-radius:14px;
+  background:rgba(20,23,31,.82); border:1px solid #3a4050;
+  box-shadow:0 24px 70px rgba(0,0,0,.55); backdrop-filter:blur(6px);
+  text-align:center;
+}
+.login-brand{font-size:22px; font-weight:800; letter-spacing:1px; color:#fff}
+.login-sub{color:var(--fg2); margin:4px 0 22px}
+.login-inp{
+  width:100%; margin:0 0 12px; padding:11px 13px; border-radius:8px;
+  background:var(--bg); color:var(--fg); border:1px solid var(--line);
+  font:inherit;
+}
+.login-inp:focus{outline:none; border-color:var(--pri)}
+.login-btn{width:100%; padding:11px; margin-top:4px; font-weight:600}
+.login-err{color:var(--err); min-height:18px; margin-top:10px; font-size:12px}
+
+/* ── top bar ─────────────────────────────────────────────── */
+.bar{
+  display:flex; align-items:center; gap:5px; padding:6px 10px;
+  background:var(--bg2); border-bottom:1px solid var(--line); flex:0 0 auto;
+  flex-wrap:wrap; row-gap:5px;
+}
+.brand{font-weight:700; letter-spacing:.2px; margin-right:5px; white-space:nowrap; font-size:13px}
+.spacer{flex:1}
+.sep{width:1px;height:18px;background:var(--line)}
+
+.btn{
+  background:var(--bg3); color:var(--fg); border:1px solid var(--line);
+  padding:3px 8px; border-radius:var(--r); cursor:pointer; font:inherit;
+  font-size:11px; white-space:nowrap; transition:.14s;
+}
+.btn:hover:not(:disabled){background:#2a3040; border-color:#3a4258}
+.btn:disabled{opacity:.38; cursor:default}
+.btn.primary{background:var(--pri); border-color:var(--pri); color:#fff}
+.btn.primary:hover:not(:disabled){filter:brightness(1.12)}
+.btn.accent{background:var(--acc); border-color:var(--acc); color:#04231a; font-weight:600}
+.btn.accent.done{
+  background:transparent; border-color:var(--acc); color:var(--acc);
+  font-weight:500;
+}
+.btn.accent:hover:not(:disabled){filter:brightness(1.1)}
+.btn.ghost{background:transparent}
+.mini.on{background:var(--pri); color:#fff; border-color:var(--pri)}
+
+/* sub-category chips over an edit table — filter what you edit, while the
+   drawing itself keeps showing everything */
+.filters{display:flex; gap:6px; flex-wrap:wrap; margin:0 0 8px}
+.chip{
+  background:transparent; color:var(--fg2); border:1px solid var(--line);
+  padding:4px 11px; border-radius:999px; cursor:pointer; font:inherit;
+  font-size:12px; white-space:nowrap; transition:.14s;
+}
+.chip:hover{background:var(--bg3); color:var(--fg)}
+.chip.on{background:var(--pri); border-color:var(--pri); color:#fff}
+.chip .n{opacity:.65; margin-left:5px; font-size:11px}
+
+.field{display:flex; align-items:center; gap:6px; color:var(--fg2); font-size:12px}
+.ck{display:inline-flex; align-items:center; gap:5px; color:var(--fg2); font-size:12px; white-space:nowrap; cursor:pointer}
+.ck input{margin:0}
+.floorbar{display:flex; align-items:center; gap:4px; padding:4px 8px; border-bottom:1px solid var(--line); flex-wrap:wrap; min-height:0}
+.floorbar:empty{display:none}
+.floorbar .ftab{padding:3px 10px; border:1px solid var(--line); border-radius:6px 6px 0 0; background:var(--panel2,#1a1d24); color:var(--fg2); font-size:12px; cursor:pointer; white-space:nowrap}
+.floorbar .ftab.on{background:var(--accent,#2f6fed); color:#fff; border-color:var(--accent,#2f6fed)}
+.floorbar .ftab .x{margin-left:6px; opacity:.6}
+.floorbar .ftab .x:hover{opacity:1; color:var(--err,#e5484d)}
+.floorbar .fadd{padding:3px 9px; border:1px dashed var(--line); border-radius:6px; background:transparent; color:var(--fg2); font-size:12px; cursor:pointer}
+select{
+  background:var(--bg3); color:var(--fg); border:1px solid var(--line);
+  border-radius:6px; padding:5px 7px; font:inherit;
+}
+
+/* ── split panes ─────────────────────────────────────────── */
+.split{display:flex; flex:1; min-height:0}
+.pane{display:flex; flex-direction:column; min-width:220px; flex:1; min-height:0}
+.gutter{width:5px; background:var(--line); cursor:col-resize; flex:0 0 auto}
+.gutter:hover{background:var(--pri)}
+
+.pane-head{
+  display:flex; align-items:center; gap:8px; padding:6px 10px;
+  background:var(--bg2); border-bottom:1px solid var(--line); flex:0 0 auto;
+}
+.ttl{font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.7px}
+.sub{color:var(--fg3); font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.mini{
+  background:var(--bg3); color:var(--fg2); border:1px solid var(--line);
+  width:26px; height:23px; border-radius:5px; cursor:pointer; font:inherit; padding:0;
+}
+.mini:hover{color:var(--fg); background:#2a3040}
+.mini[data-d="0"]{width:34px}
+.pages{display:flex; gap:4px}
+.pages button{
+  background:var(--bg3); border:1px solid var(--line); color:var(--fg2);
+  border-radius:5px; padding:2px 8px; cursor:pointer; font:inherit; font-size:11px;
+}
+.pages button.on{background:var(--pri); color:#fff; border-color:var(--pri)}
+
+.view{
+  flex:1; position:relative; overflow:hidden; background:#0d0f14;
+  display:flex; align-items:center; justify-content:center; cursor:grab;
+}
+.view.light{background:#5a6070}
+.view.grabbing{cursor:grabbing}
+/* overlay: the sketch sits under the drawing, both on the same transform */
+#ovWrap{
+  position:absolute; left:0; top:0; transform-origin:0 0;
+  will-change:transform; pointer-events:none; display:none;
+}
+#ovWrap.on{display:block}
+#ovWrap img{display:block; width:100%; height:100%}
+#plHolder.blend svg{opacity:.85; mix-blend-mode:multiply}
+.ov{gap:5px}
+.ov input{margin:0}
+input[type=range]{width:96px; accent-color:var(--pri)}
+input[type=range]:disabled{opacity:.35}
+.ovbar{
+  display:flex; align-items:center; gap:5px; padding:5px 10px;
+  background:var(--bg2); border-top:1px solid var(--line); flex:0 0 auto;
+  font-size:11.5px; color:var(--fg2);
+}
+.ovbar .mini{width:auto; padding:0 8px}
+
+.view img,.view #plHolder{
+  transform-origin:0 0; position:absolute; left:0; top:0;
+  will-change:transform; pointer-events:none;
+}
+#plHolder svg{display:block; box-shadow:0 6px 30px rgba(0,0,0,.5)}
+.empty{
+  position:absolute; text-align:center; color:var(--fg3); pointer-events:none;
+}
+.empty .big{font-size:16px; color:var(--fg2); margin-bottom:5px}
+.view.light .empty{color:#cfd4de}
+.view.light .empty .big{color:#fff}
+.hidden{display:none !important}
+
+/* ── dock ────────────────────────────────────────────────── */
+.dock{
+  flex:0 0 236px; display:flex; flex-direction:column;
+  border-top:1px solid var(--line); background:var(--bg2); min-height:0;
+}
+.tabs{display:flex; align-items:center; gap:1px; padding:0 8px;
+  border-bottom:1px solid var(--line); flex-wrap:wrap}
+.tab{
+  background:none; border:none; border-bottom:2px solid transparent;
+  color:var(--fg3); padding:6px 9px; cursor:pointer; font:inherit;
+  font-size:11.5px;
+}
+.tab:hover{color:var(--fg2)}
+.tab.on{color:var(--fg); border-bottom-color:var(--pri)}
+.badge{
+  display:none; background:var(--err); color:#fff; border-radius:9px;
+  padding:0 6px; font-size:10.5px; margin-left:4px;
+}
+.badge.show{display:inline-block}
+.badge.ok{background:var(--acc); color:#04231a}
+.status{color:var(--fg3); font-size:11.5px; padding-right:6px}
+.editfloor{display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--fg2); padding:0 8px; white-space:nowrap}
+.editfloor.hidden{display:none}
+.editfloor select{background:var(--accent,#2f6fed); color:#fff; border:1px solid var(--accent,#2f6fed); border-radius:5px; font-size:11.5px; padding:2px 6px; cursor:pointer}
+
+.panels{flex:1; position:relative; min-height:0}
+.panel{display:none; position:absolute; inset:0; overflow:auto; padding:10px 12px}
+.panel.on{display:block}
+
+table{border-collapse:collapse; width:100%; font-size:12px}
+th{
+  text-align:left; color:var(--fg3); font-weight:600; font-size:11px;
+  text-transform:uppercase; letter-spacing:.5px; padding:5px 6px;
+  border-bottom:1px solid var(--line); position:sticky; top:-10px; background:var(--bg2);
+}
+td{padding:2px 4px; border-bottom:1px solid #232836}
+tr:hover td{background:#1c2029}
+td input,td select{
+  width:100%; background:transparent; border:1px solid transparent; color:var(--fg);
+  border-radius:4px; padding:4px 5px; font:inherit; user-select:text;
+}
+td input:hover,td select:hover{border-color:var(--line)}
+td input:focus,td select:focus{border-color:var(--pri); background:var(--bg); outline:none}
+td select{background:var(--bg3)}
+td.num input{text-align:right}
+.del{background:none;border:none;color:var(--fg3);cursor:pointer;font-size:15px;padding:0 4px}
+.del:hover{color:var(--err)}
+td .del + .del{margin-left:1px}
+#btnUndo,#btnRedo{padding:6px 11px;font-size:15px;line-height:1}
+.row{display:flex; gap:8px; margin-top:9px; align-items:center}
+.row.right{justify-content:flex-end}
+
+.issue{
+  display:flex; gap:9px; padding:7px 9px; border-radius:6px;
+  background:var(--bg3); margin-bottom:5px; align-items:flex-start;
+}
+.issue .dot{width:8px;height:8px;border-radius:50%;margin-top:5px;flex:0 0 auto}
+.issue.error .dot{background:var(--err)}
+.issue.warn  .dot{background:var(--warn)}
+.issue code{color:var(--fg3); font-size:11px}
+.good{color:var(--acc); padding:8px 2px}
+
+.ref{
+  background:var(--bg3); border-left:3px solid var(--pri); border-radius:6px;
+  padding:9px 11px; margin-bottom:8px;
+}
+.ref b{color:var(--fg)}
+.ref > div{margin-top:5px; color:var(--fg2); font-size:12px; line-height:1.55;
+  user-select:text}
+.issue .rule{color:var(--fg3); font-size:11px}
+td.bad{color:var(--warn); font-weight:600}
+#savedAs{max-width:190px}
+#savedAs.dirty{color:var(--warn)}
+
+/* layer visibility */
+.lay{display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:4px}
+.layrow{
+  display:flex; align-items:center; gap:8px; background:var(--bg3);
+  border:1px solid var(--line); border-radius:6px; padding:7px 10px;
+  cursor:pointer; font-size:12.5px;
+}
+.layrow:hover{border-color:#3a4258}
+.layrow input{margin:0; accent-color:var(--pri)}
+.layrow .sub{margin-left:auto; font-size:10.5px; opacity:.65}
+
+textarea{
+  width:100%; height:calc(100% - 46px); min-height:120px; resize:none;
+  background:var(--bg); color:var(--fg); border:1px solid var(--line);
+  border-radius:var(--r); padding:9px; font:12px/1.5 Consolas,monospace;
+  user-select:text;
+}
+pre{margin:0; white-space:pre-wrap; font:11.5px/1.5 Consolas,monospace; color:var(--fg2); user-select:text}
+
+/* ── overlays ────────────────────────────────────────────── */
+.busy{
+  position:fixed; inset:0; background:rgba(10,12,17,.72); z-index:50;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+}
+.spin{
+  width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--pri);
+  border-radius:50%; animation:sp .8s linear infinite;
+}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+.banner{
+  position:fixed; left:50%; top:56px; transform:translateX(-50%); z-index:55;
+  max-width:min(720px,92vw); background:#2a1f22; border:1px solid var(--err);
+  border-left:4px solid var(--err); border-radius:10px; padding:14px 16px;
+  box-shadow:0 12px 40px rgba(0,0,0,.55);
+}
+.banner pre{color:var(--fg); font:12.5px/1.6 "Segoe UI",system-ui,sans-serif; margin:0 0 10px}
+.banner button{float:right}
+
+.modal{position:fixed; inset:0; background:rgba(10,12,17,.72); z-index:60;
+  display:flex; align-items:center; justify-content:center}
+.modal-box{
+  background:var(--bg2); border:1px solid var(--line); border-radius:12px;
+  padding:20px; width:min(540px,92vw);
+}
+.modal-box h3{margin:0 0 6px}
+.modal-box p{margin:0 0 12px}
+.modal-box textarea{height:110px}
+
+/* add-wall dialog */
+.seg{display:flex; gap:4px; margin-bottom:12px; flex-wrap:wrap}
+.seg button{
+  flex:1; min-width:110px; background:var(--bg3); color:var(--fg2);
+  border:1px solid var(--line); border-radius:7px; padding:7px 9px;
+  cursor:pointer; font:inherit; font-size:12px;
+}
+.seg button:hover{color:var(--fg)}
+.seg button.on{background:var(--pri); border-color:var(--pri); color:#fff}
+.seg.thin button{padding:5px 8px}
+.seg.thin input{
+  width:82px; background:var(--bg); color:var(--fg); border:1px solid var(--line);
+  border-radius:6px; padding:5px 7px; font:inherit;
+}
+.wform{display:flex; flex-direction:column; gap:9px; margin-bottom:12px}
+.wform label{display:flex; align-items:center; gap:9px; font-size:12.5px; color:var(--fg2)}
+.wform label input,.wform label select{
+  margin-left:auto; width:200px; background:var(--bg); color:var(--fg);
+  border:1px solid var(--line); border-radius:6px; padding:6px 8px; font:inherit;
+}
+.wform label select{background:var(--bg3)}
+.wform p{margin:0}
+#wPreview{margin:0 0 12px; min-height:34px}
+#wPreview.bad{color:var(--err)}
+
+/* add-furniture dialog */
+.modal-box.wide{width:min(660px,94vw)}
+.picks{
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(148px,1fr));
+  gap:6px; margin-bottom:14px; max-height:210px; overflow:auto; padding:2px;
+}
+.pick{
+  background:var(--bg3); border:1px solid var(--line); border-radius:7px;
+  padding:8px 10px; cursor:pointer; text-align:left; font:inherit;
+  color:var(--fg2); transition:.12s;
+}
+.pick:hover{color:var(--fg); border-color:#3a4258}
+.pick.on{background:var(--pri); border-color:var(--pri); color:#fff}
+.pick b{display:block; font-size:12px; margin-bottom:2px}
+.pick span{font-size:11px; opacity:.8}
+#furnPick{margin:0 0 12px; min-height:30px}

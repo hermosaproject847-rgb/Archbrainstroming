@@ -1,0 +1,15 @@
+# Render.com blueprint — deploy SketchToPlan as a web service.
+# New + → "Blueprint" → connect this repo, or create a Web Service manually with
+# the same Build / Start commands below.
+services:
+  - type: web
+    name: sketchtoplan
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python webserver.py
+    envVars:
+      - key: MPLBACKEND
+        value: Agg
+      - key: PYTHONUNBUFFERED
+        value: "1"

@@ -1,0 +1,17 @@
+# runtime + build artifacts — do NOT push these to the cloud repo
+__pycache__/
+*.pyc
+out/
+work/
+*.exe
+*.dwg
+_pack/
+python/
+pyembed/
+scratchpad/
+# NBC reference books (~291 MB) — not needed at runtime; standards are baked
+# into core/standards.py. The search index (work/library.jsonl) is also ignored.
+NBC/
+# stray large/reference files in the repo root
+laibrary2007 Version.dwg
+ARCH-BRAIN-STORMING-Setup.exe
