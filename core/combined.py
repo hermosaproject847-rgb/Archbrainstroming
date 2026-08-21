@@ -587,10 +587,14 @@ def export_project_folder(floors: list, outroot: str, name: str,
 
 def export_folder(plan_dict: dict, outroot: str, name: str,
                   sheet_size: str = "A3", orientation: str = "auto",
-                  dpi: int = 220) -> dict:
+                  dpi: int = 220, light: bool = False) -> dict:
     """One job → ONE combined drawing: EVERY sheet (architecture + full
     structural set) in a single file. No individual per-sheet files are written
-    any more — the `<name>_COMBINED.*` IS the whole deliverable."""
+    any more — the `<name>_COMBINED.*` IS the whole deliverable.
+
+    light=True (used by the web build) skips the PNG (a slow matplotlib raster
+    that nobody downloads) and the SVG file, keeping only the DXF + PDF — that
+    is the bulk of the export time, so the web export feels far snappier."""
     from . import pipeline, validate
 
     folder = os.path.join(outroot, name)
@@ -604,13 +608,15 @@ def export_folder(plan_dict: dict, outroot: str, name: str,
     dl, w, h, info = build(plan_dict, sheet_size, orientation)
     shifted = dl.translated(0, -info["y_min"])
     stem = os.path.join(folder, name + "_COMBINED")
-    with open(stem + ".svg", "w", encoding="utf-8") as fh:
-        fh.write(export.to_svg(shifted, w, h))
-    paths["combined_svg"] = stem + ".svg"
-    paths["combined_png"] = export.to_png(shifted, w, h, stem + ".png", dpi)
-    paths["combined_pdf"] = export.to_pdf(shifted, w, h, stem + ".pdf")
+    # DXF first — it is fast (~0.3 s) and is what the CAD user actually wants
     paths["combined_dxf"] = export.to_dxf(shifted, stem + ".dxf",
                                           model_scale=info["k"])
+    paths["combined_pdf"] = export.to_pdf(shifted, w, h, stem + ".pdf")
+    if not light:
+        with open(stem + ".svg", "w", encoding="utf-8") as fh:
+            fh.write(export.to_svg(shifted, w, h))
+        paths["combined_svg"] = stem + ".svg"
+        paths["combined_png"] = export.to_png(shifted, w, h, stem + ".png", dpi)
     return {"paths": paths, "info": info, "issues": issues, "fixes": notes,
             "summary": validate.summary(issues), "folder": folder}
 

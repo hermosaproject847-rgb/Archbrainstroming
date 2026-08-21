@@ -792,7 +792,8 @@ class Api:
                 else "floor_plan")
             base = "".join(c for c in base
                            if c.isalnum() or c in " -_").strip() or "plan"
-            res = combined.export_folder(plan, OUT, base, sheet, orientation)
+            res = combined.export_folder(plan, OUT, base, sheet, orientation,
+                                         light=getattr(self, "WEB", False))
             self._log(f"Exported to {res['folder']}")
             for k, v in res["paths"].items():
                 if k.startswith("combined"):

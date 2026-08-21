@@ -2336,9 +2336,17 @@ $("#btnBeam").onclick = async () => {
   S.forceFit = true; S.beamView = true; S.sectionView = false;
   showSvg(r.svg, r.info);
   buildTable("beams"); updateSecToggle();
-  // straight after placing beams, show the WHOLE structural set (beam layout,
-  // plinth framing, roof framing, typical section) as the user expects
-  showStructSheets(true);
+  // On the DESKTOP (in-process, fast) go straight to the WHOLE structural set.
+  // On the WEB, composing all 14 sheets + shipping a ~0.5 MB SVG every time is
+  // the slow part — so show just the beam layout (snappy) and let the user open
+  // the full set on demand with the ‘All structural’ toggle. The EXPORT still
+  // always contains every sheet regardless.
+  if (!isWeb()) {
+    showStructSheets(true);
+  } else {
+    status("beam layout ready — press ‘All structural’ for the full set "
+           + "(Export always includes every sheet)");
+  }
 };
 
 // Elevation — develop the four outer faces professionally
