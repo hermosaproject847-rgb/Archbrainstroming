@@ -35,11 +35,38 @@ Object.defineProperty(S, "plan", {
    (no pywebview) talks to the server over HTTP — every api().method(...args)
    becomes POST /rpc/method with [args], returning the same JSON. */
 function isWeb() { return !(window.pywebview && window.pywebview.api); }
-function _rpc(method, args) {
-  return fetch("/rpc/" + method, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(args || []),
-  }).then(r => r.json()).catch(e => ({ ok: false, error: String(e) }));
+const _sleep = ms => new Promise(r => setTimeout(r, ms));
+// One RPC call. The free host can be waking up or mid-redeploy, when its proxy
+// answers with an HTML 502/503/504 page instead of our JSON — so we retry those
+// a few times, and if a reply still isn't JSON we surface a clear message rather
+// than the cryptic "Unexpected token '<'".
+async function _rpc(method, args, _try) {
+  _try = _try || 0;
+  let r;
+  try {
+    r = await fetch("/rpc/" + method, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args || []),
+    });
+  } catch (e) {
+    if (_try < 4) { await _sleep(1500); return _rpc(method, args, _try + 1); }
+    return { ok: false, error: "Server not reachable: " + e };
+  }
+  // 502/503/504 = proxy up but app waking / restarting / busy → wait & retry
+  if ((r.status === 502 || r.status === 503 || r.status === 504) && _try < 5) {
+    await _sleep(2000);
+    return _rpc(method, args, _try + 1);
+  }
+  const text = await r.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    if (_try < 4) { await _sleep(1500); return _rpc(method, args, _try + 1); }
+    return { ok: false, error:
+      `Server returned ${r.status} (not JSON). The free host may be waking up `
+      + `or busy — wait ~30 s and try again. If it keeps failing on this sheet, `
+      + `the free 512 MB tier may be too small for it.` };
+  }
 }
 const _webApi = new Proxy({}, { get: (_t, m) => (...a) => _rpc(m, a) });
 const api = () => (window.pywebview && window.pywebview.api)
