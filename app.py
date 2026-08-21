@@ -813,6 +813,25 @@ class Api:
         except Exception as e:
             return self._fail(e)
 
+    def render_fast(self, plan: dict, sheet: str = "A3",
+                    orientation: str = "auto", wall_tags: bool = True,
+                    layer_state: dict | None = None) -> dict:
+        """Draw only, no validation — for smooth live edits (~2 ms)."""
+        try:
+            res = pipeline.render_fast(plan, sheet, orientation,
+                                       wall_tags=bool(wall_tags),
+                                       layer_state=layer_state)
+            return {"ok": True, **res}
+        except Exception as e:
+            return self._fail(e)
+
+    def check_plan(self, plan: dict) -> dict:
+        """Validation only (issues / fixes / summary), no drawing."""
+        try:
+            return {"ok": True, **pipeline.check(plan)}
+        except Exception as e:
+            return self._fail(e)
+
     def export(self, plan: dict, sheet: str = "A3",
                orientation: str = "auto", basename: str = "",
                wall_tags: bool = False) -> dict:

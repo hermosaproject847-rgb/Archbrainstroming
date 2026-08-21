@@ -1926,9 +1926,48 @@ function redraw() {
     // layout (not the plan) and keeps the current zoom / pan
     if (S.beamView) regenBeam();
     else if (S.sectionView) regenSection();
-    else doRender();
+    else doRenderFast();               // live edits: draw-only (~2 ms), no checks
   }, 0);   // ~immediate — the render-coalescing guard prevents any flooding
 }
+
+// LIVE draw for interactive edits — uses render_fast (no validation, ~2 ms) so
+// dragging a door / nudging furniture is smooth; the checks panel is refreshed a
+// beat after the user stops (scheduleCheck). The FULL doRender (with validation)
+// is kept for the initial load and the Re-draw button.
+let _fastBusy = false, _fastPending = false, _checkTimer = null;
+async function doRenderFast() {
+  if (!S.plan) return;
+  if (floorsWithPlans() >= 2) return doRender();   // multi-floor uses the full path
+  if (_fastBusy) { _fastPending = true; return; }
+  _fastBusy = true;
+  try {
+    do {
+      _fastPending = false;
+      const r = await api().render_fast(S.plan, $("#selSheet").value,
+        $("#selOrient").value, $("#chkTags").checked, S.layerState || null);
+      if (!r.ok) { fail(r); break; }
+      S.sectionView = false; S.beamView = false;
+      updateSecToggle();
+      showSvg(r.svg, r.info);
+    } while (_fastPending);
+  } finally { _fastBusy = false; }
+  scheduleCheck();
+}
+
+function scheduleCheck() {
+  clearTimeout(_checkTimer);
+  _checkTimer = setTimeout(async () => {
+    if (!S.plan || S.beamView || S.sectionView || floorsWithPlans() >= 2) return;
+    const c = await api().check_plan(S.plan);
+    if (c && c.ok) {
+      showIssues(c.issues, c.summary);
+      showFixes(c.fixes);
+      status(c.summary.clean ? "drawing is clean"
+        : c.summary.errors + " issue(s) to fix");
+    }
+  }, 450);
+}
+
 let _renderBusy = false, _renderPending = false;
 async function doRender() {
   if (!S.plan) return;

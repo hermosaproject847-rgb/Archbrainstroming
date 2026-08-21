@@ -124,6 +124,30 @@ def render(plan_dict: dict, sheet_size: str = "A3",
             "summary": validate.summary(issues)}
 
 
+def render_fast(plan_dict: dict, sheet_size: str = "A3",
+                orientation: str = "auto", wall_tags: bool = True,
+                furniture: bool = True, layer_state: dict | None = None) -> dict:
+    """DRAW ONLY — no validation / auto-fix (that pass is ~99% of a full render).
+    Used for live interactive edits (dragging a door, nudging furniture) so the
+    picture updates in ~2 ms instead of ~190 ms. The checks panel is refreshed
+    separately by `check()` a moment after the user stops editing."""
+    plan = Plan.from_dict(plan_dict)
+    dl = engine.build(plan, wall_tags, furniture, sections=True)
+    sdl, info = sheet.compose(plan, dl, sheet_size, orientation,
+                              schedule=_sheet_kind(plan, layer_state))
+    sdl = layers.apply(sdl, layer_state)
+    svg = export.to_svg(sdl, info["w_mm"], info["h_mm"])
+    return {"svg": svg, "info": info}
+
+
+def check(plan_dict: dict, fix: bool = True) -> dict:
+    """Validation only (issues / fixes / summary) with no drawing — the debounced
+    companion to render_fast, to keep the checks panel current."""
+    _plan, notes, issues = _prepare(plan_dict, fix)
+    return {"issues": issues, "fixes": notes,
+            "summary": validate.summary(issues)}
+
+
 def export_all(plan_dict: dict, outdir: str, basename: str = "floor_plan",
                sheet_size: str = "A3", orientation: str = "auto",
                dpi: int = 220, fix: bool = True,
