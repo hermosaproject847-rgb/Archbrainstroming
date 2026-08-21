@@ -1927,7 +1927,7 @@ function redraw() {
     if (S.beamView) regenBeam();
     else if (S.sectionView) regenSection();
     else doRender();
-  }, 40);
+  }, 0);   // ~immediate — the render-coalescing guard prevents any flooding
 }
 let _renderBusy = false, _renderPending = false;
 async function doRender() {
