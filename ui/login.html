@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARCH BRAIN STORMING — Sign in</title>
+<style>
+  :root{
+    --card:rgba(20,24,34,.72); --line:rgba(255,255,255,.12);
+    --txt:#eef2f8; --sub:#aab4c6; --accent:#5b8cff; --accent2:#22d3a5;
+    --ok:#22c55e; --bad:#ef4444; --chip:#1b2130;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    font-family:"Segoe UI",system-ui,Arial,sans-serif;color:var(--txt);
+    background:#0a0e17;overflow-x:hidden;
+  }
+  /* animated gradient + blueprint motif */
+  .bg{position:fixed;inset:0;z-index:-2;
+    background:linear-gradient(120deg,#0b1022,#0e1730,#0a1a24,#10122a);
+    background-size:400% 400%;animation:flow 18s ease infinite;}
+  @keyframes flow{0%{background-position:0 50%}50%{background-position:100% 50%}100%{background-position:0 50%}}
+  .blob{position:fixed;border-radius:50%;filter:blur(60px);opacity:.5;z-index:-1;animation:float 14s ease-in-out infinite}
+  .b1{width:420px;height:420px;background:#2952ff;left:-120px;top:-100px}
+  .b2{width:380px;height:380px;background:#0e9e83;right:-120px;bottom:-120px;animation-delay:-6s}
+  .b3{width:300px;height:300px;background:#7c3aed;right:20%;top:-140px;animation-delay:-3s}
+  @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(30px)}}
+  .grid{position:fixed;inset:0;z-index:-1;opacity:.06;
+    background-image:linear-gradient(#fff 1px,transparent 1px),linear-gradient(90deg,#fff 1px,transparent 1px);
+    background-size:38px 38px}
+
+  .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:28px 16px}
+  .card{width:100%;max-width:440px;background:var(--card);backdrop-filter:blur(16px);
+    border:1px solid var(--line);border-radius:20px;padding:30px 28px;
+    box-shadow:0 30px 80px rgba(0,0,0,.55)}
+  .brand{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+  .logo{width:44px;height:44px;border-radius:12px;flex:0 0 auto;
+    background:conic-gradient(from 200deg,#5b8cff,#22d3a5,#7c3aed,#5b8cff);
+    display:grid;place-items:center;font-weight:800;color:#0a0e17}
+  h1{font-size:20px;margin:0;letter-spacing:.3px}
+  .tag{color:var(--sub);font-size:12.5px;margin:2px 0 0}
+  .lead{color:var(--sub);font-size:13.5px;line-height:1.5;margin:16px 0 18px}
+  label{display:block;font-size:12px;color:var(--sub);margin:12px 0 6px}
+  input{width:100%;padding:12px 14px;border-radius:11px;border:1px solid var(--line);
+    background:#0d1220;color:var(--txt);font-size:15px;outline:none}
+  input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(91,140,255,.18)}
+  .btn{width:100%;margin-top:16px;padding:12px 14px;border:0;border-radius:11px;cursor:pointer;
+    font-size:15px;font-weight:700;color:#0a0e17;
+    background:linear-gradient(90deg,var(--accent),var(--accent2))}
+  .btn:hover{filter:brightness(1.06)}
+  .btn.sec{background:#212838;color:var(--txt);border:1px solid var(--line)}
+  .btn.sm{width:auto;margin:0;padding:7px 12px;font-size:13px;border-radius:9px}
+  .msg{min-height:18px;font-size:13px;margin-top:10px}
+  .msg.err{color:#ff8a8a}.msg.ok{color:#7ee7a8}
+
+  .feat{margin-top:20px;border-top:1px solid var(--line);padding-top:16px}
+  .feat h3{font-size:13px;margin:0 0 8px;color:var(--txt)}
+  .feat ul{margin:0;padding-left:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:6px 14px}
+  .feat li{font-size:12px;color:var(--sub);position:relative;padding-left:16px}
+  .feat li:before{content:"▸";position:absolute;left:0;color:var(--accent2)}
+  .contact{margin-top:16px;font-size:12.5px;color:var(--sub);line-height:1.7}
+  .contact a{color:#8fd3ff;text-decoration:none}
+  .wa{color:#25d366}
+  .foot{text-align:center;color:#5f6b80;font-size:11px;margin-top:16px}
+
+  /* admin panel */
+  .hidden{display:none!important}
+  .panel h2{font-size:18px;margin:0 0 2px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:end}
+  .row .col{flex:1;min-width:120px}
+  table{width:100%;border-collapse:collapse;margin-top:6px;font-size:13px}
+  th,td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--line)}
+  th{color:var(--sub);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700}
+  .pill.on{background:rgba(34,197,94,.16);color:#7ee7a8}
+  .pill.off{background:rgba(239,68,68,.16);color:#ff9a9a}
+  .mono{font-family:ui-monospace,Consolas,monospace}
+  .act{display:flex;gap:6px}
+  .lnk{background:none;border:0;color:#8fd3ff;cursor:pointer;font-size:12.5px;padding:2px 4px}
+  .lnk.warn{color:#ffb454}.lnk.bad{color:#ff8a8a}
+  .tablewrap{max-height:300px;overflow:auto;margin-top:4px}
+  .barTop{display:flex;justify-content:space-between;align-items:center;gap:10px}
+</style>
+</head>
+<body>
+<div class="bg"></div><div class="grid"></div>
+<div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+
+<div class="wrap">
+
+  <!-- ============ LOGIN VIEW ============ -->
+  <div class="card" id="loginView">
+    <div class="brand">
+      <div class="logo">AB</div>
+      <div>
+        <h1>ARCH BRAIN STORMING</h1>
+        <p class="tag">by Sara Digital Studios · design automation suite</p>
+      </div>
+    </div>
+
+    <p class="lead">
+      Turn a hand sketch, PDF or photo into a fully editable CAD floor plan —
+      then auto-design furniture, electrical, plumbing, flooring and the complete
+      structural set, and export it all as one drawing. Sign in to continue.
+    </p>
+
+    <label for="u">Username</label>
+    <input id="u" autocomplete="username" placeholder="your username">
+    <label for="p">Password</label>
+    <input id="p" type="password" autocomplete="current-password" placeholder="••••••••">
+    <button class="btn" id="loginBtn">Sign in</button>
+    <div class="msg" id="loginMsg"></div>
+
+    <div class="feat">
+      <h3>What this software does</h3>
+      <ul>
+        <li>Sketch / PDF / photo → editable CAD plan (AI)</li>
+        <li>Furniture layout (Vaastu + standards)</li>
+        <li>Electrical &amp; lighting design</li>
+        <li>Plumbing &amp; drainage design</li>
+        <li>Flooring — tiles, marble, wood, granite</li>
+        <li>Beam layout &amp; full framing</li>
+        <li>Column / footing schedules &amp; details</li>
+        <li>Sections, elevations &amp; BBS</li>
+        <li>Multi-floor section &amp; elevation</li>
+        <li>PDF → DXF converter</li>
+        <li>BOQ (bill of quantities)</li>
+        <li>One combined DXF — every sheet</li>
+      </ul>
+    </div>
+
+    <div class="contact">
+      <b>Want access?</b> Contact us to purchase a login:<br>
+      <span class="wa">WhatsApp:</span>
+      <a href="https://wa.me/919982108294" target="_blank" rel="noopener">+91&nbsp;99821&nbsp;08294</a><br>
+      Email: <a href="mailto:saradigitalstudio03@gmail.com">saradigitalstudio03@gmail.com</a>
+    </div>
+    <div class="foot">© Sara Digital Studios · ARCH BRAIN STORMING</div>
+  </div>
+
+  <!-- ============ ADMIN VIEW ============ -->
+  <div class="card panel hidden" id="adminView" style="max-width:640px">
+    <div class="barTop">
+      <div class="brand" style="margin:0">
+        <div class="logo">AB</div>
+        <div><h2>Admin panel</h2><p class="tag" id="adminWho">signed in</p></div>
+      </div>
+      <button class="btn sec sm" id="logoutBtn">Log out</button>
+    </div>
+
+    <div style="margin-top:18px">
+      <h3 style="margin:0 0 8px;font-size:13px;color:var(--sub)">CREATE A CLIENT LOGIN</h3>
+      <div class="row">
+        <div class="col"><label>Username</label><input id="nu" placeholder="e.g. client01"></div>
+        <div class="col"><label>Password</label><input id="np" placeholder="set a password"></div>
+        <button class="btn sm" id="createBtn" style="margin-bottom:1px">+ Create</button>
+      </div>
+      <div class="msg" id="adminMsg"></div>
+    </div>
+
+    <div style="margin-top:14px">
+      <div class="barTop">
+        <h3 style="margin:0;font-size:13px;color:var(--sub)">ALL LOGINS</h3>
+        <button class="lnk" id="refreshBtn">↻ Refresh</button>
+      </div>
+      <div class="tablewrap">
+        <table id="userTbl">
+          <thead><tr><th>Username</th><th>Password</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="userRows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:14px">
+      <div class="row">
+        <div class="col"><label>Change my admin password</label><input id="ap" type="text" placeholder="new admin password"></div>
+        <button class="btn sec sm" id="passBtn" style="margin-bottom:1px">Update</button>
+      </div>
+    </div>
+
+    <button class="btn" id="continueBtn" style="margin-top:20px">Continue to software →</button>
+  </div>
+
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+async function api(path,body){
+  const r=await fetch(path,{method:body?"POST":"GET",
+    headers:body?{"Content-Type":"application/json"}:{},
+    body:body?JSON.stringify(body):undefined});
+  try{return await r.json();}catch(e){return {ok:false,error:"server "+r.status};}
+}
+function showAdmin(who){
+  $("#loginView").classList.add("hidden");
+  $("#adminView").classList.remove("hidden");
+  $("#adminWho").textContent="signed in as "+who+" (admin)";
+  loadUsers();
+}
+function toSoftware(){ location.href="/app"; }
+
+async function doLogin(){
+  const u=$("#u").value.trim(), p=$("#p").value;
+  const m=$("#loginMsg"); m.className="msg"; m.textContent="Checking…";
+  if(!u||!p){m.className="msg err";m.textContent="Enter username and password.";return;}
+  const r=await api("/login",{username:u,password:p});
+  if(!r.ok){m.className="msg err";m.textContent=r.error||"Invalid login.";return;}
+  if(r.role==="admin"){ showAdmin(r.user); }
+  else { m.className="msg ok"; m.textContent="Welcome! Opening software…"; toSoftware(); }
+}
+$("#loginBtn").onclick=doLogin;
+$("#p").addEventListener("keydown",e=>{if(e.key==="Enter")doLogin();});
+$("#u").addEventListener("keydown",e=>{if(e.key==="Enter")$("#p").focus();});
+
+/* admin */
+async function loadUsers(){
+  const r=await api("/admin/users");
+  if(!r.ok){$("#userRows").innerHTML="";return;}
+  const rows=(r.users||[]).map(u=>{
+    const st=u.active?'<span class="pill on">active</span>':'<span class="pill off">blocked</span>';
+    const isAdmin=u.role==="admin";
+    const acts=isAdmin?'<span style="color:#5f6b80;font-size:12px">—</span>':
+      `<div class="act">
+         <button class="lnk warn" data-tog="${u.username}">${u.active?"Block":"Unblock"}</button>
+         <button class="lnk bad" data-del="${u.username}">Delete</button>
+       </div>`;
+    return `<tr>
+      <td class="mono">${u.username}</td>
+      <td class="mono">${u.password}</td>
+      <td>${u.role}</td><td>${st}</td><td>${acts}</td></tr>`;
+  }).join("");
+  $("#userRows").innerHTML=rows;
+  $("#userRows").querySelectorAll("[data-tog]").forEach(b=>b.onclick=()=>toggle(b.getAttribute("data-tog")));
+  $("#userRows").querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>del(b.getAttribute("data-del")));
+}
+async function createUser(){
+  const u=$("#nu").value.trim(), p=$("#np").value.trim();
+  const m=$("#adminMsg"); m.className="msg";
+  if(!u||!p){m.className="msg err";m.textContent="Username and password required.";return;}
+  const r=await api("/admin/create",{username:u,password:p});
+  if(!r.ok){m.className="msg err";m.textContent=r.error||"Could not create.";return;}
+  m.className="msg ok";m.textContent="Created — "+u+" can now sign in.";
+  $("#nu").value="";$("#np").value="";loadUsers();
+}
+async function toggle(u){ await api("/admin/setactive",{username:u,toggle:true}); loadUsers(); }
+async function del(u){ if(!confirm("Delete login '"+u+"'? They lose access."))return; await api("/admin/delete",{username:u}); loadUsers(); }
+async function changePass(){
+  const p=$("#ap").value.trim(); const m=$("#adminMsg");
+  if(!p){m.className="msg err";m.textContent="Enter a new admin password.";return;}
+  const r=await api("/admin/passwd",{password:p});
+  m.className=r.ok?"msg ok":"msg err";
+  m.textContent=r.ok?"Admin password updated.":(r.error||"Failed.");
+  if(r.ok)$("#ap").value="";
+}
+$("#createBtn").onclick=createUser;
+$("#refreshBtn").onclick=loadUsers;
+$("#passBtn").onclick=changePass;
+$("#continueBtn").onclick=toSoftware;
+$("#logoutBtn").onclick=async()=>{await api("/logout",{});location.reload();};
+
+/* if already signed in, skip straight ahead */
+(async()=>{
+  const me=await api("/me");
+  if(me&&me.ok&&me.user){
+    if(me.role==="admin") showAdmin(me.user);
+    else toSoftware();
+  }
+})();
+</script>
+</body>
+</html>

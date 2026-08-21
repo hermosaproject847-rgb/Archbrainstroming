@@ -59,7 +59,10 @@ async function _rpc(method, args, _try) {
   }
   const text = await r.text();
   try {
-    return JSON.parse(text);
+    const j = JSON.parse(text);
+    // session expired or the admin blocked this login → back to the sign-in page
+    if (j && j.auth === false) { location.href = "/"; return j; }
+    return j;
   } catch (e) {
     if (_try < 4) { await _sleep(1500); return _rpc(method, args, _try + 1); }
     return { ok: false, error:

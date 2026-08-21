@@ -1,9 +1,9 @@
 """SketchToPlan as a WEB app — serves the same HTML/JS UI and exposes the Api
 over HTTP so it runs in any browser (phone included), hosted on a cloud server.
 
-The AI 'Read Drawing' / questionnaire features need the Claude CLI and are NOT
-available here; every OFFLINE feature works fully — load a DXF/JSON plan, edit,
-furniture, the whole structural set, and the single combined-DXF export.
+Access is gated by a simple login: an ADMIN (you) signs in to an admin panel to
+create / block / delete client logins; a client signs straight into the software.
+Users live in users.json next to this file (auto-created with a default admin).
 
 Run locally:   python webserver.py         (then open http://localhost:8080)
 On a host:     the platform sets $PORT; bind 0.0.0.0.
@@ -11,8 +11,11 @@ On a host:     the platform sets $PORT; bind 0.0.0.0.
 
 from __future__ import annotations
 
+import json as _json
 import os
+import secrets as _secrets
 import sys
+import threading as _threading
 import traceback
 
 # the embeddable Python's restricted ._pth does not add the script directory, so
@@ -20,7 +23,8 @@ import traceback
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import bottle
-from bottle import Bottle, request, static_file, HTTPResponse
+from bottle import (Bottle, request, response, redirect, static_file,
+                    HTTPResponse)
 
 import app as APP
 
@@ -44,22 +48,66 @@ _DESKTOP_ONLY = {"pick_sketch", "pick_sketches", "load_plan_json",
                  "save_plan_json", "open_folder", "open_output_folder",
                  "open_login"}
 
+# ---------------------------------------------------------------- auth store
+# NOTE: passwords are stored as typed so the admin can SEE them in the panel
+# (an explicit product requirement for handing logins to paying clients). Keep
+# users.json private; it is git-ignored. Sessions are in-memory tokens.
+USERS_FILE = os.path.join(ROOT, "users.json")
+_users_lock = _threading.Lock()
+SESSIONS: dict = {}                 # token -> {"user":..., "role":...}
 
+
+def _default_users():
+    return {"users": [{"username": "admin", "password": "sara@admin",
+                       "role": "admin", "active": True}]}
+
+
+def load_users():
+    try:
+        with open(USERS_FILE, encoding="utf-8") as fh:
+            data = _json.load(fh)
+        if data.get("users"):
+            return data
+    except Exception:
+        pass
+    data = _default_users()
+    save_users(data)
+    return data
+
+
+def save_users(data):
+    with open(USERS_FILE, "w", encoding="utf-8") as fh:
+        _json.dump(data, fh, indent=2)
+
+
+def _find_user(uname):
+    for u in load_users()["users"]:
+        if u["username"].lower() == (uname or "").strip().lower():
+            return u
+    return None
+
+
+def _current():
+    tok = request.get_cookie("abs_sess")
+    return SESSIONS.get(tok) if tok else None
+
+
+def _is_admin():
+    c = _current()
+    return c if (c and c.get("role") == "admin") else None
+
+
+# ---------------------------------------------------------------- no-cache
 def _no_cache(resp):
-    # the UI files change between sessions; tell the browser to always
-    # revalidate so a stale app.js / index.html is never used after an update.
     resp.set_header("Cache-Control", "no-cache, no-store, must-revalidate")
     resp.set_header("Pragma", "no-cache")
     resp.set_header("Expires", "0")
     return resp
 
 
-@web.get("/")
-def index():
-    # index.html is served dynamically (Cloudflare does NOT cache HTML), so stamp
-    # a version query onto app.js / style.css based on their file mtime. When a
-    # file changes its URL changes, so Cloudflare's edge (which DOES cache .js/.css
-    # for hours) fetches the fresh copy instead of serving a stale one.
+def _serve_app_html():
+    """The software UI (index.html) with a mtime version query on app.js /
+    style.css so Cloudflare's edge never serves a stale build."""
     try:
         with open(os.path.join(UI, "index.html"), encoding="utf-8") as fh:
             html = fh.read()
@@ -70,8 +118,7 @@ def index():
             except Exception:
                 return "1"
 
-        html = html.replace('src="app.js"',
-                            'src="app.js?v=%s"' % _v("app.js"))
+        html = html.replace('src="app.js"', 'src="app.js?v=%s"' % _v("app.js"))
         html = html.replace('href="style.css"',
                             'href="style.css?v=%s"' % _v("style.css"))
         r = HTTPResponse(body=html)
@@ -81,13 +128,146 @@ def index():
         return _no_cache(static_file("index.html", root=UI))
 
 
+# ---------------------------------------------------------------- pages
+@web.get("/")
+def login_page():
+    return _no_cache(static_file("login.html", root=UI))
+
+
+@web.get("/app")
+def app_page():
+    if not _current():
+        return redirect("/")
+    return _serve_app_html()
+
+
 @web.get("/health")
 def health():
     return {"ok": True}
 
 
+# ---------------------------------------------------------------- auth API
+@web.post("/login")
+def do_login():
+    d = request.json or {}
+    u = _find_user(d.get("username"))
+    if not u or u.get("password") != d.get("password"):
+        return {"ok": False, "error": "Wrong username or password."}
+    if not u.get("active", True):
+        return {"ok": False,
+                "error": "This login is blocked — contact admin to renew."}
+    tok = _secrets.token_hex(24)
+    SESSIONS[tok] = {"user": u["username"], "role": u.get("role", "client")}
+    response.set_cookie("abs_sess", tok, path="/", httponly=True,
+                        max_age=86400 * 7)
+    return {"ok": True, "user": u["username"], "role": u.get("role", "client")}
+
+
+@web.post("/logout")
+def do_logout():
+    tok = request.get_cookie("abs_sess")
+    if tok:
+        SESSIONS.pop(tok, None)
+    response.delete_cookie("abs_sess", path="/")
+    return {"ok": True}
+
+
+@web.get("/me")
+def me():
+    c = _current()
+    if not c:
+        return {"ok": True, "user": None}
+    return {"ok": True, "user": c["user"], "role": c["role"]}
+
+
+# ---------------------------------------------------------------- admin API
+@web.get("/admin/users")
+def admin_users():
+    if not _is_admin():
+        return {"ok": False, "error": "admin only"}
+    return {"ok": True, "users": load_users()["users"]}
+
+
+@web.post("/admin/create")
+def admin_create():
+    if not _is_admin():
+        return {"ok": False, "error": "admin only"}
+    d = request.json or {}
+    uname = (d.get("username") or "").strip()
+    pw = (d.get("password") or "").strip()
+    if not uname or not pw:
+        return {"ok": False, "error": "username & password required"}
+    with _users_lock:
+        data = load_users()
+        if any(x["username"].lower() == uname.lower() for x in data["users"]):
+            return {"ok": False, "error": "that username already exists"}
+        data["users"].append({"username": uname, "password": pw,
+                               "role": "client", "active": True})
+        save_users(data)
+    return {"ok": True}
+
+
+@web.post("/admin/setactive")
+def admin_setactive():
+    if not _is_admin():
+        return {"ok": False, "error": "admin only"}
+    d = request.json or {}
+    uname = (d.get("username") or "").lower()
+    with _users_lock:
+        data = load_users()
+        for x in data["users"]:
+            if x["username"].lower() == uname and x.get("role") != "admin":
+                x["active"] = (not x.get("active", True)) if d.get("toggle") \
+                    else bool(d.get("active"))
+        save_users(data)
+    # drop any live session of a just-blocked user so the block is immediate
+    for tok, s in list(SESSIONS.items()):
+        u = _find_user(s["user"])
+        if not u or not u.get("active", True):
+            SESSIONS.pop(tok, None)
+    return {"ok": True}
+
+
+@web.post("/admin/delete")
+def admin_delete():
+    if not _is_admin():
+        return {"ok": False, "error": "admin only"}
+    d = request.json or {}
+    uname = (d.get("username") or "").lower()
+    with _users_lock:
+        data = load_users()
+        data["users"] = [x for x in data["users"]
+                         if not (x["username"].lower() == uname
+                                 and x.get("role") != "admin")]
+        save_users(data)
+    for tok, s in list(SESSIONS.items()):
+        if s["user"].lower() == uname:
+            SESSIONS.pop(tok, None)
+    return {"ok": True}
+
+
+@web.post("/admin/passwd")
+def admin_passwd():
+    c = _is_admin()
+    if not c:
+        return {"ok": False, "error": "admin only"}
+    pw = ((request.json or {}).get("password") or "").strip()
+    if not pw:
+        return {"ok": False, "error": "password required"}
+    with _users_lock:
+        data = load_users()
+        for x in data["users"]:
+            if x["username"] == c["user"]:
+                x["password"] = pw
+        save_users(data)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- app API
 @web.post("/rpc/<method>")
 def rpc(method):
+    if not _current():
+        return {"ok": False, "auth": False, "error": "Please sign in again."}
     try:
         args = request.json
         if args is None:
@@ -111,8 +291,8 @@ def rpc(method):
 
 @web.post("/upload")
 def upload():
-    """Receive a sketch / DXF / JSON from the browser, save it server-side, and
-    return the path so the normal read_path(path) / load flow can use it."""
+    if not _current():
+        return {"ok": False, "error": "Please sign in again."}
     try:
         f = request.files.get("file")
         if not f:
@@ -130,8 +310,8 @@ def upload():
 
 @web.get("/download")
 def download():
-    """Stream an exported file (given its server path, under OUT) to the
-    browser as a download."""
+    if not _current():
+        return HTTPResponse(status=403, body="sign in")
     p = request.query.get("path", "")
     ap = os.path.abspath(p)
     if not (ap.startswith(os.path.abspath(APP.OUT)) and os.path.isfile(ap)):
@@ -142,23 +322,23 @@ def download():
 
 @web.get("/<filepath:path>")
 def statics(filepath):
+    # login page is self-contained; every other UI asset needs a session
+    if not _current():
+        return redirect("/")
     return _no_cache(static_file(filepath, root=UI))
 
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8080"))
+    load_users()                    # ensure users.json + default admin exist
     # waitress is a real production WSGI server (threaded, correct Content-Length
     # behind a proxy). wsgiref — the stdlib fallback — is single-threaded and can
-    # send a response the cloud proxy truncates, which the browser then sees as an
-    # empty body ("Unexpected end of JSON input"). Prefer waitress; fall back to
-    # wsgiref only if it is not installed (e.g. a bare desktop checkout).
+    # send a response the cloud proxy truncates. Prefer waitress.
     try:
         from waitress import serve
-        print(f"SketchToPlan web (waitress) on http://0.0.0.0:{port}  "
-              f"(AI read disabled)")
-        serve(web, host="0.0.0.0", port=port, threads=8,
-              channel_timeout=300)
+        print(f"ARCH BRAIN STORMING web (waitress) on http://0.0.0.0:{port}")
+        serve(web, host="0.0.0.0", port=port, threads=8, channel_timeout=300)
     except ImportError:
-        print(f"SketchToPlan web (wsgiref fallback) on http://0.0.0.0:{port}")
+        print(f"ARCH BRAIN STORMING web (wsgiref) on http://0.0.0.0:{port}")
         bottle.run(web, host="0.0.0.0", port=port, server="wsgiref",
                    quiet=False)
