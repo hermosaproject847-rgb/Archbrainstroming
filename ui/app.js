@@ -109,11 +109,50 @@ function webDownloadCombined(paths) {
     if (wanted.includes(k) || /_COMBINED\.(dxf|pdf)$/i.test(v)
         || /ALL-FLOORS\.(dxf|pdf)$/i.test(v)) list.push(v);
   }
+  // fallback — if nothing matched the combined naming, offer any dxf/pdf found
+  if (!list.length) {
+    for (const [k, v] of Object.entries(paths || {}))
+      if (k !== "folder" && v && /\.(dxf|pdf)$/i.test(v)) list.push(v);
+  }
+  // 1) try the automatic download (works on most desktop browsers)
   list.forEach((p, i) => setTimeout(() => {
     const a = document.createElement("a");
     a.href = "/download?path=" + encodeURIComponent(p);
-    a.download = ""; document.body.appendChild(a); a.click(); a.remove();
+    a.download = (p.split(/[\\/]/).pop()) || "";
+    document.body.appendChild(a); a.click(); a.remove();
   }, i * 700));
+  // 2) ALWAYS show visible, clickable links — browsers block programmatic
+  //    downloads (multiple files / on mobile), so this guarantees a way to grab
+  //    the file even when the auto-download is silently ignored.
+  webShowDownloads(list);
+}
+
+function webShowDownloads(list) {
+  let box = document.getElementById("dlPanel");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "dlPanel";
+    box.style.cssText =
+      "position:fixed;right:16px;bottom:16px;z-index:99999;background:#141821;"
+      + "color:#fff;border:1px solid #3a4152;border-radius:12px;"
+      + "padding:14px 16px;box-shadow:0 10px 34px rgba(0,0,0,.55);"
+      + "max-width:360px;font:14px system-ui,Segoe UI,Arial";
+    document.body.appendChild(box);
+  }
+  const links = (list || []).map(p => {
+    const name = (p.split(/[\\/]/).pop()) || "file";
+    return `<a href="/download?path=${encodeURIComponent(p)}" download="${name}"`
+      + ` style="display:block;margin:6px 0;color:#7cc4ff;`
+      + `text-decoration:underline;word-break:break-all">⬇ ${name}</a>`;
+  }).join("");
+  box.innerHTML =
+    `<div style="font-weight:600;margin-bottom:6px">✅ Export ready — download</div>`
+    + (links || "<div>no file produced</div>")
+    + `<div style="opacity:.65;font-size:12px;margin-top:8px">Tap a file to save.`
+    + ` If it opens in a new tab, use the browser's Save/Download.</div>`
+    + `<button onclick="this.parentNode.remove()" style="margin-top:10px;`
+    + `background:#2b3040;color:#fff;border:0;border-radius:7px;`
+    + `padding:6px 14px;cursor:pointer">Close</button>`;
 }
 
 /* ── chrome ──────────────────────────────────────────────── */
