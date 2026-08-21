@@ -56,7 +56,29 @@ def _no_cache(resp):
 
 @web.get("/")
 def index():
-    return _no_cache(static_file("index.html", root=UI))
+    # index.html is served dynamically (Cloudflare does NOT cache HTML), so stamp
+    # a version query onto app.js / style.css based on their file mtime. When a
+    # file changes its URL changes, so Cloudflare's edge (which DOES cache .js/.css
+    # for hours) fetches the fresh copy instead of serving a stale one.
+    try:
+        with open(os.path.join(UI, "index.html"), encoding="utf-8") as fh:
+            html = fh.read()
+
+        def _v(fn):
+            try:
+                return str(int(os.path.getmtime(os.path.join(UI, fn))))
+            except Exception:
+                return "1"
+
+        html = html.replace('src="app.js"',
+                            'src="app.js?v=%s"' % _v("app.js"))
+        html = html.replace('href="style.css"',
+                            'href="style.css?v=%s"' % _v("style.css"))
+        r = HTTPResponse(body=html)
+        r.set_header("Content-Type", "text/html; charset=utf-8")
+        return _no_cache(r)
+    except Exception:
+        return _no_cache(static_file("index.html", root=UI))
 
 
 @web.get("/health")
