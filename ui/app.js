@@ -2028,7 +2028,10 @@ $("#btnOpen").onclick = async () => {
   // DXF is uploaded and imported from its layers. (Photos/PDF need the AI read,
   // which the free web build does not have.)
   if (isWeb()) {
-    const f = await webPickFile(".json,.dxf");
+    // when the server has the Claude CLI (your own PC), also allow photos / PDF
+    // sketches — they are read by the AI into an editable plan, just like desktop
+    const accept = window.WEB_AI ? ".json,.dxf,.png,.jpg,.jpeg,.pdf" : ".json,.dxf";
+    const f = await webPickFile(accept);
     if (!f) return;
     if (f.error) return fail({ error: f.error });
     if (f.json) {
@@ -2036,16 +2039,22 @@ $("#btnOpen").onclick = async () => {
       status("plan loaded from JSON — edit any row and it redraws");
       return;
     }
-    busy(true, "Importing the DXF…");
+    const isImg = /\.(png|jpe?g|pdf)$/i.test(f.name || "");
+    busy(true, isImg
+      ? "Reading the drawing with AI — this can take a minute…"
+      : "Importing the DXF…", isImg);
     const rr = await api().read_path(f.path, "", false);
     busy(false);
     if (!rr.ok) return fail(rr);
     if (rr.plan) {
       setPlan(rr.plan);
-      status("DXF imported from its layers — walls, doors, windows & rooms");
+      status(isImg
+        ? "AI read the drawing into an editable plan — edit any row, it redraws"
+        : "DXF imported from its layers — walls, doors, windows & rooms");
     } else {
-      banner("This is an image/PDF — the AI read is not available in the web "
-        + "build. Open a DXF or a saved JSON plan instead.");
+      banner("This is an image/PDF and the AI read is not available on this "
+        + "server (no Claude CLI). Run the app on your PC (START-ONLINE) for AI "
+        + "read, or open a DXF / saved JSON plan.");
     }
     return;
   }
@@ -2736,15 +2745,32 @@ if ($("#login")) $("#login").classList.add("hidden");
 async function boot() {
   status("ready");
   if (isWeb()) {
-    // the web build has no Claude CLI — hide the AI-only actions and tell the
-    // user how to load a plan instead
+    // The AI 'Read Drawing' runs on the SERVER via the Claude CLI. A cloud host
+    // has no CLI (off), but when the server runs on your OWN PC (localhost /
+    // Cloudflare tunnel) the CLI is right there — so ask the server if it has it.
+    let ai = false;
+    try {
+      const st = await api().cli_status();
+      ai = !!(st && st.exe && !st.error);
+      window.WEB_AI = ai;
+      if (!ai && st && st.error) pushLog(st.error);
+    } catch (e) { window.WEB_AI = false; }
+    // btnRead/btnQuiz are the desktop's two-step flow; on the web the AI read is
+    // driven straight from Open Drawing, so keep those two hidden either way.
     ["btnRead", "btnQuiz"].forEach(id => {
       const b = $("#" + id); if (b) b.style.display = "none";
     });
-    pushLog("WEB build — the AI 'Read Drawing' and questionnaire are off. "
-      + "Open a DXF or a saved JSON plan, then use Furniture / Structural / "
-      + "Export (one combined DXF) — all offline.");
-    status("web build ready — Open a DXF or JSON plan");
+    if (ai) {
+      pushLog("This server has the Claude CLI — AI 'Read Drawing' is ON. "
+        + "Open Drawing → pick a photo / PDF / sketch and it is read into an "
+        + "editable plan (or open a DXF / saved JSON plan).");
+      status("ready — Open Drawing (photo/PDF read is ON) or a DXF/JSON plan");
+    } else {
+      pushLog("WEB build — the AI 'Read Drawing' is OFF (no Claude CLI on this "
+        + "server). Open a DXF or a saved JSON plan, then Furniture / Structural "
+        + "/ Export (one combined DXF) — all offline.");
+      status("web build ready — Open a DXF or JSON plan");
+    }
     return;
   }
   try {
