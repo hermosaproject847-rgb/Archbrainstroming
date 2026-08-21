@@ -1594,6 +1594,22 @@ function showSaved() {
 
 async function savePlan(saveAs = false) {
   if (!S.plan) return status("nothing to save yet");
+  // WEB: no native save dialog — download the plan as a .json the browser can
+  // re-open later with Open Plan (a direct download from this click gesture).
+  if (isWeb()) {
+    const base = (S.saveName || "plan").replace(/\.[^.]+$/, "") || "plan";
+    const name = base + ".json";
+    const blob = new Blob([JSON.stringify(S.plan, null, 2)],
+                          { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    S.saveName = name; S.dirty = false; showSaved();
+    status("plan downloaded — " + name + " (re-open it with Open Plan)");
+    return;
+  }
   const r = saveAs ? await api().save_as(S.plan)
                    : await api().save_plan_json(S.plan, S.savePath || "");
   if (!r.ok) return fail(r);
@@ -2635,6 +2651,20 @@ $("#notesGo").onclick = async () => {
 $("#btnSave").onclick = () => savePlan(false);
 
 if ($("#btnLoad")) $("#btnLoad").onclick = async () => {
+  // WEB: the native file dialog does not exist — read the saved .json in the
+  // browser with the file picker (same as Open Drawing's JSON branch).
+  if (isWeb()) {
+    const f = await webPickFile(".json");
+    if (!f) return;
+    if (f.error) return fail({ error: f.error });
+    if (!f.json) return status("please pick a saved .json plan file");
+    setPlan(f.json);
+    S.saveName = f.name || "";
+    S.dirty = false;
+    showSaved();
+    status("plan loaded — " + (f.name || "saved file"));
+    return;
+  }
   const r = await api().load_plan_json();
   if (!r.ok) return fail(r);
   if (r.cancelled) return;
