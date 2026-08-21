@@ -346,7 +346,10 @@ def _draw_room(plan, room, clear, s, dl, origin=None, draw_start=True,
     if area.is_empty:
         area = clear
 
-    _hatch(dl, area, x0, y0, x1, y1, s)      # material hatch — grouped per room
+    # NOTE: no full-room diagonal "material wash" hatch — at drawing scale its
+    # fine lines merge into a solid grey block (worst in a CAD's dark view). The
+    # real, readable flooring indication is the TILE-JOINT GRID below, drawn at
+    # the actual tile module (e.g. 600 mm) so the tiles read one-by-one.
 
     # tile joints (spacer grid) as GROUPED hatch objects (one vertical + one
     # horizontal per floor polygon), never hundreds of loose lines

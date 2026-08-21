@@ -212,10 +212,69 @@ def to_dxf(dl: DrawList, path: str, model_scale: float = 1.0) -> str:
     return path
 
 
+def _grid_block(msp, it: Hatch, P, s):
+    """The tile-joint grid (vlines / hlines) as REAL clipped line geometry,
+    wrapped in ONE anonymous BLOCK per room. A pattern-fill HATCH is the 'proper'
+    CAD object, but many DXF viewers (and lightweight CAD) render a line-pattern
+    hatch as a SOLID GREY FILL — so the whole room reads as a grey block. Real
+    lines render identically everywhere, and the block keeps them a single
+    selectable object (so it is still 'grouped', not hundreds of loose lines)."""
+    from shapely.geometry import Polygon, LineString
+    doc = msp.doc
+    step = max(1e-6, it.step)
+    made_any = False
+    n = sum(1 for b in doc.blocks if b.name.startswith("FLRGRID_"))
+    bname = f"FLRGRID_{n}"
+    blk = doc.blocks.new(name=bname)
+    for loop in ([it.loops[0]] if it.loops else []):
+        ext = it.loops[0]
+        holes = it.loops[1:]
+        try:
+            poly = Polygon(ext, holes)
+            if not poly.is_valid or poly.is_empty:
+                poly = Polygon(ext)
+        except Exception:
+            continue
+        x0, y0, x1, y1 = poly.bounds
+        vert = (it.kind == "vlines")
+        lo, hi = (x0, x1) if vert else (y0, y1)
+        v = lo
+        while v <= hi + 1e-9:
+            seg = (LineString([(v, y0 - 1), (v, y1 + 1)]) if vert
+                   else LineString([(x0 - 1, v), (x1 + 1, v)]))
+            inter = seg.intersection(poly)
+            if not inter.is_empty:
+                parts = getattr(inter, "geoms", [inter])
+                for pr in parts:
+                    if getattr(pr, "geom_type", "") != "LineString":
+                        continue
+                    cs = list(pr.coords)
+                    for a, b in zip(cs, cs[1:]):
+                        blk.add_line(P(a), P(b),
+                                     dxfattribs={"layer": it.layer})
+                        made_any = True
+            v += step
+    if made_any:
+        msp.add_blockref(bname, (0, 0), dxfattribs={"layer": it.layer})
+    else:
+        try:
+            del doc.blocks[bname]
+        except Exception:
+            pass
+
+
 def _add_dxf_hatch(msp, it: Hatch, P, s):
     """One real associative HATCH object per region — not exploded lines. The
     pattern scale is converted back to the hatch's own drawing units (`s` undoes
     the sheet scale) so the pattern density matches the sheet."""
+    # tile-joint grids → real grouped lines (see _grid_block): pattern hatches
+    # show as a solid grey block in many viewers.
+    if it.kind in ("vlines", "hlines"):
+        try:
+            _grid_block(msp, it, P, s)
+            return
+        except Exception:
+            pass
     pat, angle, sfac = hatchgen.DXF_PATTERN.get(
         it.kind, hatchgen.DXF_PATTERN["diag45"])
     pscale = max(0.02, it.step * s * sfac)
