@@ -1927,31 +1927,42 @@ function redraw() {
     if (S.beamView) regenBeam();
     else if (S.sectionView) regenSection();
     else doRender();
-  }, 90);
+  }, 40);
 }
+let _renderBusy = false, _renderPending = false;
 async function doRender() {
   if (!S.plan) return;
-  status("drawing…");
-  const multi = floorsWithPlans() >= 2;
-  const r = multi
-    ? await api().render_project(S.floors, $("#selSheet").value,
-        $("#selOrient").value, $("#chkTags").checked, S.layerState || null)
-    : await api().render(S.plan, $("#selSheet").value,
-        $("#selOrient").value, $("#chkTags").checked, S.layerState || null);
-  if (!r.ok) { fail(r); return; }
-  S.sectionView = false;
-  S.beamView = false;
-  updateSecToggle();
-  showSvg(r.svg, r.info);
-  if (multi) {
-    // the project view has no single issue set — clear the per-plan panels
-    status(`${r.floors} floors shown together — click a stage to apply it to `
-      + `every floor; pick a floor in “Editing” to edit its tables`);
-  } else {
-    showIssues(r.issues, r.summary);
-    showFixes(r.fixes);
-    status(r.summary.clean ? "drawing is clean"
-      : r.summary.errors + " issue(s) to fix");
+  // COALESCE — while one render is in flight, a new edit just flags 'pending'
+  // and we redraw ONCE more when it lands, instead of stacking many round-trips
+  // (over the tunnel that stacking is what makes fast door nudges feel laggy).
+  if (_renderBusy) { _renderPending = true; return; }
+  _renderBusy = true;
+  try {
+    do {
+      _renderPending = false;
+      const multi = floorsWithPlans() >= 2;
+      const r = multi
+        ? await api().render_project(S.floors, $("#selSheet").value,
+            $("#selOrient").value, $("#chkTags").checked, S.layerState || null)
+        : await api().render(S.plan, $("#selSheet").value,
+            $("#selOrient").value, $("#chkTags").checked, S.layerState || null);
+      if (!r.ok) { fail(r); break; }
+      S.sectionView = false;
+      S.beamView = false;
+      updateSecToggle();
+      showSvg(r.svg, r.info);
+      if (multi) {
+        status(`${r.floors} floors shown together — click a stage to apply it to `
+          + `every floor; pick a floor in “Editing” to edit its tables`);
+      } else {
+        showIssues(r.issues, r.summary);
+        showFixes(r.fixes);
+        status(r.summary.clean ? "drawing is clean"
+          : r.summary.errors + " issue(s) to fix");
+      }
+    } while (_renderPending);           // a newer edit arrived mid-render → redo
+  } finally {
+    _renderBusy = false;
   }
 }
 
