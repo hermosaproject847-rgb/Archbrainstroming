@@ -15,3 +15,5 @@ NBC/
 # stray large/reference files in the repo root
 laibrary2007 Version.dwg
 ARCH-BRAIN-STORMING-Setup.exe
+# cloudflared tunnel binary (~55 MB) — downloaded locally, not for the repo
+cloudflared.exe
