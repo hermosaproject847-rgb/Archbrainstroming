@@ -324,8 +324,11 @@ class Api:
             return {"ok": False, "error": "unknown job"}
         if not j["done"]:
             return {"ok": True, "done": False}
-        # keep the store small — hand the result over once and drop it
-        Api._read_jobs.pop(job, None)
+        # keep the finished result so a retried poll still gets it; prune other
+        # old finished jobs so the store cannot grow without bound.
+        for k in [k for k, v in Api._read_jobs.items()
+                  if v.get("done") and k != job]:
+            Api._read_jobs.pop(k, None)
         return {"ok": True, "done": True,
                 "result": j["result"] or {"ok": False, "error": "no result"}}
 

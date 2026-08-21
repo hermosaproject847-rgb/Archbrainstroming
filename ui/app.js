@@ -2063,15 +2063,25 @@ $("#btnOpen").onclick = async () => {
     if (isImg) {
       // AI read takes ~1-2 min — run it as a background JOB and poll, so the
       // Cloudflare tunnel never times the single request out (502).
-      busy(true, "Reading the drawing with AI — this can take a minute…", true);
+      busy(true, "Reading the drawing with AI — this can take 1-3 minutes…", true);
       const st = await api().read_async_start(f.path, "", false);
       if (!st.ok) { busy(false); return fail(st); }
-      rr = { ok: false, error: "read timed out — try again" };
-      for (let i = 0; i < 160; i++) {          // up to ~8 min
+      rr = { ok: false, error: "The AI read is taking unusually long — it may "
+        + "still finish in the background. Try Open Drawing again in a moment." };
+      const t0 = Date.now();
+      let miss = 0;
+      for (let i = 0; i < 400; i++) {          // poll for up to ~20 min
         await _sleep(3000);
         const s = await api().read_async_status(st.job);
         if (s && s.ok && s.done) { rr = s.result; break; }
-        if (s && !s.ok) { rr = s; break; }
+        if (s && !s.ok) {                       // e.g. transient 'unknown job'
+          if (++miss > 5) { rr = s; break; }
+          continue;
+        }
+        miss = 0;
+        const secs = Math.round((Date.now() - t0) / 1000);
+        busy(true, `Reading the drawing with AI…  (${Math.floor(secs / 60)}m `
+          + `${String(secs % 60).padStart(2, "0")}s)`, true);
       }
       busy(false);
     } else {
@@ -2790,9 +2800,26 @@ if ($("#login")) $("#login").classList.add("hidden");
 
 /* The bridge may be injected before or after this script runs, so poll for it
    instead of relying on the pywebviewready event alone. */
+function addLogoutButton() {
+  if (document.getElementById("btnLogout")) return;
+  const b = document.createElement("button");
+  b.id = "btnLogout";
+  b.className = "btn";
+  b.textContent = "Log out";
+  b.title = "Sign out and return to the login page";
+  b.style.marginLeft = "auto";        // push to the right end of the top bar
+  b.onclick = async () => {
+    try { await fetch("/logout", { method: "POST" }); } catch (e) {}
+    location.href = "/";
+  };
+  const bar = document.querySelector("header.bar") || document.body;
+  bar.appendChild(b);
+}
+
 async function boot() {
   status("ready");
   if (isWeb()) {
+    addLogoutButton();                  // a Log out control on the web build
     // The AI 'Read Drawing' runs on the SERVER via the Claude CLI. A cloud host
     // has no CLI (off), but when the server runs on your OWN PC (localhost /
     // Cloudflare tunnel) the CLI is right there — so ask the server if it has it.
