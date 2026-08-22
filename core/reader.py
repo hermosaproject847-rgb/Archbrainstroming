@@ -34,6 +34,11 @@ CLI_CANDIDATES = [
                  "claude-code", "bin", "claude.exe"),
     os.path.join(HOME, "AppData", "Roaming", "npm", "node_modules",
                  "@anthropic-ai", "claude-code", "bin", "claude.exe"),
+    # Linux (cloud image): npm -g puts the launcher here
+    "/usr/bin/claude",
+    "/usr/local/bin/claude",
+    "/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+    os.path.join(HOME, ".local", "bin", "claude"),
 ]
 
 LOGIN_HELPER = os.path.join(HOME, "drawing-watcher", "login-helper.cmd")
