@@ -411,6 +411,7 @@ if ($("#selUnit")) $("#selUnit").onchange = () => {
   rebuildStepPresets();
   buildTables();                       // re-show every table in the new unit
   if (_sel) showGizmo();               // and the gizmo
+  if (S.plan) redraw();                // and the DRAWING's dims / labels, live
   status("editing unit set to " + ({ ft: "Feet-Inch", mm: "Millimeter", m: "Meter" }[DUNIT]));
 };
 function snapSel(){

@@ -596,11 +596,10 @@ def draw_rooms(plan: Plan, dl: DrawList) -> None:
         dl.text(cx, cy + gap, r.name.upper(), h=0.62, layer="TEXT", bold=True)
         if r.size_label:
             from . import units
-            # feet-inch keeps the recorded label; mm / m regenerate the size
-            # from the room's own width × height so it matches the chosen unit
-            lbl = (r.size_label if units.current() == "ft"
-                   else f"{units.fmt_len(r.w)} X {units.fmt_len(r.h)}")
-            dl.text(cx, cy - 0.55, lbl, h=0.46, layer="TEXT-SUB")
+            # keep the recorded dimensions, just convert their unit (mm / m) so
+            # the numbers stay correct instead of being recomputed from w × h
+            dl.text(cx, cy - 0.55, units.relabel(r.size_label),
+                    h=0.46, layer="TEXT-SUB")
 
 
 def _fmt_ft(v: float) -> str:      # noqa: F811 — one formatter for the sheet

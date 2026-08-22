@@ -31,6 +31,27 @@ def fmt_len(feet):
     return f"{ft}'-{inch}\""
 
 
+import re as _re
+_FTIN = _re.compile(r"(\d+)\s*'\s*-?\s*(\d+)?\s*([½¼¾])?\s*\"")
+_FRAC = {"½": 0.5, "¼": 0.25, "¾": 0.75}
+
+
+def relabel(text):
+    """Convert every feet-inch token in a label (e.g. "12'-6\" X 10'-0\"") into
+    the current unit, keeping the SAME dimensions — so a room's recorded size
+    reads correctly in mm / m instead of being recomputed and drifting."""
+    if not text or _UNIT == "ft":
+        return text
+
+    def _sub(m):
+        ft = int(m.group(1))
+        inch = int(m.group(2)) if m.group(2) else 0
+        frac = _FRAC.get(m.group(3), 0.0)
+        return fmt_len(ft + (inch + frac) / 12.0)
+
+    return _FTIN.sub(_sub, text)
+
+
 def dxf_insunits():
     """AutoCAD $INSUNITS code for the current unit (2=feet, 4=mm, 6=metre)."""
     return {"ft": 2, "mm": 4, "m": 6}.get(_UNIT, 2)
