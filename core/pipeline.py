@@ -104,18 +104,17 @@ def _prepare(plan_dict: dict, fix: bool = True):
 def render(plan_dict: dict, sheet_size: str = "A3",
            orientation: str = "auto", fix: bool = True,
            wall_tags: bool = True, furniture: bool = True,
-           layer_state: dict | None = None) -> dict:
+           layer_state: dict | None = None, sections: bool = False) -> dict:
     """Build the drawing and return {svg, info, issues, fixes, summary}.
 
     `layer_state` turns whole groups off — furniture hidden while looking at
     the electrical, say. It is applied after composing, so the sheet still
     fits the full drawing and hiding a layer does not move anything.
+    `sections` draws the cut lines ONLY when the caller is editing them (the
+    Sections tab) — otherwise they stay off every view.
     """
     plan, notes, issues = _prepare(plan_dict, fix)
-    # the section line always shows on the ON-SCREEN plan (so it can be seen and
-    # edited); hiding it from the furniture / electrical / plumbing / flooring
-    # EXPORT sheets is handled in combined.py / export_all, not here
-    dl = engine.build(plan, wall_tags, furniture, sections=True)
+    dl = engine.build(plan, wall_tags, furniture, sections=sections)
     sdl, info = sheet.compose(plan, dl, sheet_size, orientation,
                               schedule=_sheet_kind(plan, layer_state))
     sdl = layers.apply(sdl, layer_state)
@@ -126,13 +125,15 @@ def render(plan_dict: dict, sheet_size: str = "A3",
 
 def render_fast(plan_dict: dict, sheet_size: str = "A3",
                 orientation: str = "auto", wall_tags: bool = True,
-                furniture: bool = True, layer_state: dict | None = None) -> dict:
+                furniture: bool = True, layer_state: dict | None = None,
+                sections: bool = False) -> dict:
     """DRAW ONLY — no validation / auto-fix (that pass is ~99% of a full render).
     Used for live interactive edits (dragging a door, nudging furniture) so the
     picture updates in ~2 ms instead of ~190 ms. The checks panel is refreshed
-    separately by `check()` a moment after the user stops editing."""
+    separately by `check()` a moment after the user stops editing.
+    `sections` draws the cut lines only while editing them."""
     plan = Plan.from_dict(plan_dict)
-    dl = engine.build(plan, wall_tags, furniture, sections=True)
+    dl = engine.build(plan, wall_tags, furniture, sections=sections)
     sdl, info = sheet.compose(plan, dl, sheet_size, orientation,
                               schedule=_sheet_kind(plan, layer_state))
     sdl = layers.apply(sdl, layer_state)

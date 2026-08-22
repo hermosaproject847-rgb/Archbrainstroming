@@ -216,11 +216,14 @@ function banner(msg) {
 // rail tool → open its flyout side-window; click the active tool again to close
 $$(".tab").forEach(t => t.onclick = () => {
   const fo = $("#flyout");
+  const wasSec = editingSections();
   if (fo && fo.classList.contains("open") && t.classList.contains("on")) {
     closeFlyout();
   } else {
     tab(t.dataset.tab);
   }
+  // opening/leaving the Sections tool toggles the cut lines on the plan
+  if (wasSec !== editingSections() && S.plan && !S.beamView && !S.sectionView) redraw();
 });
 function tab(name) {
   $$(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === name));
@@ -234,11 +237,22 @@ function tab(name) {
   }
 }
 function closeFlyout() {
+  const wasSec = editingSections();
   const fo = $("#flyout");
   if (fo) fo.classList.remove("open");
   $$(".tab").forEach(t => t.classList.remove("on"));
+  if (wasSec && S.plan && !S.beamView && !S.sectionView) redraw();
 }
 if ($("#flyoutClose")) $("#flyoutClose").onclick = closeFlyout;
+
+/* section cut lines are their own layer — draw them ONLY while the Sections tool
+   is open or a section is selected, so they never clutter the floor plan /
+   furniture / other views. */
+function editingSections() {
+  const fo = $("#flyout"), active = $(".tab.on");
+  if (fo && fo.classList.contains("open") && active && active.dataset.tab === "sections") return true;
+  return !!(_sel && _sel.key === "sections");
+}
 
 /* ── move gizmo — pick an item, see its coordinates, nudge with a D-pad
    (click = one step, hold = keep moving). Like moving objects in CAD.        */
@@ -2236,7 +2250,8 @@ async function doRenderFast() {
     do {
       _fastPending = false;
       const r = await api().render_fast(S.plan, $("#selSheet").value,
-        $("#selOrient").value, $("#chkTags").checked, S.layerState || null);
+        $("#selOrient").value, $("#chkTags").checked, S.layerState || null,
+        editingSections());
       if (!r.ok) { fail(r); break; }
       S.sectionView = false; S.beamView = false;
       updateSecToggle();
@@ -2276,7 +2291,8 @@ async function doRender() {
         ? await api().render_project(S.floors, $("#selSheet").value,
             $("#selOrient").value, $("#chkTags").checked, S.layerState || null)
         : await api().render(S.plan, $("#selSheet").value,
-            $("#selOrient").value, $("#chkTags").checked, S.layerState || null);
+            $("#selOrient").value, $("#chkTags").checked, S.layerState || null,
+            editingSections());
       if (!r.ok) { fail(r); break; }
       S.sectionView = false;
       S.beamView = false;

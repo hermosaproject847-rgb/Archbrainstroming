@@ -804,23 +804,27 @@ class Api:
 
     def render(self, plan: dict, sheet: str = "A3",
                orientation: str = "auto", wall_tags: bool = True,
-               layer_state: dict | None = None) -> dict:
+               layer_state: dict | None = None,
+               show_sections: bool = False) -> dict:
         try:
             res = pipeline.render(plan, sheet, orientation,
                                   wall_tags=bool(wall_tags),
-                                  layer_state=layer_state)
+                                  layer_state=layer_state,
+                                  sections=bool(show_sections))
             return {"ok": True, **res}
         except Exception as e:
             return self._fail(e)
 
     def render_fast(self, plan: dict, sheet: str = "A3",
                     orientation: str = "auto", wall_tags: bool = True,
-                    layer_state: dict | None = None) -> dict:
+                    layer_state: dict | None = None,
+                    show_sections: bool = False) -> dict:
         """Draw only, no validation — for smooth live edits (~2 ms)."""
         try:
             res = pipeline.render_fast(plan, sheet, orientation,
                                        wall_tags=bool(wall_tags),
-                                       layer_state=layer_state)
+                                       layer_state=layer_state,
+                                       sections=bool(show_sections))
             return {"ok": True, **res}
         except Exception as e:
             return self._fail(e)
