@@ -13,10 +13,9 @@ MM = 304.8
 
 
 def _ft_in(feet: float) -> str:
-    """A length in feet as feet-inches, e.g. 12.375 -> 12'-4 1/2\"."""
-    total_in = round(feet * 12.0)
-    f, i = divmod(total_in, 12)
-    return f"{f}'-{i}\""
+    """A length in feet in the chosen drawing unit (feet-inch / mm / m)."""
+    from . import units
+    return units.fmt_len(feet)
 
 
 def rows(plan) -> list[dict]:

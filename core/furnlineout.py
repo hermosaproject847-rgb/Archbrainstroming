@@ -16,9 +16,8 @@ MM = 304.8
 
 
 def _ft_in(feet: float) -> str:
-    total_in = round(feet * 12.0)
-    f, i = divmod(total_in, 12)
-    return f"{f}'-{i}\""
+    from . import units          # feet-inch / mm / m per the chosen drawing unit
+    return units.fmt_len(feet)
 
 
 def _wall_faces(plan: Plan):

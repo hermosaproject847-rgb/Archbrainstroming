@@ -24,7 +24,7 @@ try:                                 # desktop-only (native window); absent on
 except Exception:                    # so a missing pywebview must not break import
     webview = None
 
-from core import combined, library, pipeline, reader  # noqa: E402
+from core import combined, library, pipeline, reader, units  # noqa: E402
 
 WORK = os.path.join(ROOT, "work")
 OUT = os.path.join(ROOT, "out")
@@ -805,8 +805,9 @@ class Api:
     def render(self, plan: dict, sheet: str = "A3",
                orientation: str = "auto", wall_tags: bool = True,
                layer_state: dict | None = None,
-               show_sections: bool = False) -> dict:
+               show_sections: bool = False, unit: str = "ft") -> dict:
         try:
+            units.set_unit(unit)
             res = pipeline.render(plan, sheet, orientation,
                                   wall_tags=bool(wall_tags),
                                   layer_state=layer_state,
@@ -818,9 +819,10 @@ class Api:
     def render_fast(self, plan: dict, sheet: str = "A3",
                     orientation: str = "auto", wall_tags: bool = True,
                     layer_state: dict | None = None,
-                    show_sections: bool = False) -> dict:
+                    show_sections: bool = False, unit: str = "ft") -> dict:
         """Draw only, no validation — for smooth live edits (~2 ms)."""
         try:
+            units.set_unit(unit)
             res = pipeline.render_fast(plan, sheet, orientation,
                                        wall_tags=bool(wall_tags),
                                        layer_state=layer_state,
@@ -838,7 +840,7 @@ class Api:
 
     def export(self, plan: dict, sheet: str = "A3",
                orientation: str = "auto", basename: str = "",
-               wall_tags: bool = False) -> dict:
+               wall_tags: bool = False, unit: str = "ft") -> dict:
         """Everything for this job into its own folder under out/.
 
         Alongside the individual sheets there is a COMBINED file with the
@@ -851,6 +853,7 @@ class Api:
                 else "floor_plan")
             base = "".join(c for c in base
                            if c.isalnum() or c in " -_").strip() or "plan"
+            units.set_unit(unit)
             res = combined.export_folder(plan, OUT, base, sheet, orientation,
                                          light=getattr(self, "WEB", False))
             self._log(f"Exported to {res['folder']}")
@@ -862,13 +865,15 @@ class Api:
             return self._fail(e)
 
     def export_project(self, floors: list, sheet: str = "A3",
-                       orientation: str = "auto", basename: str = "") -> dict:
+                       orientation: str = "auto", basename: str = "",
+                       unit: str = "ft") -> dict:
         """Export a MULTI-FLOOR project as ONE combined file: every floor's
         full set of sheets stacked in a single DXF + PDF (no per-floor folders,
         no separate furniture / plumbing files), wall numbers running
         CONTINUOUSLY across the floors, plus the combined multi-floor section
         and multi-floor elevation at the bottom."""
         try:
+            units.set_unit(unit)
             base = "".join(c for c in (basename or "project")
                            if c.isalnum() or c in " -_").strip() or "project"
             usable = [fl for fl in (floors or [])

@@ -2306,7 +2306,7 @@ async function doRenderFast() {
       _fastPending = false;
       const r = await api().render_fast(S.plan, $("#selSheet").value,
         $("#selOrient").value, $("#chkTags").checked, S.layerState || null,
-        editingSections());
+        editingSections(), DUNIT);
       if (!r.ok) { fail(r); break; }
       S.sectionView = false; S.beamView = false;
       updateSecToggle();
@@ -2347,7 +2347,7 @@ async function doRender() {
             $("#selOrient").value, $("#chkTags").checked, S.layerState || null)
         : await api().render(S.plan, $("#selSheet").value,
             $("#selOrient").value, $("#chkTags").checked, S.layerState || null,
-            editingSections());
+            editingSections(), DUNIT);
       if (!r.ok) { fail(r); break; }
       S.sectionView = false;
       S.beamView = false;
@@ -3155,7 +3155,7 @@ $("#btnExport").onclick = async () => {
              + `every floor's sheets in a single DXF + PDF…`);
     const base = (S.saveName || "project").replace(/\.[^.]+$/, "");
     const r = await api().export_project(S.floors, $("#selSheet").value,
-                                         $("#selOrient").value, base);
+                                         $("#selOrient").value, base, DUNIT);
     busy(false);
     if (!r.ok) return fail(r);
     S.lastFolder = r.folder || "";
@@ -3171,7 +3171,7 @@ $("#btnExport").onclick = async () => {
   }
   busy(true, "Exporting one combined DXF — architecture + full structural set…");
   const r = await api().export(S.plan, $("#selSheet").value,
-                               $("#selOrient").value);
+                               $("#selOrient").value, "", false, DUNIT);
   busy(false);
   if (!r.ok) return fail(r);
   S.lastFolder = r.folder || "";

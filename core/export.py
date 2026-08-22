@@ -176,7 +176,8 @@ def to_dxf(dl: DrawList, path: str, model_scale: float = 1.0) -> str:
     import ezdxf
 
     doc = ezdxf.new("R2013", setup=True)
-    doc.header["$INSUNITS"] = 2          # feet
+    from . import units
+    doc.header["$INSUNITS"] = units.dxf_insunits()   # 2=feet, 4=mm, 6=metre
     # real Arial, so TrueView stops falling back to the thin SHX stick font
     for name, font in (("ARIAL", "arial.ttf"), ("ARIAL-BD", "arialbd.ttf")):
         if name not in doc.styles:
@@ -186,7 +187,9 @@ def to_dxf(dl: DrawList, path: str, model_scale: float = 1.0) -> str:
         if name not in doc.layers:
             doc.layers.add(name, color=aci)
 
-    s = 1.0 / model_scale if model_scale else 1.0
+    # feet → model units, then feet → the chosen unit (mm / m) so the DXF opens
+    # at the right real-world size with matching $INSUNITS
+    s = (1.0 / model_scale if model_scale else 1.0) * units.dxf_scale()
     P = lambda p: (p[0] * s, p[1] * s)   # noqa: E731
 
     for it in dl.items:

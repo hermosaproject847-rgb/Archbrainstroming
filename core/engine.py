@@ -595,15 +595,17 @@ def draw_rooms(plan: Plan, dl: DrawList) -> None:
         gap = 0.42 if r.size_label else 0.0
         dl.text(cx, cy + gap, r.name.upper(), h=0.62, layer="TEXT", bold=True)
         if r.size_label:
-            dl.text(cx, cy - 0.55, r.size_label, h=0.46, layer="TEXT-SUB")
+            from . import units
+            # feet-inch keeps the recorded label; mm / m regenerate the size
+            # from the room's own width × height so it matches the chosen unit
+            lbl = (r.size_label if units.current() == "ft"
+                   else f"{units.fmt_len(r.w)} X {units.fmt_len(r.h)}")
+            dl.text(cx, cy - 0.55, lbl, h=0.46, layer="TEXT-SUB")
 
 
 def _fmt_ft(v: float) -> str:      # noqa: F811 — one formatter for the sheet
-    ft = int(v)
-    inch = round((v - ft) * 12)
-    if inch == 12:
-        ft, inch = ft + 1, 0
-    return f"{ft}'-{inch}\"" if inch else f"{ft}'-0\""
+    from . import units           # feet-inch / mm / m per the chosen drawing unit
+    return units.fmt_len(v)
 
 
 def draw_dims(plan: Plan, dl: DrawList) -> None:
