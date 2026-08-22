@@ -251,6 +251,12 @@ $$(".tab").forEach(t => t.onclick = () => {
   }
   // opening/leaving the Sections tool toggles the cut lines on the plan
   if (wasSec !== editingSections() && S.plan && !S.beamView && !S.sectionView) redraw();
+  // canvas edit follows the open tab — drop a selection that isn't this type
+  if (_sel && _sel.key !== activeEditKey()) {
+    _sel = null;
+    $$("tr.selrow,.litem.on").forEach(x => x.classList.remove("selrow", "on"));
+  }
+  if (typeof buildHandles === "function") buildHandles(S.plInfo);
 });
 function tab(name) {
   $$(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === name));
@@ -662,24 +668,41 @@ function _distSeg(px, py, x1, y1, x2, y2) {
   let t = ((px - x1) * vx + (py - y1) * vy) / L2; t = Math.max(0, Math.min(1, t));
   return Math.hypot(px - (x1 + vx * t), py - (y1 + vy * t));
 }
-/* which element is under a model point (closest within tolerance) */
-function hitTest(mx, my) {
+/* the element type you can edit on the canvas RIGHT NOW = the open tool's tab
+   (Walls tab → only walls, Furniture tab → only furniture, …). No tool open →
+   the canvas only pans. */
+function activeEditKey() {
+  const fo = $("#flyout"), t = $(".tab.on");
+  if (!fo || !fo.classList.contains("open") || !t) return null;
+  const k = t.dataset.tab;
+  return POSCFG[k] ? k : null;      // only editable element types
+}
+/* which element of ONE type is under a model point (closest within tolerance) */
+function hitTest(mx, my, key) {
+  if (!key) return null;
   let best = null, bd = 0.7;
-  (S.plan.walls || []).forEach((w, i) => { const d = _distSeg(mx, my, w.x1, w.y1, w.x2, w.y2); if (d < bd) { bd = d; best = { key: "walls", ri: i }; } });
-  (S.plan.beams || []).forEach((w, i) => { const d = _distSeg(mx, my, w.x1, w.y1, w.x2, w.y2); if (d < bd) { bd = d; best = { key: "beams", ri: i }; } });
-  (S.plan.sections || []).forEach((w, i) => { const d = _distSeg(mx, my, w.x1, w.y1, w.x2, w.y2); if (d < bd) { bd = d; best = { key: "sections", ri: i }; } });
-  (S.plan.openings || []).forEach((o, i) => {
-    const w = wallById(o.wall_id); if (!w) return;
-    const L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) || 1e-6, ux = (w.x2 - w.x1) / L, uy = (w.y2 - w.y1) / L;
-    const cx = w.x1 + ux * (o.pos + o.width / 2), cy = w.y1 + uy * (o.pos + o.width / 2);
-    const d = Math.hypot(mx - cx, my - cy); if (d < bd) { bd = d; best = { key: "openings", ri: i }; }
-  });
-  const boxHit = (arr, centred) => (S.plan[arr] || []).forEach((it, i) => {
-    const w = +it.w || 0, h = +it.h || 0, x0 = centred ? it.x - w / 2 : it.x, y0 = centred ? it.y - h / 2 : it.y;
-    if (mx >= x0 && mx <= x0 + w && my >= y0 && my <= y0 + h) { best = { key: arr, ri: i }; bd = 0; }
-  });
-  boxHit("furniture", false); boxHit("columns", true); boxHit("stairs", false);
-  boxHit("steps", false); if (!best) boxHit("rooms", false);   // rooms only if nothing smaller
+  if (key === "walls" || key === "beams" || key === "sections") {
+    (S.plan[key] || []).forEach((w, i) => {
+      const d = _distSeg(mx, my, w.x1, w.y1, w.x2, w.y2);
+      if (d < bd) { bd = d; best = { key, ri: i }; }
+    });
+  } else if (key === "openings") {
+    (S.plan.openings || []).forEach((o, i) => {
+      const w = wallById(o.wall_id); if (!w) return;
+      const L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) || 1e-6, ux = (w.x2 - w.x1) / L, uy = (w.y2 - w.y1) / L;
+      const cx = w.x1 + ux * (o.pos + o.width / 2), cy = w.y1 + uy * (o.pos + o.width / 2);
+      const d = Math.hypot(mx - cx, my - cy); if (d < bd) { bd = d; best = { key: "openings", ri: i }; }
+    });
+  } else if (key === "flooring") {
+    const room = (S.plan.rooms || []).find(r => mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h);
+    if (room) { const i = (S.plan.flooring || []).findIndex(f => f.room === room.name); if (i >= 0) best = { key: "flooring", ri: i }; }
+  } else {                            // boxes: furniture / columns / rooms / stairs / steps
+    const centred = key === "columns";
+    (S.plan[key] || []).forEach((it, i) => {
+      const w = +it.w || 0, h = +it.h || 0, x0 = centred ? it.x - w / 2 : it.x, y0 = centred ? it.y - h / 2 : it.y;
+      if (mx >= x0 && mx <= x0 + w && my >= y0 && my <= y0 + h) { best = { key, ri: i }; bd = 0; }
+    });
+  }
   return best;
 }
 
@@ -688,6 +711,8 @@ function buildHandles(info) {
   if (!S.plan || !info || !_sel || _hdrag) return;
   if (S.beamView || S.sectionView || S.structView || S.elevView) return;
   if (floorsWithPlans() >= 2 || !POSCFG[_sel.key]) return;
+  if (_sel.key !== activeEditKey()) return;          // only the open tool's type
+  if (POSCFG[_sel.key].coord === "none") return;     // flooring: settings only, no drag
   const it = selItem(); if (!it) return;
   const holder = $("#plHolder"), draw = holder.querySelector("svg"); if (!draw) return;
   const ov = document.createElementNS(NS_SVG, "svg");
@@ -817,8 +842,9 @@ addEventListener("touchcancel", _dragEnd);
     const wasDn = dn; dn = null;
     if (moved > 5 || onHandle || _hdrag) return;      // a pan or a handle drag
     if (S.beamView || S.sectionView || S.structView || S.elevView) return;
+    const ek = activeEditKey(); if (!ek) return;       // no tool open → canvas just pans
     const m = screenToModel(p.clientX, p.clientY); if (!m) return;
-    const hit = hitTest(m[0], m[1]);
+    const hit = hitTest(m[0], m[1], ek);               // only the open tool's type
     if (hit) selectItem(hit.key, hit.ri);
     else { _sel = null; clearHandles(); showGizmo();
       $$("tr.selrow,.litem.on").forEach(t => t.classList.remove("selrow", "on")); }
