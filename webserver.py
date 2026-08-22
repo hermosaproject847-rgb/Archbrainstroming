@@ -137,7 +137,7 @@ def login_page():
 # login-page assets must be public (the visitor is not signed in yet)
 @web.get("/login-bg.jpg")
 def login_bg():
-    return static_file("login-bg.jpg", root=UI)
+    return _no_cache(static_file("login-bg.jpg", root=UI))
 
 
 @web.get("/appicon.png")
