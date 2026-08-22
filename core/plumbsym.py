@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 
 from . import plumbing as P
-from .draw import DrawList
+from .draw import DrawList, LAYERS
 
 LT = "PLUMB-TAG"
 R = 0.40                     # keynote circle radius, feet — small in tight toilets
@@ -99,11 +99,21 @@ def _bottle_trap(dl, x, y, L):
 
 
 def _nahani(dl, x, y, L):
-    """Nahani (floor) trap: square grating, NT."""
-    s = SYM * .85
+    """Nahani (floor) trap: a dark square housing with a round grating whose
+    mesh reads as a grille — the routing-sheet floor-trap symbol."""
+    s = SYM * .9
+    dl.fill([(x - s, y - s), (x + s, y - s), (x + s, y + s), (x - s, y + s)],
+            color="#3a3a3a", layer=L)                # dark housing
     dl.rect(x - s, y - s, 2 * s, 2 * s, layer=L)
-    for i in (-.45, 0.0, .45):
-        dl.line(x + s * i, y - s, x + s * i, y + s, L)
+    r = s * .72
+    _circle(dl, x, y, r, L)                          # grating rim
+    # grille mesh — a fine cross-grid clipped to the round grate
+    n = 5
+    for i in range(1, n):
+        t = -r + 2 * r * i / n
+        h = (r * r - t * t) ** 0.5
+        dl.line(x + t, y - h, x + t, y + h, L)
+        dl.line(x - h, y + t, x + h, y + t, L)
     dl.text(x, y - s - 0.28, "NT", h=0.24, layer=LT)
 
 
@@ -194,18 +204,127 @@ _TAGGED_RUNS = ("SOIL", "WASTE", "VENT", "STORM", "ACD")
 _MIN_TAG_FT = 3.5
 
 
+FT_MM = 304.8
+# systems drawn as a real TWO-WALL pipe (you see its thickness), the rest as a
+# single line. Drainage & storm carry real bore; supply/vent stay single so a
+# tight wet room does not turn into a black smear.
+_TWO_WALL = ("SOIL", "WASTE", "STORM")
+_SUPPLY = ("CW", "HW")
+
+
+def _pipe_walls(pts, half):
+    """The two side walls of a pipe of half-width `half` (feet), following the
+    run's centre-line. Returns [wallA, wallB] coordinate lists, or None."""
+    try:
+        from shapely.geometry import LineString
+        ls = LineString(pts)
+        if ls.length <= 0:
+            return None
+        a = ls.parallel_offset(half, "left", join_style=2)
+        b = ls.parallel_offset(half, "right", join_style=2)
+        out = []
+        for g in (a, b):
+            if g.is_empty:
+                continue
+            geoms = g.geoms if g.geom_type == "MultiLineString" else [g]
+            for p in geoms:
+                out.append([(round(x, 4), round(y, 4)) for x, y in p.coords])
+        return out or None
+    except Exception:
+        return None
+
+
+def _sys_color(layer: str) -> str:
+    return LAYERS.get(layer, ("#000000",))[0]
+
+
+def _flow_arrow(dl: DrawList, pts, layer, color) -> None:
+    """A solid triangle mid-run, pointing the way the pipe flows (pts order)."""
+    best = max(zip(pts, pts[1:]), key=lambda ab: math.dist(ab[0], ab[1]))
+    (ax, ay), (bx, by) = best
+    if math.dist((ax, ay), (bx, by)) < 1.2:
+        return
+    mx, my = (ax + bx) / 2, (ay + by) / 2
+    ang = math.atan2(by - ay, bx - ax)
+    ca, sa, s = math.cos(ang), math.sin(ang), 0.55
+    px, py = -sa, ca
+    tip = (mx + ca * s, my + sa * s)
+    b1 = (mx - ca * s * 0.5 + px * s * 0.5, my - sa * s * 0.5 + py * s * 0.5)
+    b2 = (mx - ca * s * 0.5 - px * s * 0.5, my - sa * s * 0.5 - py * s * 0.5)
+    dl.fill([tip, b1, b2], color=color, layer=layer)
+
+
+FIT = "PLUMB-FIT"
+
+
+def _fitting(dl: DrawList, x, y, a_in, a_out, bore) -> None:
+    """The pipe FITTING at a bend (violet, like the routing sheet). A ~90° turn
+    gets an elbow block; a ~45° turn gets a 45° Y-connector stub — the fitting a
+    fitter actually uses to hold slope on a branch."""
+    s = max(0.22, bore * 0.95)
+    turn = abs(((math.degrees(a_out - a_in) + 180) % 360) - 180)   # deflection 0..180
+    sq = [(x - s, y - s), (x + s, y - s), (x + s, y + s), (x - s, y + s)]
+    dl.fill(sq, color="#ffffff", layer="PLUMB-BORE")     # mask the pipe under it
+    dl.poly(sq, layer=FIT, closed=True)                  # coupling body (violet)
+    if abs(turn - 45) <= 22:                             # 45° Y-connector
+        bis = (a_in + a_out) / 2.0 + math.pi            # stub points into the branch
+        dl.line(x, y, x + math.cos(bis) * s * 1.6, y + math.sin(bis) * s * 1.6, layer=FIT)
+        dl.line(x - s * 0.5, y, x + s * 0.5, y, layer=FIT)
+    else:                                                # 90° elbow (or straight coupling)
+        dl.line(x - s, y - s, x + s, y + s, layer=FIT)
+        dl.line(x - s, y + s, x + s, y - s, layer=FIT)
+
+
 def draw_run(dl: DrawList, r) -> None:
-    """A pipe run in its system colour; drainage runs carry the §6 slope tag."""
+    """A pipe run drawn like the routing layout: a two-wall pipe in its system
+    colour (SWP orange, WWP green) with a dashed centre-line, an elbow collar at
+    each bend, a solid flow arrow, and the '110Ø SWP / SLOPE 1:80' tag along it."""
     layer = layer_of(r.system)
-    dl.poly(list(r.pts), layer=layer, closed=False,
-            dashed=dashed_for(r.system))
-    if r.system not in _TAGGED_RUNS or not r.dia_mm or len(r.pts) < 2:
+    color = _sys_color(layer)
+    dashed = dashed_for(r.system)
+    pts = list(r.pts)
+    bore = (getattr(r, "dia_mm", 0) or 0) / FT_MM          # pipe Ø in feet
+    walls = _pipe_walls(pts, bore / 2.0) if (r.system in _TWO_WALL and bore > 0.10 and len(pts) >= 2) else None
+    if walls:
+        for wl in walls:                                    # outer coloured walls
+            dl.poly(wl, layer=layer, closed=False)
+        inner = _pipe_walls(pts, bore * 0.32)               # inner black bore walls
+        if inner:
+            for wl in inner:
+                dl.poly(wl, layer="PLUMB-BORE", closed=False)
+        dl.poly(pts, layer="PLUMB-CL", closed=False, dashed=True)   # dashed centre
+        for i in range(1, len(pts) - 1):                    # fitting at each bend
+            a_in = math.atan2(pts[i][1] - pts[i - 1][1], pts[i][0] - pts[i - 1][0])
+            a_out = math.atan2(pts[i + 1][1] - pts[i][1], pts[i + 1][0] - pts[i][0])
+            _fitting(dl, pts[i][0], pts[i][1], a_in, a_out, bore)
+        _flow_arrow(dl, pts, layer, color)
+    elif r.system in _SUPPLY and len(pts) >= 2:
+        # water supply: one thick dash-dot line + flow arrow + Ø tag (no slope)
+        dl.poly(pts, layer=layer, closed=False, dashed=True)
+        _flow_arrow(dl, pts, layer, color)
+        if r.dia_mm and r.length_ft >= _MIN_TAG_FT:
+            best = max(zip(pts, pts[1:]), key=lambda ab: math.dist(ab[0], ab[1]))
+            (ax, ay), (bx, by) = best
+            if math.dist((ax, ay), (bx, by)) >= _MIN_TAG_FT:
+                mx, my = (ax + bx) / 2, (ay + by) / 2
+                ang = math.degrees(math.atan2(by - ay, bx - ax))
+                if ang > 90:
+                    ang -= 180
+                if ang < -90:
+                    ang += 180
+                ar = math.radians(ang)
+                px, py = -math.sin(ar), math.cos(ar)
+                dl.text(mx + px * 0.5, my + py * 0.5, f"{r.dia_mm:g}Ø",
+                        h=0.30, layer=layer, angle=ang)
+        return
+    else:
+        dl.poly(pts, layer=layer, closed=False, dashed=dashed)
+
+    if r.system not in _TAGGED_RUNS or not r.dia_mm or len(pts) < 2:
         return
     if r.length_ft < _MIN_TAG_FT:
         return
-    # put the tag on the LONGEST straight leg, along it
-    best = max(zip(r.pts, r.pts[1:]),
-              key=lambda ab: math.dist(ab[0], ab[1]))
+    best = max(zip(pts, pts[1:]), key=lambda ab: math.dist(ab[0], ab[1]))
     (ax, ay), (bx, by) = best
     if math.dist((ax, ay), (bx, by)) < _MIN_TAG_FT:
         return
@@ -215,5 +334,12 @@ def draw_run(dl: DrawList, r) -> None:
         ang -= 180
     if ang < -90:
         ang += 180
-    dl.text(mx, my + 0.22, P.slope_text(r.system, r.dia_mm),
-            h=0.24, layer=layer, angle=ang)
+    # two-line tag stacked ABOVE the pipe (perpendicular offset), rotated to it
+    ar = math.radians(ang)
+    px, py = -math.sin(ar), math.cos(ar)
+    off = max(0.55, bore / 2 + 0.4)
+    l1, l2 = P.pipe_label(r.system, r.dia_mm)
+    dl.text(mx + px * (off + 0.34), my + py * (off + 0.34), l1,
+            h=0.30, layer=layer, angle=ang)
+    if l2:
+        dl.text(mx + px * off, my + py * off, l2, h=0.26, layer=layer, angle=ang)

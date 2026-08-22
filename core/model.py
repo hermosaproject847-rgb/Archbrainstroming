@@ -428,6 +428,10 @@ class DimChain:
     axis: Literal["top", "bottom", "left", "right"] = "top"
     at: float = 0.0             # offset from the building, feet
     ticks: list[float] = field(default_factory=list)   # centre-line stations
+    # absolute position of the dimension line (feet). When set, the chain is
+    # drawn HERE (beside an internal wall) instead of out on the building edge.
+    # For a horizontal chain `base` is the y of the line; for a vertical one, x.
+    base: float | None = None
 
 
 @dataclass
@@ -467,6 +471,7 @@ class Plan:
     # reproduces the DXF as-is and does not thicken walls or re-label rooms.
     raw: list = field(default_factory=list)
     dims: list[DimChain] = field(default_factory=list)
+    autodim: bool = False            # draw automatic internal (clear) dimensions
     title: TitleBlock = field(default_factory=TitleBlock)
     north_deg: float = 90.0          # bearing of North on the sheet, 90 = up
     plot: dict[str, Any] | None = None   # {"x","y","w","h"} plot line, optional
@@ -541,6 +546,7 @@ class Plan:
         p.flooring = [mk(FloorSpec, s) for s in d.get("flooring", [])]
         p.raw = list(d.get("raw", []))
         p.dims = [mk(DimChain, c) for c in d.get("dims", [])]
+        p.autodim = bool(d.get("autodim", False))
         t = d.get("title") or {}
         p.title = mk(TitleBlock, t) if isinstance(t, dict) else TitleBlock()
         p.north_deg = float(d.get("north_deg", 90.0))

@@ -52,7 +52,7 @@ _DESKTOP_ONLY = {"pick_sketch", "pick_sketches", "load_plan_json",
 # NOTE: passwords are stored as typed so the admin can SEE them in the panel
 # (an explicit product requirement for handing logins to paying clients). Keep
 # users.json private; it is git-ignored. Sessions are in-memory tokens.
-USERS_FILE = os.path.join(ROOT, "users.json")
+USERS_FILE = os.path.join(os.environ.get("DATA_DIR") or ROOT, "users.json")
 _users_lock = _threading.Lock()
 SESSIONS: dict = {}                 # token -> {"user":..., "role":...}
 
@@ -339,8 +339,48 @@ def statics(filepath):
     return _no_cache(static_file(filepath, root=UI))
 
 
+def _seed_claude_credentials():
+    """Cloud host: the Claude CLI login token comes in as the CLAUDE_CREDENTIALS
+    secret (the content of ~/.claude/.credentials.json from the user's PC).
+    Write it where the CLI expects it, once, at startup. No secret → no-op."""
+    raw = os.environ.get("CLAUDE_CREDENTIALS")
+    if not raw:
+        return
+    try:
+        d = os.path.join(os.path.expanduser("~"), ".claude")
+        os.makedirs(d, exist_ok=True)
+        p = os.path.join(d, ".credentials.json")
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(raw)
+        try:
+            os.chmod(p, 0o600)
+        except Exception:
+            pass
+        print("Claude CLI credentials seeded from CLAUDE_CREDENTIALS.")
+    except Exception as e:
+        print("Could not seed Claude credentials:", e)
+
+
+def _seed_users():
+    """Cloud host without persistent disk: the USERS_JSON secret (the content of
+    users.json) restores the user list on every container restart. Only used
+    when no users.json exists yet, so live edits during a run still win."""
+    raw = os.environ.get("USERS_JSON")
+    if not raw or os.path.isfile(USERS_FILE):
+        return
+    try:
+        json.loads(raw)             # must be valid JSON before we trust it
+        with open(USERS_FILE, "w", encoding="utf-8") as fh:
+            fh.write(raw)
+        print("users.json seeded from USERS_JSON.")
+    except Exception as e:
+        print("Could not seed users.json:", e)
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8080"))
+    _seed_claude_credentials()      # cloud: CLI login token from the secret
+    _seed_users()                   # cloud: user list from the secret
     load_users()                    # ensure users.json + default admin exist
     # waitress is a real production WSGI server (threaded, correct Content-Length
     # behind a proxy). wsgiref — the stdlib fallback — is single-threaded and can

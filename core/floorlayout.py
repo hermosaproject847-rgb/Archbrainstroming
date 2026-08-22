@@ -155,7 +155,38 @@ def _room_at(plan: Plan, x: float, y: float):
 
 
 # ------------------------------------------------------------- drawing
-def _origin(x0, y0, x1, y1, s, ax, ay):
+def _entry_point(plan: Plan, room):
+    """Midpoint of the door / gate that opens into `room`, and which way its
+    wall runs. Returns (px, py, along) where along = 'x' (door on a top/bottom
+    wall) or 'y' (door on a left/right wall), or None if the room has no door.
+    'Start from entry' begins the tiling here, so the cut tiles fall away from
+    the doorway a fitter actually walks in through."""
+    door_types = ("gate", "open", "door", "single_door", "double_door",
+                  "sliding_door")
+    cx, cy = room.x + room.w / 2.0, room.y + room.h / 2.0
+    best, bd = None, 1e18
+    for o in getattr(plan, "openings", []):
+        if not (getattr(o, "is_door", False) or o.type in door_types):
+            continue
+        w = plan.wall(o.wall_id)
+        if w is None:
+            continue
+        try:
+            mx, my = w.point_at(o.pos + o.width / 2.0)
+        except Exception:
+            continue
+        # the door's midpoint must sit on THIS room's boundary band
+        if not (room.x - 0.6 <= mx <= room.x + room.w + 0.6
+                and room.y - 0.6 <= my <= room.y + room.h + 0.6):
+            continue
+        d = (mx - cx) ** 2 + (my - cy) ** 2
+        if d < bd:
+            along = "x" if abs(w.x2 - w.x1) >= abs(w.y2 - w.y1) else "y"
+            best, bd = (mx, my, along), d
+    return best
+
+
+def _origin(x0, y0, x1, y1, s, ax, ay, entry=None):
     """Where the first joint line sits on each axis, from the start rule."""
     p = F.PERIM_JOINT_MM / FT_MM
     cx = ax["cut_mm"] / FT_MM
@@ -172,6 +203,14 @@ def _origin(x0, y0, x1, y1, s, ax, ay):
         ox, oy = x0 + p, y1 - p
     elif rule == "corner-ne":
         ox, oy = x1 - p, y1 - p
+    elif rule == "entry" and entry is not None:
+        px, py, along = entry
+        if along == "x":                 # door on a top / bottom wall
+            ox = px                       # first full tile begins AT the doorway
+            oy = (y0 + p) if abs(py - y0) <= abs(py - y1) else (y1 - p)
+        else:                            # door on a left / right wall
+            oy = py
+            ox = (x0 + p) if abs(px - x0) <= abs(px - x1) else (x1 - p)
     return ox + s.start_dx, oy + s.start_dy
 
 
@@ -205,7 +244,8 @@ def draw(plan: Plan, dl: DrawList) -> None:
         rep = grp[0][0]                            # representative spec
         ax = F.cut_pieces(gx1 - gx0, rep.tile_w, rep.spacer_mm)
         ay = F.cut_pieces(gy1 - gy0, rep.tile_h, rep.spacer_mm)
-        origin = _origin(gx0, gy0, gx1, gy1, rep, ax, ay)
+        entry = _entry_point(plan, grp[0][1]) if (rep.start or "") == "entry" else None
+        origin = _origin(gx0, gy0, gx1, gy1, rep, ax, ay, entry)
         for i, (s, room, clear) in enumerate(grp):
             # skirting is ROOM-WISE (each room its own run, broken at doorways),
             # never one continuous line across rooms
@@ -354,7 +394,8 @@ def _draw_room(plan, room, clear, s, dl, origin=None, draw_start=True,
     else:
         ax = F.cut_pieces(x1 - x0, s.tile_w, s.spacer_mm)
         ay = F.cut_pieces(y1 - y0, s.tile_h, s.spacer_mm)
-        ox, oy = _origin(x0, y0, x1, y1, s, ax, ay)
+        entry = _entry_point(plan, room) if (s.start or "") == "entry" else None
+        ox, oy = _origin(x0, y0, x1, y1, s, ax, ay, entry)
 
     # every joint and hatch line is CLIPPED to the real floor polygon, so the
     # tiling follows the true room shape (L-shapes, notches and all) and never
@@ -375,13 +416,24 @@ def _draw_room(plan, room, clear, s, dl, origin=None, draw_start=True,
         dl.hatch(loops, kind="vlines", step=Mx, layer="FLR-GRID")
         dl.hatch(loops, kind="hlines", step=My, layer="FLR-GRID")
 
-    # the START POINT: the first full tile, once per region
+    # the START POINT marker — anchored at the DOORWAY (you tile from where you
+    # walk in). No door → the start corner from the rule. Always snapped to the
+    # tile grid and kept fully inside the room, so it never floats mid-room.
     if draw_start:
         xs = _lines_from(ox, Mx, x0, x1)
         ys = _lines_from(oy, My, y0, y1)
-        sx = min((v for v in xs if v >= ox - 1e-6), default=ox)
-        sy = min((v for v in ys if v >= oy - 1e-6), default=oy)
-        _start_tile(dl, sx, sy, min(sx + Tx, x1), min(sy + Ty, y1))
+        ep = _entry_point(plan, room)
+        if ep is not None:
+            ax, ay = ep[0], ep[1]
+        else:
+            ax = ox if (s.start or "").startswith("corner") else x0 + 0.01
+            ay = oy if (s.start or "").startswith("corner") else y0 + 0.01
+        sx = min(xs, key=lambda v: abs(v - ax)) if xs else ox
+        sy = min(ys, key=lambda v: abs(v - ay)) if ys else oy
+        # clamp so the whole start tile sits inside the room floor
+        sx = min(max(sx, x0), max(x0, x1 - Tx))
+        sy = min(max(sy, y0), max(y0, y1 - Ty))
+        _start_tile(dl, sx, sy, sx + Tx, sy + Ty)
 
     # skirting run round the room's own floor (skip 0 = dado; a merged region
     # draws its skirting once, round the whole outline, instead)
@@ -451,16 +503,12 @@ def _hatch(dl, area, x0, y0, x1, y1, s):
 
 
 def _start_tile(dl, x0, y0, x1, y1):
+    """A clean START marker on the first full tile: just the tile outline and a
+    small corner tick — no fill, so it reads as a marker, not a solid block."""
     dl.rect(x0, y0, x1 - x0, y1 - y0, layer="FLR-START")
-    # a few hatch lines to fill the start tile
-    n = 3
-    for i in range(1, n + 1):
-        t = (x1 - x0) * i / (n + 1)
-        dl.line(x0 + t, y0, x0 + t, y1, layer="FLR-START")
-    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    r = min(x1 - x0, y1 - y0) * 0.28
-    dl.line(cx - r, cy, cx + r, cy, layer="FLR-START")
-    dl.line(cx, cy - r, cx, cy + r, layer="FLR-START")
+    # one short diagonal in the corner nearest the start, as the 'begin here' tick
+    d = min(x1 - x0, y1 - y0) * 0.5
+    dl.line(x0, y0, x0 + d, y0 + d, layer="FLR-START")
 
 
 def _label(dl, room, clear, s):

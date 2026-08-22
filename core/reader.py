@@ -59,6 +59,10 @@ def _version_key(name: str) -> tuple:
 
 
 def claude_path() -> str | None:
+    # explicit override first — the Docker/cloud image sets CLAUDE_BIN
+    env = os.environ.get("CLAUDE_BIN")
+    if env and os.path.isfile(env):
+        return env
     if os.path.isdir(CLI_VERSION_DIR):
         for v in sorted(os.listdir(CLI_VERSION_DIR), key=_version_key,
                         reverse=True):

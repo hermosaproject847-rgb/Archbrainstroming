@@ -101,6 +101,19 @@ def slope_text(system: str, dia: float) -> str:
     return f"{dia:g}Ø {name}" + (f" @ 1:{s:g}" if s else "")
 
 
+# Routing-layout abbreviations (match the Orilite plumbing routing sheet):
+# SWP = soil water pipe, WWP = waste water pipe, RWP = rain water pipe.
+PIPE_ABBR = {"SOIL": "SWP", "WASTE": "WWP", "STORM": "RWP",
+             "VENT": "VP", "ACD": "ACP", "CW": "CWP", "HW": "HWP"}
+
+
+def pipe_label(system: str, dia: float) -> tuple[str, str]:
+    """Two-line pipe tag as on the routing sheet: ('110Ø SWP', 'SLOPE 1:80')."""
+    s = slope_for(system, dia)
+    ab = PIPE_ABBR.get(system, system)
+    return (f"{dia:g}Ø {ab}", f"SLOPE 1:{s:g}" if s else "")
+
+
 # ------------------------------------------------------ §9 chamber sizing
 def chamber_size(depth_mm: float) -> str:
     if depth_mm <= 600:

@@ -1,3 +1,13 @@
+---
+title: ARCH BRAIN STORMING
+emoji: 📐
+colorFrom: indigo
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Sketch → Floor Plan
 
 Hand sketch (PNG / JPG / PDF) → professional, dimensioned CAD floor plan

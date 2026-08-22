@@ -252,7 +252,9 @@ $$(".tab").forEach(t => t.onclick = () => {
   // opening/leaving the Sections tool toggles the cut lines on the plan
   if (wasSec !== editingSections() && S.plan && !S.beamView && !S.sectionView) redraw();
   // canvas edit follows the open tab — drop a selection that isn't this type
-  if (_sel && _sel.key !== activeEditKey()) {
+  // (the Plumbing tab edits BOTH pipes and fittings, so keep either)
+  const _aek = activeEditKey();
+  if (_sel && _sel.key !== _aek && !(_aek === "pipes" && _sel.key === "plumb")) {
     _sel = null;
     $$("tr.selrow,.litem.on").forEach(x => x.classList.remove("selrow", "on"));
   }
@@ -268,6 +270,54 @@ function tab(name) {
     const ft = $("#flyoutTitle");
     if (ft && t) ft.textContent = t.dataset.label || t.textContent.trim();
   }
+  applyTabView(name);          // open the layout that belongs to this tool
+}
+/* opening a stage tool shows its own layer view: Electrical tab → electrical
+   layout, Furniture → furniture, Plumbing → plumbing, Flooring → flooring. */
+/* switch to a plumbing layer view (its pipes/fittings become the editable set) */
+async function setPlumbView(v) {
+  if (!S.plan) return;
+  await loadLayers();
+  if (!LAYERS.views || !LAYERS.views[v] || !LAYERS.groups) return;
+  S.curView = v;
+  const want = new Set(LAYERS.views[v] || []);
+  LAYERS.groups.forEach(g => S.layerState[g.key] = want.has(g.key));
+  if (_sel && (_sel.key === "pipes" || _sel.key === "plumb")) { _sel = null; }  // drop hidden selection
+  buildTable("pipes"); redraw();
+  status(v === "watersupply" ? "Water supply layout — edit its pipes & valves"
+    : "Plumbing routing (drainage) — edit its pipes & fittings");
+}
+/* the two-layout switcher shown at the top of the Plumbing tab */
+function plumbViewSwitcher(host) {
+  const bar = document.createElement("div");
+  bar.className = "row"; bar.style.cssText = "gap:6px;margin:0 0 10px";
+  const cur = S.curView;
+  [["drainage", "Plumbing routing"], ["watersupply", "Water supply"]].forEach(([v, lbl]) => {
+    const b = document.createElement("button");
+    b.className = "btn" + (cur === v ? " accent" : "");
+    b.textContent = lbl;
+    b.onclick = () => setPlumbView(v);
+    bar.appendChild(b);
+  });
+  host.appendChild(bar);
+}
+const TAB_VIEW = { furniture: "furniture", elec: "electrical", flooring: "flooring" };
+async function applyTabView(name) {
+  let v = TAB_VIEW[name];
+  // the Plumbing (pipes) tab keeps the current plumbing layout if one is open
+  // (water supply / drainage), else drops into drainage so pipes are visible
+  if (name === "pipes") {
+    if (["watersupply", "drainage", "plumbing"].includes(S.curView)) return;
+    v = "drainage";
+  }
+  if (!v || !S.plan || S.beamView || S.sectionView || S.structView || S.elevView) return;
+  await loadLayers();
+  if (!LAYERS.views || !LAYERS.views[v] || !LAYERS.groups) return;
+  if (S.curView === v) return;                 // already showing it
+  S.curView = v;
+  const want = new Set(LAYERS.views[v] || []);
+  LAYERS.groups.forEach(g => S.layerState[g.key] = want.has(g.key));
+  redraw();
 }
 function closeFlyout() {
   const wasSec = editingSections();
@@ -291,16 +341,18 @@ function editingSections() {
    (click = one step, hold = keep moving). Like moving objects in CAD.        */
 const POSCFG = {
   furniture:{coord:"xy", rot:"angle", full:true},
-  elec:     {coord:"xy", full:true},
+  elec:     {coord:"xy", rot:"angle", full:true},   // AC / fan / board rotate
   columns:  {coord:"xy", full:true},
   walls:    {coord:"seg", full:true},          // move both ends together
   openings: {coord:"pos", full:true},          // slides along its wall (1-D)
   rooms:    {coord:"xy", full:true},
   stairs:   {coord:"xy", full:true},
-  steps:    {coord:"xy", full:true},
+  steps:    {coord:"xy", rot:"__rot90", full:true},   // 90° rotate (swap run axis)
   sections: {coord:"seg", full:true},
   beams:    {coord:"seg", full:true},
   flooring: {coord:"none", full:true},         // no move — just its settings
+  pipes:    {coord:"poly", full:true},         // plumbing pipe runs: drag whole / per vertex
+  plumb:    {coord:"xy", full:true},           // plumbing fittings: gully/manhole/traps/stacks
 };
 let _sel = null;                 // {key, ri}
 const round2 = v => Math.round((+v || 0) * 100) / 100;
@@ -316,6 +368,42 @@ function selectItem(key, ri){
   showGizmo();
   if (typeof buildHandles === "function") buildHandles(S.plInfo);   // canvas grips
 }
+/* nearest wall on one axis to a model point — signed offset (point - wall).
+   axis "x" looks at vertical walls (controls the ↔ gap), "y" at horizontal. */
+function nearestWallAxis(px, py, axis) {
+  let best = null, bd = 1e9;
+  ((S.plan && S.plan.walls) || []).forEach(w => {
+    const vert = Math.abs(w.x1 - w.x2) <= Math.abs(w.y1 - w.y2);
+    if (axis === "x" && !vert) return;
+    if (axis === "y" && vert) return;
+    if (axis === "x") {
+      const lo = Math.min(w.y1, w.y2) - 0.5, hi = Math.max(w.y1, w.y2) + 0.5;
+      if (py < lo || py > hi) return;
+      const wx = (w.x1 + w.x2) / 2, d = Math.abs(px - wx);
+      if (d < bd) { bd = d; best = { coord: wx, dist: px - wx }; }
+    } else {
+      const lo = Math.min(w.x1, w.x2) - 0.5, hi = Math.max(w.x1, w.x2) + 0.5;
+      if (px < lo || px > hi) return;
+      const wy = (w.y1 + w.y2) / 2, d = Math.abs(py - wy);
+      if (d < bd) { bd = d; best = { coord: wy, dist: py - wy }; }
+    }
+  });
+  return best;
+}
+/* move the selected light/furniture so its gap to that nearest wall = absVal (ft) */
+function setWallDist(axis, absVal) {
+  const it = selItem(); if (!it || !_sel) return;
+  const key = _sel.key, w = +it.w || 0, h = +it.h || 0;
+  const cx = key === "furniture" ? it.x + w / 2 : it.x;
+  const cy = key === "furniture" ? it.y + h / 2 : it.y;
+  const nw = nearestWallAxis(cx, cy, axis); if (!nw) return;
+  const sign = nw.dist >= 0 ? 1 : -1;
+  const target = nw.coord + sign * Math.max(0, absVal);
+  pushUndo();
+  if (axis === "x") it.x = r4(key === "furniture" ? target - w / 2 : target);
+  else it.y = r4(key === "furniture" ? target - h / 2 : target);
+  markDirty(); updateGizmoCoords(); redraw(); showGizmo();
+}
 function showGizmo(){
   const g = $("#gizmo"); if (!g) return;
   const it = selItem();
@@ -325,7 +413,9 @@ function showGizmo(){
   g.classList.toggle("oneD", cfg.coord === "pos");
   g.classList.toggle("nomove", cfg.coord === "none");
   const extra = it.kind ? " · " + it.kind : (it.code ? " · " + it.code : "");
-  $("#gizName").textContent = (it.tag || it.name || it.id || it.room || _sel.key) + extra;
+  $("#gizName").textContent = _sel.key === "pipes"
+    ? `${it.system || "PIPE"} ${it.dia_mm ? it.dia_mm + "Ø" : ""}`.trim()
+    : (it.tag || it.name || it.id || it.room || _sel.key) + extra;
   const xy = cfg.coord === "xy", pos = cfg.coord === "pos";
   $("#gizXWrap").classList.toggle("hidden", !xy);
   $("#gizYWrap").classList.toggle("hidden", !xy);
@@ -356,6 +446,25 @@ function showGizmo(){
       box.appendChild(lab);
     });
   }
+  // distance-from-wall — for lights & furniture: shows the gap to the nearest
+  // wall on each axis; type a number to move the piece to that exact gap.
+  if (_sel.key === "furniture" || _sel.key === "elec") {
+    const w = +it.w || 0, h = +it.h || 0;
+    const cx = _sel.key === "furniture" ? it.x + w / 2 : it.x;
+    const cy = _sel.key === "furniture" ? it.y + h / 2 : it.y;
+    [["x", "From wall ↔"], ["y", "From wall ↕"]].forEach(([ax, lbl]) => {
+      const nw = nearestWallAxis(cx, cy, ax);
+      const lab = document.createElement("label"); lab.className = "giz-field";
+      const s = document.createElement("span"); s.textContent = lbl + " (" + DUNIT + ")";
+      const inp = document.createElement("input");
+      inp.type = "number"; inp.step = unitStepAttr();
+      if (nw) inp.value = toDisp(Math.abs(nw.dist));
+      else { inp.placeholder = "no wall"; inp.disabled = true; }
+      inp.onchange = () => { const v = fromDisp(inp.value); if (!isNaN(v)) setWallDist(ax, v); };
+      lab.appendChild(s); lab.appendChild(inp);
+      box.appendChild(lab);
+    });
+  }
   $("#gizDelete").classList.remove("hidden");
 }
 function updateGizmoCoords(){
@@ -372,6 +481,7 @@ function moveSel(dx, dy){
   const it = selItem(); if (!it) return;
   const c = POSCFG[_sel.key].coord, s = gizStep();
   if (c === "xy"){ if (dx) it.x = r4((+it.x || 0) + dx * s); if (dy) it.y = r4((+it.y || 0) + dy * s); }
+  else if (c === "poly"){ const P = it.pts || []; for (let k = 0; k < P.length; k++) P[k] = [r4(P[k][0] + dx * s), r4(P[k][1] + dy * s)]; }
   else if (c === "pos"){ if (dx) it.pos = r4(Math.max(0, (+it.pos || 0) + dx * s)); }
   else if (c === "seg"){
     it.x1 = r4((+it.x1 || 0) + dx * s); it.x2 = r4((+it.x2 || 0) + dx * s);
@@ -379,9 +489,21 @@ function moveSel(dx, dy){
   }
   markDirty(); updateGizmoCoords(); redraw();
 }
+const _ROT90_CCW = { left: "bottom", bottom: "right", right: "top", top: "left" };
+const _ROT90_CW = { left: "top", top: "right", right: "bottom", bottom: "left" };
 function rotSel(dir){
   const it = selItem(); if (!it) return;
   const f = POSCFG[_sel.key] && POSCFG[_sel.key].rot; if (!f) return;
+  if (f === "__rot90") {                    // steps: rotate the whole run 90°
+    const cx = it.x + (+it.w || 0) / 2, cy = it.y + (+it.h || 0) / 2;
+    const nw = +it.h || 0, nh = +it.w || 0;      // swap footprint
+    it.w = r4(nw); it.h = r4(nh);
+    it.x = r4(cx - nw / 2); it.y = r4(cy - nh / 2);
+    it.run_axis = it.run_axis === "x" ? "y" : "x";
+    const map = dir > 0 ? _ROT90_CCW : _ROT90_CW;
+    it.up_from = map[it.up_from] || it.up_from;
+    markDirty(); updateGizmoCoords(); redraw(); return;
+  }
   it[f] = r4(((+it[f] || 0) + dir * 15 + 360) % 360);
   markDirty(); redraw();
 }
@@ -628,6 +750,7 @@ function showSvg(svg, info) {
   S.forceFit = false;
   S.plInfo = info;
   buildHandles(info);          // draggable handles on top of the drawing
+  drawRefs(info);              // persistent reference / guide lines
 }
 
 /* ── canvas direct-manipulation ───────────────────────────────────────
@@ -640,14 +763,41 @@ const NS_SVG = "http://www.w3.org/2000/svg";
 let _hdrag = null;
 function clearHandles() { const o = document.getElementById("plHandles"); if (o) o.remove(); }
 function wallById(id) { return (S.plan && S.plan.walls || []).find(w => w.id === id); }
+/* a pipe run is editable only while its system's layer is shown — so in the
+   Water-supply view you drag supply pipes, in the Drainage view drainage pipes */
+const PIPE_GRP = { CW: "plumbcw", HW: "plumbhw", SOIL: "plumbsoil", WASTE: "plumbwaste",
+  VENT: "plumbvent", STORM: "plumbstorm", ACD: "plumbacd" };
+function pipeVisible(r) {
+  const g = PIPE_GRP[r && r.system];
+  return !S.layerState || g == null || S.layerState[g] !== false;
+}
 
 /* --- snapping ------------------------------------------------------- */
 const GRID = 0.25, ORTHO = 7, ALIGN = 0.4;      // ft grid, ° ortho, ft align
 const snapG = v => Math.round(v / GRID) * GRID;
-function _xs() { const s = []; (S.plan.walls || []).forEach(w => s.push(w.x1, w.x2)); return s; }
-function _ys() { const s = []; (S.plan.walls || []).forEach(w => s.push(w.y1, w.y2)); return s; }
-function snapX(x) { for (const v of _xs()) if (Math.abs(x - v) < ALIGN) return v; return snapG(x); }
-function snapY(y) { for (const v of _ys()) if (Math.abs(y - v) < ALIGN) return v; return snapG(y); }
+let _guides = [];                                // alignment guide lines during a drag
+/* candidate coords to align to — walls, columns, box edges/centres, lights,
+   reference lines — excluding the element being dragged (so it can leave home). */
+function _cand(axis) {
+  const skip = _hdrag && _hdrag.it, s = [];
+  const dk = _hdrag && _sel && _sel.key;
+  if (dk === "elec") {                 // lights align to OTHER LIGHTS only
+    (S.plan.elec || []).forEach(e => { if (e === skip) return; s.push(axis === "x" ? e.x : e.y); });
+    ((S.plan && S.plan.refs) || []).forEach(r => { if (r.axis === (axis === "x" ? "v" : "h")) s.push(r.at); });
+    return s;
+  }
+  (S.plan.walls || []).forEach(w => { if (w === skip) return; axis === "x" ? s.push(w.x1, w.x2) : s.push(w.y1, w.y2); });
+  (S.plan.columns || []).forEach(c => { if (c === skip) return; s.push(axis === "x" ? c.x : c.y); });
+  ["furniture", "rooms", "stairs", "steps"].forEach(arr => (S.plan[arr] || []).forEach(it => {
+    if (it === skip) return; const w = +it.w || 0, h = +it.h || 0;
+    if (axis === "x") s.push(it.x, it.x + w / 2, it.x + w); else s.push(it.y, it.y + h / 2, it.y + h);
+  }));
+  (S.plan.elec || []).forEach(e => { if (e === skip) return; s.push(axis === "x" ? e.x : e.y); });
+  ((S.plan && S.plan.refs) || []).forEach(r => { if (r.axis === (axis === "x" ? "v" : "h")) s.push(r.at); });
+  return s;
+}
+function snapX(x) { for (const v of _cand("x")) if (Math.abs(x - v) < ALIGN) { _guides.push({ axis: "v", at: v }); return v; } return snapG(x); }
+function snapY(y) { for (const v of _cand("y")) if (Math.abs(y - v) < ALIGN) { _guides.push({ axis: "h", at: v }); return v; } return snapG(y); }
 function orthoEnd(mx, my, ox, oy) {              // snap a wall end to H/V + grid
   const a = ((Math.atan2(my - oy, mx - ox) * 180 / Math.PI) % 180 + 180) % 180;
   if (a < ORTHO || a > 180 - ORTHO) return [snapX(mx), oy];      // horizontal
@@ -696,6 +846,27 @@ function hitTest(mx, my, key) {
   } else if (key === "flooring") {
     const room = (S.plan.rooms || []).find(r => mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h);
     if (room) { const i = (S.plan.flooring || []).findIndex(f => f.room === room.name); if (i >= 0) best = { key: "flooring", ri: i }; }
+  } else if (key === "elec") {        // point fixtures: light / AC / switchboard / fan …
+    bd = 1.0;                         // generous click radius for tiny symbols
+    (S.plan.elec || []).forEach((e, i) => {
+      const d = Math.hypot(mx - e.x, my - e.y);
+      if (d < bd) { bd = d; best = { key: "elec", ri: i }; }
+    });
+  } else if (key === "pipes") {       // plumbing pipe runs + fittings (VISIBLE only)
+    (S.plan.pipes || []).forEach((r, i) => {
+      if (!pipeVisible(r)) return;
+      const P = r.pts || [];
+      for (let k = 0; k < P.length - 1; k++) {
+        const d = _distSeg(mx, my, P[k][0], P[k][1], P[k + 1][0], P[k + 1][1]);
+        if (d < bd) { bd = d; best = { key: "pipes", ri: i }; }
+      }
+    });
+    // gully trap / manhole / nahani / stacks etc. — drag these too
+    (S.plan.plumb || []).forEach((p, i) => {
+      if (!pipeVisible(p)) return;
+      const d = Math.hypot(mx - p.x, my - p.y);
+      if (d < Math.max(bd, 1.0) && d < 1.0) { bd = d; best = { key: "plumb", ri: i }; }
+    });
   } else {                            // boxes: furniture / columns / rooms / stairs / steps
     const centred = key === "columns";
     (S.plan[key] || []).forEach((it, i) => {
@@ -708,10 +879,14 @@ function hitTest(mx, my, key) {
 
 function buildHandles(info) {
   clearHandles();
-  if (!S.plan || !info || !_sel || _hdrag) return;
-  if (S.beamView || S.sectionView || S.structView || S.elevView) return;
+  if (!S.plan || !info || !_sel) return;
+  // beam layout is editable in the beam view (drag / move / snap the beams);
+  // section / structural / elevation views stay read-only.
+  const beamEdit = S.beamView && !S.structView && _sel.key === "beams";
+  if ((S.sectionView || S.structView || S.elevView || (S.beamView && !beamEdit))) return;
   if (floorsWithPlans() >= 2 || !POSCFG[_sel.key]) return;
-  if (_sel.key !== activeEditKey()) return;          // only the open tool's type
+  const _ae = activeEditKey();                        // Plumbing tab edits pipes + fittings
+  if (_sel.key !== _ae && !(_ae === "pipes" && _sel.key === "plumb")) return;
   if (POSCFG[_sel.key].coord === "none") return;     // flooring: settings only, no drag
   const it = selItem(); if (!it) return;
   const holder = $("#plHolder"), draw = holder.querySelector("svg"); if (!draw) return;
@@ -768,6 +943,16 @@ function buildHandles(info) {
       moveLine(ax, ay, bx, by, { role: "open-move" });
       grip((ax + bx) / 2, (ay + by) / 2, "g-move", { role: "open-move" });
     }
+  } else if (key === "elec") {                 // point fixture — one move grip (+size for fans/AC)
+    grip(it.x, it.y, "g-move", { role: "pt-move" });
+    if ((+it.size || 0) > 0) grip(it.x + (+it.size) / 2, it.y, "g-size", { role: "elec-size" });
+  } else if (key === "pipes") {                 // pipe run: whole-run move + per-vertex drag
+    const P = it.pts || [];
+    for (let k = 0; k < P.length - 1; k++)
+      moveLine(P[k][0], P[k][1], P[k + 1][0], P[k + 1][1], { role: "pipe-move" });
+    P.forEach((p, vi) => grip(p[0], p[1], "g-end", { role: "pipe-vertex", vi }));
+  } else if (key === "plumb") {                 // fitting (gully / manhole / trap / stack)
+    grip(it.x, it.y, "g-move", { role: "pt-move" });
   } else {
     const centred = key === "columns", w = +it.w || 0, h = +it.h || 0;
     const x0 = centred ? it.x - w / 2 : it.x, y0 = centred ? it.y - h / 2 : it.y;
@@ -787,7 +972,15 @@ function startDrag(e, spec) {
 }
 function applyDrag(d, mx, my) {
   const it = d.it, sp = d.spec, I = d.init;
-  if (sp.role === "seg-a") { const [x, y] = orthoEnd(mx, my, it.x2, it.y2); it.x1 = r4(x); it.y1 = r4(y); }
+  _guides = [];                                  // rebuilt by snapX/snapY this move
+  if (sp.role === "pt-move") { it.x = r4(snapX(mx)); it.y = r4(snapY(my)); }
+  else if (sp.role === "elec-size") { it.size = r4(Math.max(0.5, 2 * Math.abs(mx - it.x))); }
+  else if (sp.role === "pipe-vertex") { const P = it.pts; if (P && P[sp.vi]) P[sp.vi] = [r4(snapX(mx)), r4(snapY(my))]; }
+  else if (sp.role === "pipe-move") {
+    const P = it.pts, IP = (I.pts || []); const dx = snapG(mx - d.gx), dy = snapG(my - d.gy);
+    for (let k = 0; k < P.length && k < IP.length; k++) P[k] = [r4(IP[k][0] + dx), r4(IP[k][1] + dy)];
+  }
+  else if (sp.role === "seg-a") { const [x, y] = orthoEnd(mx, my, it.x2, it.y2); it.x1 = r4(x); it.y1 = r4(y); }
   else if (sp.role === "seg-b") { const [x, y] = orthoEnd(mx, my, it.x1, it.y1); it.x2 = r4(x); it.y2 = r4(y); }
   else if (sp.role === "seg-move") {
     const dx = snapG(mx - d.gx), dy = snapG(my - d.gy);
@@ -798,7 +991,7 @@ function applyDrag(d, mx, my) {
     const proj = (mx - w.x1) * ux + (my - w.y1) * uy - it.width / 2;
     it.pos = r4(Math.min(Math.max(0, snapG(proj)), Math.max(0, L - it.width)));
   } else if (sp.role === "box-move") {
-    it.x = r4(I.x + snapG(mx - d.gx)); it.y = r4(I.y + snapG(my - d.gy));
+    it.x = r4(snapX(I.x + (mx - d.gx))); it.y = r4(snapY(I.y + (my - d.gy)));
   } else if (sp.role === "box-size") {
     if (sp.centred) {
       it.w = r4(Math.max(0.3, 2 * Math.abs(mx - I.x)));
@@ -814,15 +1007,150 @@ function applyDrag(d, mx, my) {
     }
   }
 }
+function clearGuides() { const g = document.getElementById("plGuides"); if (g) g.remove(); }
+function drawGuides(info) {                       // temporary dashed alignment lines
+  clearGuides();
+  if (!_guides.length || !info) return;
+  const holder = $("#plHolder"), draw = holder.querySelector("svg"); if (!draw) return;
+  const ov = document.createElementNS(NS_SVG, "svg");
+  ov.id = "plGuides";
+  ov.setAttribute("viewBox", `0 0 ${info.w_mm} ${info.h_mm}`);
+  ov.setAttribute("width", draw.getAttribute("width"));
+  ov.setAttribute("height", draw.getAttribute("height"));
+  ov.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;overflow:visible";
+  holder.appendChild(ov);
+  const seen = new Set();
+  _guides.forEach(gd => {
+    const kk = gd.axis + gd.at.toFixed(3); if (seen.has(kk)) return; seen.add(kk);
+    const l = document.createElementNS(NS_SVG, "line");
+    if (gd.axis === "v") { const sx = gd.at * info.k + info.ox; l.setAttribute("x1", sx); l.setAttribute("x2", sx); l.setAttribute("y1", 0); l.setAttribute("y2", info.h_mm); }
+    else { const sy = info.h_mm - (gd.at * info.k + info.oy); l.setAttribute("y1", sy); l.setAttribute("y2", sy); l.setAttribute("x1", 0); l.setAttribute("x2", info.w_mm); }
+    l.setAttribute("class", "aguide");
+    ov.appendChild(l);
+  });
+}
+/* ── reference / guide lines (user-placed, vertical or horizontal) ──── */
+function _planBounds() {
+  const xs = [], ys = [];
+  ((S.plan && S.plan.rooms) || []).forEach(r => { xs.push(r.x, r.x + (+r.w || 0)); ys.push(r.y, r.y + (+r.h || 0)); });
+  ((S.plan && S.plan.walls) || []).forEach(w => { xs.push(w.x1, w.x2); ys.push(w.y1, w.y2); });
+  if (!xs.length) return { x0: 0, y0: 0, x1: 20, y1: 20 };
+  return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+}
+function addRef(axis) {                           // axis "v" (vertical) | "h" (horizontal)
+  if (!S.plan) { toast && toast("Pehle plan generate karein"); return; }
+  if (!Array.isArray(S.plan.refs)) S.plan.refs = [];
+  const b = _planBounds();
+  const at = axis === "v" ? r4((b.x0 + b.x1) / 2) : r4((b.y0 + b.y1) / 2);
+  S.plan.refs.push({ axis, at });
+  S.refSel = S.plan.refs.length - 1;
+  markDirty && markDirty(); drawRefs(S.plInfo);
+}
+function deleteRef(i) {
+  if (!S.plan || !S.plan.refs || i == null || i < 0) return;
+  S.plan.refs.splice(i, 1); S.refSel = null;
+  markDirty && markDirty(); drawRefs(S.plInfo);
+}
+function clearRefs() {
+  if (S.plan && S.plan.refs) S.plan.refs = [];
+  S.refSel = null; markDirty && markDirty(); drawRefs(S.plInfo);
+}
+/* Architectural dimensions — toggle automatic INTERNAL (clear, inner-face to
+   inner-face) dimensions. The server (draw_auto_dims) measures each room's CLEAR
+   size from its wall faces (the 9'-7" the drawing prints, not the centre-line
+   10'-0"), places the width below the room and the height to its left, and
+   breaks the chain at every door/window. Drawn on the DIM layer. */
+function autoDims() {
+  if (!S.plan || !((S.plan.walls) || []).length) { status("Pehle plan generate/khol karein"); return; }
+  if (S.plan.autodim) {                        // toggle OFF
+    S.plan.autodim = false; markDirty(); redraw(); status("dimensions off");
+    return;
+  }
+  S.plan.autodim = true;
+  S.plan.dims = [];                            // use the auto internal dims, not old chains
+  if (S.layerState) Object.keys(S.layerState).forEach(k => { if (/dim/i.test(k)) S.layerState[k] = true; });
+  markDirty(); redraw();
+  status("internal (clear) dimensions added — click Dimensions again to remove");
+}
+let _refDrag = null;
+function drawRefs(info) {
+  const old = document.getElementById("plRefs"); if (old) old.remove();
+  if (!S.plan || !info || !S.plan.refs || !S.plan.refs.length) return;
+  const holder = $("#plHolder"), draw = holder.querySelector("svg"); if (!draw) return;
+  const ov = document.createElementNS(NS_SVG, "svg");
+  ov.id = "plRefs";
+  ov.setAttribute("viewBox", `0 0 ${info.w_mm} ${info.h_mm}`);
+  ov.setAttribute("width", draw.getAttribute("width"));
+  ov.setAttribute("height", draw.getAttribute("height"));
+  ov.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;overflow:visible";
+  holder.appendChild(ov);
+  const G = Math.max(1.7, info.w_mm * 0.009);
+  S.plan.refs.forEach((r, i) => {
+    let x1, y1, x2, y2;
+    if (r.axis === "v") { const sx = r.at * info.k + info.ox; x1 = x2 = sx; y1 = 0; y2 = info.h_mm; }
+    else { const sy = info.h_mm - (r.at * info.k + info.oy); y1 = y2 = sy; x1 = 0; x2 = info.w_mm; }
+    const line = document.createElementNS(NS_SVG, "line");
+    line.setAttribute("x1", x1); line.setAttribute("y1", y1); line.setAttribute("x2", x2); line.setAttribute("y2", y2);
+    line.setAttribute("class", "refline");
+    if (i === S.refSel) line.style.strokeWidth = "2";
+    ov.appendChild(line);
+    const hit = document.createElementNS(NS_SVG, "line");
+    hit.setAttribute("x1", x1); hit.setAttribute("y1", y1); hit.setAttribute("x2", x2); hit.setAttribute("y2", y2);
+    hit.setAttribute("class", "refhit");
+    const dn = e => startRefDrag(e, i);
+    hit.addEventListener("mousedown", dn); hit.addEventListener("touchstart", dn, { passive: false });
+    ov.appendChild(hit);
+    if (i === S.refSel) {          // delete handle at the near end
+      const [bx, by] = r.axis === "v" ? [x1, 14] : [14, y1];
+      const del = document.createElementNS(NS_SVG, "rect");
+      del.setAttribute("x", bx - G / 2); del.setAttribute("y", by - G / 2);
+      del.setAttribute("width", G); del.setAttribute("height", G);
+      del.setAttribute("class", "grip"); del.setAttribute("fill", "#f43f5e"); del.setAttribute("stroke", "#fff");
+      del.style.pointerEvents = "auto"; del.style.cursor = "pointer";
+      const rm = e => { e.preventDefault(); e.stopPropagation(); deleteRef(i); };
+      del.addEventListener("mousedown", rm); del.addEventListener("touchstart", rm, { passive: false });
+      ov.appendChild(del);
+    }
+  });
+}
+function startRefDrag(e, i) {
+  e.preventDefault(); e.stopPropagation();
+  S.refSel = i; _refDrag = i; drawRefs(S.plInfo);
+}
+function _refMove(e) {
+  if (_refDrag == null) return;
+  const p = e.touches ? e.touches[0] : e;
+  const m = screenToModel(p.clientX, p.clientY); if (!m) return;
+  const r = S.plan.refs[_refDrag]; if (!r) return;
+  _guides = [];
+  r.at = r4(r.axis === "v" ? snapX(m[0]) : snapY(m[1]));
+  drawRefs(S.plInfo); drawGuides(S.plInfo);
+  if (e.cancelable) e.preventDefault();
+}
+function _refEnd() { if (_refDrag == null) return; _refDrag = null; _guides = []; clearGuides(); markDirty && markDirty(); }
+addEventListener("mousemove", _refMove);
+addEventListener("touchmove", _refMove, { passive: false });
+addEventListener("mouseup", _refEnd);
+addEventListener("touchend", _refEnd);
+addEventListener("touchcancel", _refEnd);
+let _lastDragRender = 0;
 function _dragMove(e) {
   if (!_hdrag) return;
   const p = e.touches ? e.touches[0] : e;
   const m = screenToModel(p.clientX, p.clientY); if (!m) return;
   applyDrag(_hdrag, m[0], m[1]);
-  markDirty(); redraw();
+  markDirty();
+  // The grips + guides follow the finger every frame (cheap, client-side). The
+  // heavy plan redraw (server round-trip — the real source of lag, esp. on the
+  // electrical sheet) is throttled to ~11/s; the final one lands on release.
+  buildHandles(S.plInfo);
+  drawGuides(S.plInfo);
+  if (typeof updateGizmoCoords === "function") updateGizmoCoords();
+  const now = Date.now();
+  if (now - _lastDragRender > 90) { _lastDragRender = now; redraw(); }
   if (e.cancelable) e.preventDefault();
 }
-function _dragEnd() { if (!_hdrag) return; _hdrag = null; buildHandles(S.plInfo); }
+function _dragEnd() { if (!_hdrag) return; _hdrag = null; clearGuides(); redraw(); buildHandles(S.plInfo); }
 addEventListener("mousemove", _dragMove);
 addEventListener("touchmove", _dragMove, { passive: false });
 addEventListener("mouseup", _dragEnd);
@@ -841,7 +1169,8 @@ addEventListener("touchcancel", _dragEnd);
     const onHandle = dn.t && dn.t.closest && dn.t.closest("#plHandles");
     const wasDn = dn; dn = null;
     if (moved > 5 || onHandle || _hdrag) return;      // a pan or a handle drag
-    if (S.beamView || S.sectionView || S.structView || S.elevView) return;
+    const beamEdit = S.beamView && !S.structView && activeEditKey() === "beams";
+    if (S.sectionView || S.structView || S.elevView || (S.beamView && !beamEdit)) return;
     const ek = activeEditKey(); if (!ek) return;       // no tool open → canvas just pans
     const m = screenToModel(p.clientX, p.clientY); if (!m) return;
     const hit = hitTest(m[0], m[1], ek);               // only the open tool's type
@@ -914,8 +1243,9 @@ async function showLayers() {
   const host = $("#p-layerspanel");
   if (!LAYERS.groups) return;
   const views = [["floor", "Floor plan"], ["furniture", "Furniture"],
-                 ["electrical", "Electrical"], ["plumbing", "Plumbing"],
-                 ["flooring", "Flooring"], ["all", "Everything"]];
+                 ["electrical", "Electrical"], ["watersupply", "Water supply"],
+                 ["drainage", "Drainage"], ["flooring", "Flooring"],
+                 ["all", "Everything"]];
   host.innerHTML =
     '<div class="row" style="margin:0 0 10px">'
     + views.map(([k, l]) =>
@@ -932,6 +1262,7 @@ async function showLayers() {
   $$("#p-layerspanel [data-view]").forEach(b => b.onclick = () => {
     const want = new Set(LAYERS.views[b.dataset.view] || []);
     LAYERS.groups.forEach(g => S.layerState[g.key] = want.has(g.key));
+    S.curView = b.dataset.view;
     showLayers(); redraw();
     status(b.textContent + " view");
   });
@@ -1271,6 +1602,11 @@ const COLS = {
     ["circuit", "Circuit", "text"],
     ["visible", "Show", "bool"],
   ],
+  pipes: [
+    ["system", "System", ["CW", "HW", "SOIL", "WASTE", "VENT", "STORM", "ACD"]],
+    ["dia_mm", "Ø mm", "num"],
+    ["visible", "Show", "bool"],
+  ],
   flooring: [
     ["room", "Room", "text", 1.4],
     ["material", "Material", ["tile", "marble", "wood", "granite"]],
@@ -1312,7 +1648,8 @@ const BLANK = {
   stairs: { type: "U", x: 0, y: 0, w: 9, h: 8, run_axis: "y", up_from: "bottom", turn_side: "right", steps_f1: 9, steps_f2: 9, steps_f3: 2, landing_size: 3, winders: 0, start_step: 0, landing_depth: 0, well_gap: 0, well: true, show_dn: true },
   steps: { x: 0, y: 0, w: 2, h: 6, count: 2, run_axis: "x", up_from: "left", levels: [], label: "" },
   furniture: { kind: "wardrobe", tag: "F", room: "", x: 0, y: 0, w: 2, h: 6, angle: 0, facing: "N", zone: "" },
-  elec: { code: "SL", tag: "SL", room: "", x: 0, y: 0, watts: 9, height_mm: 0, size: 0, circuit: "", visible: true, controls: [] },
+  elec: { code: "SL", tag: "SL", room: "", x: 0, y: 0, watts: 9, height_mm: 0, size: 0, angle: 0, circuit: "", visible: true, controls: [] },
+  pipes: { system: "SOIL", dia_mm: 110, pts: [], length_ft: 0, tag: "", visible: true },
   flooring: { room: "", rx: 0, ry: 0, material: "tile", finish: "Matt", tile_w: 600, tile_h: 600, spacer_mm: 2, start: "symmetry", start_dx: 0, start_dy: 0, skirting_mm: 75, skirting_type: "surface", drop_mm: 0, junction_drop: true, code: "VT-01", visible: true },
 };
 
@@ -1646,6 +1983,7 @@ const LIST_COLS = {
   openings: ["type", "tag", "wall_id"],
   furniture: ["tag", "kind", "room"],
   elec: ["tag", "code", "room"],
+  pipes: ["system", "dia_mm"],
   columns: ["tag", "shape", "room"],
   walls: ["id", "room", "thickness_in"],
   rooms: ["name", "size_label"],
@@ -1754,6 +2092,7 @@ function buildTable(key) {
     : COLS[key];
 
   host.innerHTML = "";
+  if (key === "pipes") plumbViewSwitcher(host);   // Water supply / Drainage toggle
   const view = buildFilters(host, key, rows);
 
   const tbl = document.createElement("table");
@@ -2154,6 +2493,18 @@ function buildTable(key) {
   add.onclick = () => {
     if (key === "walls") return openWallDialog();   // placed, not dropped at 0,0
     if (key === "furniture") return openFurnDialog();
+    if (key === "pipes") {                           // add a pipe run at plan centre
+      pushUndo();
+      const b = _planBounds(), cx = r4((b.x0 + b.x1) / 2), cy = r4((b.y0 + b.y1) / 2);
+      const fresh = structuredClone(BLANK.pipes);
+      fresh.pts = [[cx, cy], [r4(cx + 4), cy]];      // a short run to start; drag to route
+      fresh.length_ft = 4;
+      rows.push(fresh);
+      markDirty(); buildTables(); redraw();
+      selectItem("pipes", rows.length - 1);          // open it in the gizmo (set system/Ø)
+      status("pipe added — set System & Ø mm in the gizmo, then drag its ends to route");
+      return;
+    }
     pushUndo();
     const fresh = structuredClone(BLANK[key]);
     rows.push(fresh);
@@ -2661,6 +3012,8 @@ function setPlan(plan) {
   if ($("#gizmo")) $("#gizmo").classList.add("hidden");
   S.forceFit = true;        // a fresh plan starts fitted to the pane
   ensureDefaultSections(plan);   // 2 vertical + 2 horizontal cut lines by default
+  if (!Array.isArray(plan.refs)) plan.refs = [];   // user-placed reference guides
+  S.refSel = null;
   S.plan = plan;
   ["btnRender", "btnExport"].forEach(i => $("#" + i).disabled = false);
   refreshStageButtons();
@@ -3452,6 +3805,10 @@ $("#btnExport").onclick = async () => {
   status("exported — one combined DXF with everything: " + combined);
 };
 $("#btnFolder").onclick = () => api().open_folder(S.lastFolder || "");
+if ($("#btnDims")) $("#btnDims").onclick = () => autoDims();
+if ($("#btnRefV")) $("#btnRefV").onclick = () => addRef("v");
+if ($("#btnRefH")) $("#btnRefH").onclick = () => addRef("h");
+if ($("#btnRefClr")) $("#btnRefClr").onclick = () => clearRefs();
 
 /* PDF → DXF — a direct geometric conversion (no AI, offline) */
 if ($("#btnPdf2Dxf")) $("#btnPdf2Dxf").onclick = async () => {

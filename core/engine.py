@@ -607,14 +607,35 @@ def _fmt_ft(v: float) -> str:      # noqa: F811 — one formatter for the sheet
     return units.fmt_len(v)
 
 
+def _dim_chain(dl: DrawList, ticks: list[float], base: float, horiz: bool) -> None:
+    """One dimension string: the line, its ticks, and the length text per bay."""
+    ticks = sorted(set(round(t, 4) for t in ticks))
+    # drop zero-length bays (coincident stations)
+    ticks = [t for i, t in enumerate(ticks) if i == 0 or t - ticks[i - 1] > 0.02]
+    if len(ticks) < 2:
+        return
+    if horiz:
+        dl.line(ticks[0], base, ticks[-1], base, layer="DIM")
+        for t in ticks:
+            dl.line(t, base - 0.32, t, base + 0.32, layer="DIM")
+        for a, b in zip(ticks, ticks[1:]):
+            dl.text((a + b) / 2, base + 0.55, _fmt_ft(b - a), h=0.40, layer="DIM")
+    else:
+        dl.line(base, ticks[0], base, ticks[-1], layer="DIM")
+        for t in ticks:
+            dl.line(base - 0.32, t, base + 0.32, t, layer="DIM")
+        for a, b in zip(ticks, ticks[1:]):
+            dl.text(base - 0.55, (a + b) / 2, _fmt_ft(b - a), h=0.40,
+                    layer="DIM", angle=90)
+
+
 def draw_dims(plan: Plan, dl: DrawList) -> None:
     x0, y0, x1, y1 = plan.extents()
     for chain in plan.dims:
-        ticks = sorted(set(chain.ticks))
-        if len(ticks) < 2:
-            continue
         horiz = chain.axis in ("top", "bottom")
-        if chain.axis == "top":
+        if getattr(chain, "base", None) is not None:
+            base = chain.base          # dimension line placed beside a wall
+        elif chain.axis == "top":
             base = y1 + chain.at
         elif chain.axis == "bottom":
             base = y0 - chain.at
@@ -622,20 +643,32 @@ def draw_dims(plan: Plan, dl: DrawList) -> None:
             base = x0 - chain.at
         else:
             base = x1 + chain.at
+        _dim_chain(dl, list(chain.ticks), base, horiz)
 
-        if horiz:
-            dl.line(ticks[0], base, ticks[-1], base, layer="DIM")
-            for t in ticks:
-                dl.line(t, base - 0.32, t, base + 0.32, layer="DIM")
-            for a, b in zip(ticks, ticks[1:]):
-                dl.text((a + b) / 2, base + 0.55, _fmt_ft(b - a), h=0.40, layer="DIM")
-        else:
-            dl.line(base, ticks[0], base, ticks[-1], layer="DIM")
-            for t in ticks:
-                dl.line(base - 0.32, t, base + 0.32, t, layer="DIM")
-            for a, b in zip(ticks, ticks[1:]):
-                dl.text(base - 0.55, (a + b) / 2, _fmt_ft(b - a), h=0.40,
-                        layer="DIM", angle=90)
+
+def draw_auto_dims(plan: Plan, dl: DrawList) -> None:
+    """Automatic INTERNAL (clear, inner-face to inner-face) dimensions: for every
+    room its CLEAR width is dimensioned just below it and its clear height just
+    to its left — ONE clean dimension per side that matches the room's printed
+    size (7'-10" clear, never the centre-line 10'-0" and never fragmented by
+    neighbouring openings). Overall size on the top & right."""
+    OFF = 1.0
+    x0, y0, x1, y1 = plan.extents()
+    for room in plan.rooms:
+        if getattr(room, "void", False):
+            continue
+        poly = room_clear(plan, room)
+        if poly.is_empty:
+            continue
+        cx0, cy0, cx1, cy1 = poly.bounds
+        if cx1 - cx0 < 0.5 or cy1 - cy0 < 0.5:
+            continue
+        # one clean per-room dimension each way (no opening fragmentation)
+        _dim_chain(dl, [cx0, cx1], cy0 - OFF, True)      # clear WIDTH, below the room
+        _dim_chain(dl, [cy0, cy1], cx0 - OFF, False)     # clear HEIGHT, left of the room
+    # overall size on the top & right
+    _dim_chain(dl, [x0, x1], y1 + 1.4, True)
+    _dim_chain(dl, [y0, y1], x1 + 1.4, False)
 
 
 def draw_north(plan: Plan, dl: DrawList) -> None:
@@ -691,9 +724,12 @@ def draw_plumbing(plan: Plan, dl: DrawList) -> None:
     for r in plan.pipes:
         if getattr(r, "visible", True):
             plumbsym.draw_run(dl, r)
+    # No numbered key-note circles on the routing layout — the reference sheet
+    # keeps it clean with pipe tags + the legend, not numbers piled on fittings
+    # (that was the overlap / clutter). Traps, stacks and valves still draw.
     for p in plan.plumb:
         if getattr(p, "visible", True):
-            plumbsym.draw(dl, p)
+            plumbsym.draw(dl, p, keynotes=False)
 
 
 def draw_elec(plan: Plan, dl: DrawList) -> None:
@@ -842,6 +878,8 @@ def build(plan: Plan, wall_tags: bool = True, furniture: bool = True,
         draw_steps(plan, dl)
         draw_rooms(plan, dl)
         draw_dims(plan, dl)
+        if getattr(plan, "autodim", False):
+            draw_auto_dims(plan, dl)
     # No north point in the drawing area — the sheet's title strip carries it,
     # and a second one both duplicates it and pushes the plan's extents out,
     # costing a scale step.

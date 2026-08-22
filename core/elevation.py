@@ -287,21 +287,25 @@ def build_one(plan, params, face, floor_plans=None):
     ybot = S._hdim_chain(dl, -1.4, ticks, 0, width, 0, L_DIM)
 
     ax = width + 1.8
-    ents = [(0.0, width, "G.L. ±0.000"),
-            (ffl0, width, f"F.F.L {S._lvl(ffl0)}")]
+    # level datums down the right — reference names (INTERNAL RD / PLINTH / SILL
+    # / LINTEL / ROOF SLAB / PARAPET), drawn as dashed datum lines + half-filled
+    # level bubbles + 'LVL. +X'-Y"' (see section._level_marks).
+    ents = [(0.0, width, "INTERNAL RD")]
+    if ffl0 > 0.02:
+        ents.append((ffl0, width, "PLINTH"))
     for k in range(1, floors):
-        ents.append((tops[k], width, f"F.F.L {S._lvl(tops[k])}"))
-    ents.append((roof, width, f"ROOF / SLAB {S._lvl(roof)}"))
+        ents.append((tops[k], width, "FLOOR"))
+    ents.append((roof, width, "ROOF SLAB"))
     if para > 0:
-        ents.append((top + coping, width, f"PARAPET TOP {S._lvl(top + coping)}"))
+        ents.append((top + coping, width, "PARAPET"))
     # one representative sill / lintel level for the ground floor
     grd = [(sill, lintel) for (_a, _b, sill, lintel, kind, _t) in ops
            if kind != "door"]
     if grd:
         sill, lintel = grd[0]
-        ents.append((ffl0 + sill, width * 0.5, f"WINDOW SILL {S._lvl(ffl0 + sill)}"))
-        ents.append((ffl0 + lintel, width * 0.5, f"LINTEL {S._lvl(ffl0 + lintel)}"))
-    S._leaders(dl, ax, ents, L_DIM)
+        ents.append((ffl0 + sill, width * 0.5, "SILL"))
+        ents.append((ffl0 + lintel, width * 0.5, "LINTEL"))
+    S._level_marks(dl, ax, ents, L_DIM)
 
     ty = (ybot if ybot is not None else -1.4) - 1.2
     dl.text(width / 2, ty, face["name"], h=0.55, layer=L_TXT, bold=True)

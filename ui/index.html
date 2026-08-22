@@ -69,26 +69,37 @@
     <button id="btnExport" class="btn primary" disabled>Export</button>
     <button id="btnFolder" class="btn ghost">Output&nbsp;folder</button>
   </div>
+  <span class="sep"></span>
+  <div class="grp">
+    <button id="btnDims" class="btn ghost" title="Architectural dimensions — dimension every wall bay around the plan (AutoCAD-style chains on the DIM layer). Click again to remove.">⟺ Dimensions</button>
+  </div>
+  <span class="sep"></span>
+  <div class="grp" title="Reference guide lines for alignment. Drag to move, select then × to delete.">
+    <button id="btnRefV" class="btn ghost" title="Add a vertical reference line">＋│ Ref</button>
+    <button id="btnRefH" class="btn ghost" title="Add a horizontal reference line">＋─ Ref</button>
+    <button id="btnRefClr" class="btn ghost" title="Remove all reference lines">Clear</button>
+  </div>
 </header>
 
 <div class="body">
   <!-- ── activity rail (tools) ───────────────────────────── -->
   <nav class="rail">
-    <button class="tab" data-tab="issues" data-label="Checks" title="Checks — issues & rulebook"><span class="ic">✓</span><span class="lb">Checks</span><b id="badge" class="badge"></b></button>
+    <button class="tab" data-tab="issues" data-label="Checks" title="Checks — issues & rulebook" style="display:none"><span class="ic">✓</span><span class="lb">Checks</span><b id="badge" class="badge"></b></button>
     <button class="tab" data-tab="rooms" data-label="Rooms" title="Rooms"><span class="ic">🏠</span><span class="lb">Rooms</span></button>
     <button class="tab" data-tab="walls" data-label="Walls" title="Walls"><span class="ic">🧱</span><span class="lb">Walls</span></button>
     <button class="tab" data-tab="openings" data-label="Doors / Windows" title="Doors / Windows"><span class="ic">🚪</span><span class="lb">Doors</span></button>
     <button class="tab" data-tab="columns" data-label="Columns" title="Columns"><span class="ic">🏛️</span><span class="lb">Columns</span></button>
-    <button class="tab" data-tab="sections" data-label="Sections" title="Sections"><span class="ic">✂️</span><span class="lb">Section</span></button>
     <button class="tab" data-tab="beams" data-label="Beams" title="Beams"><span class="ic">🏗️</span><span class="lb">Beams</span></button>
+    <button class="tab" data-tab="flooring" data-label="Flooring" title="Flooring"><span class="ic">▦</span><span class="lb">Floor</span></button>
+    <button class="tab" data-tab="sections" data-label="Sections" title="Sections"><span class="ic">✂️</span><span class="lb">Section</span></button>
     <button class="tab" data-tab="stairs" data-label="Stairs" title="Stairs"><span class="ic">🪜</span><span class="lb">Stairs</span></button>
     <button class="tab" data-tab="steps" data-label="Steps" title="Steps"><span class="ic">👣</span><span class="lb">Steps</span></button>
     <button class="tab" data-tab="furniture" data-label="Furniture" title="Furniture"><span class="ic">🛋️</span><span class="lb">Furniture</span></button>
-    <button class="tab" data-tab="vaastu" data-label="Vaastu" title="Vaastu"><span class="ic">🧭</span><span class="lb">Vaastu</span></button>
     <button class="tab" data-tab="elec" data-label="Electrical" title="Electrical"><span class="ic">⚡</span><span class="lb">Electric</span></button>
-    <button class="tab" data-tab="flooring" data-label="Flooring" title="Flooring"><span class="ic">▦</span><span class="lb">Floor</span></button>
+    <button class="tab" data-tab="pipes" data-label="Plumbing pipes" title="Plumbing — drag &amp; move pipe routing"><span class="ic">🚿</span><span class="lb">Plumbing</span></button>
     <button class="tab" data-tab="layerspanel" data-label="Layers" title="Layers"><span class="ic">🗂️</span><span class="lb">Layers</span></button>
     <button class="tab" data-tab="title" data-label="Title block" title="Title block"><span class="ic">🏷️</span><span class="lb">Title</span></button>
+    <button class="tab" data-tab="vaastu" data-label="Vaastu" title="Vaastu"><span class="ic">🧭</span><span class="lb">Vaastu</span></button>
     <button class="tab" data-tab="log" data-label="Log" title="Log"><span class="ic">📋</span><span class="lb">Log</span></button>
   </nav>
 
@@ -111,6 +122,7 @@
       <div class="panel" id="p-furniture"></div>
       <div class="panel" id="p-vaastu"></div>
       <div class="panel" id="p-elec"></div>
+      <div class="panel" id="p-pipes"></div>
       <div class="panel" id="p-flooring"></div>
       <div class="panel" id="p-layerspanel"></div>
       <div class="panel" id="p-title"></div>

@@ -59,15 +59,23 @@ def _stage_plan(plan_dict: dict, stage: str) -> Plan:
         if "ELECTRICAL" not in name:
             p.title.plan_name = (name.replace("FLOOR PLAN", "").strip()
                                  + " ELECTRICAL LAYOUT").strip()
-    elif stage == "plumbing":
-        # the plumbing sheet keeps ONLY the sanitary and kitchen fixtures —
-        # the rest of the furniture and all the lighting come off
+    elif stage in ("plumbing", "watersupply", "drainage"):
+        # plumbing sheets keep ONLY the sanitary / kitchen fixtures; the rest of
+        # the furniture and all the lighting come off
         from . import plumbing as PL
         p.furniture = [f for f in p.furniture if PL.is_plumb_fixture(f.kind)]
         p.elec = []
-        if "PLUMBING" not in name:
-            p.title.plan_name = (name.replace("FLOOR PLAN", "").strip()
-                                 + " PLUMBING LAYOUT").strip()
+        nm = {"plumbing": "PLUMBING LAYOUT",
+              "watersupply": "WATER SUPPLY LAYOUT",
+              "drainage": "PLUMBING ROUTING LAYOUT"}[stage]
+        p.title.plan_name = (name.replace("FLOOR PLAN", "").strip() + " " + nm).strip()
+    elif stage == "civil_dims":
+        # the civil layout: bare shell + wall numbers + INTERNAL (clear)
+        # dimensions beside every room
+        p.furniture, p.elec, p.plumb, p.pipes = [], [], [], []
+        p.autodim = True
+        p.title.plan_name = ((name.replace("FLOOR PLAN", "").strip()
+                              + " CIVIL LAYOUT").strip() or "GROUND FLOOR CIVIL LAYOUT")
     elif stage == "flooring":
         # the flooring sheet is the bare shell + the tile grid; furniture,
         # plumbing and electrical all come off
@@ -76,6 +84,27 @@ def _stage_plan(plan_dict: dict, stage: str) -> Plan:
             p.title.plan_name = (name.replace("FLOOR PLAN", "").strip()
                                  + " FLOORING LAYOUT").strip()
     return p
+
+
+def _view_layers(view: str) -> set:
+    """The set of drawing-layer names a layer VIEW turns on (water supply /
+    drainage), so a combined sheet can show ONLY that system's pipes."""
+    from . import layers as LY
+    groups = set(LY.VIEWS.get(view, []))
+    allowed = set()
+    for g, _lbl, lys, _on in LY.GROUPS:
+        if g in groups:
+            allowed.update(lys)
+    return allowed
+
+
+def _filter_dl(dl: DrawList, allowed: set) -> DrawList:
+    """A copy of `dl` keeping only items whose layer is in `allowed`."""
+    out = DrawList()
+    for it in dl.items:
+        if getattr(it, "layer", None) in allowed:
+            out.items.append(it)
+    return out
 
 
 def build_structural(plan_dict: dict, sheet_size: str = "A3",
@@ -195,6 +224,12 @@ def build(plan_dict: dict, sheet_size: str = "A3",
              "electrical": "electrical", "plumbing": "plumbing",
              "flooring": "flooring"}
     CAPTION = {"plan": ("Floor plan", ""),
+               "civil_dims": ("Civil layout",
+                              "wall numbers + internal (clear) room dimensions"),
+               "watersupply": ("Water supply layout",
+                               "cold & hot supply pipes, valves and drops"),
+               "drainage": ("Plumbing routing layout",
+                            "soil / waste / vent pipes, slopes, traps & chambers"),
                "furniture": ("Furniture layout",
                              "standard sizes, clearances and Vaastu"),
                "furniture_lineout": ("Furniture line-out",
@@ -241,17 +276,18 @@ def build(plan_dict: dict, sheet_size: str = "A3",
                        "per-beam bars, cutting lengths and steel weight")}
     UNDER = {"furniture": (furnsched, "FURNITURE SCHEDULE — SHEET 2"),
              "electrical": (elecsched, "CIRCUIT SCHEDULE — SHEET 3"),
-             "plumbing": (plumbsched, "PLUMBING SCHEDULES — SHEET 4"),
+             "drainage": (plumbsched, "PLUMBING SCHEDULES — SHEET 4"),
              "flooring": (floorsched, "FLOORING SCHEDULES — SHEET 5")}
 
-    stages = ["plan"]
+    stages = ["plan", "civil_dims"]        # floor plan + a dimensioned civil sheet
     if has_furn:
         stages.append("furniture")
         stages.append("furniture_lineout")
     if has_elec:
         stages.append("electrical")
     if has_plumb:
-        stages.append("plumbing")
+        stages.append("watersupply")       # water supply layout — its own sheet
+        stages.append("drainage")          # plumbing routing (drainage) — its own sheet
         stages.append("plumbing_detail")
     if has_floor:
         stages.append("flooring")
@@ -364,14 +400,27 @@ def build(plan_dict: dict, sheet_size: str = "A3",
             dl = BBS.build(p, src.struct)
             composed, info = sheet.compose(p, dl, sheet_size, orientation,
                                            schedule="")
+        elif stage == "civil_dims":
+            p = _stage_plan(plan_dict, "civil_dims")     # p.autodim = True → clear dims
+            dl = engine.build(p, wall_tags=True, furniture=False, elec=False,
+                              plumb=False, floor=False, sections=False)
+            composed, info = sheet.compose(p, dl, sheet_size, orientation,
+                                           schedule="openings")
+        elif stage in ("watersupply", "drainage"):
+            p = _stage_plan(plan_dict, stage)
+            dl = engine.build(p, wall_tags=False, furniture=True, elec=False,
+                              plumb=True, floor=False, sections=False)
+            dl = _filter_dl(dl, _view_layers(stage))     # only this system's pipes
+            composed, info = sheet.compose(p, dl, sheet_size, orientation,
+                                           schedule="")
         else:
             p = _stage_plan(plan_dict, stage)
             # the floor plan carries the WALL SCHEDULE, so it must also show the
             # wall NUMBERS — otherwise the schedule cannot be tied to a wall.
             dl = engine.build(p, wall_tags=(stage == "plan"),
-                              furniture=(stage in ("furniture", "plumbing")),
+                              furniture=(stage == "furniture"),
                               elec=(stage == "electrical"),
-                              plumb=(stage == "plumbing"),
+                              plumb=False,
                               floor=(stage == "flooring"),
                               sections=(stage == "plan"))   # line on floor plan only
             composed, info = sheet.compose(p, dl, sheet_size, orientation,
@@ -608,15 +657,10 @@ def export_folder(plan_dict: dict, outroot: str, name: str,
     dl, w, h, info = build(plan_dict, sheet_size, orientation)
     shifted = dl.translated(0, -info["y_min"])
     stem = os.path.join(folder, name + "_COMBINED")
-    # DXF first — it is fast (~0.3 s) and is what the CAD user actually wants
+    # ONE DXF only — architecture + full structural set in a single file.
+    # No PDF / SVG / PNG (the user wants just the CAD file).
     paths["combined_dxf"] = export.to_dxf(shifted, stem + ".dxf",
                                           model_scale=info["k"])
-    paths["combined_pdf"] = export.to_pdf(shifted, w, h, stem + ".pdf")
-    if not light:
-        with open(stem + ".svg", "w", encoding="utf-8") as fh:
-            fh.write(export.to_svg(shifted, w, h))
-        paths["combined_svg"] = stem + ".svg"
-        paths["combined_png"] = export.to_png(shifted, w, h, stem + ".png", dpi)
     return {"paths": paths, "info": info, "issues": issues, "fixes": notes,
             "summary": validate.summary(issues), "folder": folder}
 

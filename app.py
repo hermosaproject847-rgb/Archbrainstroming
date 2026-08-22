@@ -26,8 +26,11 @@ except Exception:                    # so a missing pywebview must not break imp
 
 from core import combined, library, pipeline, reader, units  # noqa: E402
 
-WORK = os.path.join(ROOT, "work")
-OUT = os.path.join(ROOT, "out")
+# DATA_DIR (cloud hosts: a persistent volume like /data) keeps work/out — and
+# users.json via webserver.py — safe across container restarts.
+_DATA = os.environ.get("DATA_DIR") or ROOT
+WORK = os.path.join(_DATA, "work")
+OUT = os.path.join(_DATA, "out")
 IMAGE_TYPES = ("Drawings (*.png;*.jpg;*.jpeg;*.pdf;*.webp;*.bmp;*.tif;*.tiff;"
                "*.dxf)",)
 

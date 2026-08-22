@@ -209,10 +209,38 @@ def to_dxf(dl: DrawList, path: str, model_scale: float = 1.0) -> str:
             })
             mt.set_location(P((it.x, it.y)), rotation=it.angle,
                             attachment_point=_ATTACH[(it.halign, it.valign)])
+        elif isinstance(it, Fill):
+            _add_dxf_fill(msp, it, P)
         elif isinstance(it, Hatch):
             _add_dxf_hatch(msp, it, P, s)
     doc.saveas(path)
     return path
+
+
+def _hex_rgb(hx: str):
+    hx = (hx or "#808080").lstrip("#")
+    if len(hx) == 3:
+        hx = "".join(c * 2 for c in hx)
+    try:
+        return (int(hx[0:2], 16), int(hx[2:4], 16), int(hx[4:6], 16))
+    except Exception:
+        return (128, 128, 128)
+
+
+def _add_dxf_fill(msp, it: Fill, P):
+    """A solid colour Fill → a SOLID-filled HATCH in its true colour, so filled
+    elements (level bubbles, flow arrows, stone / DPC bands, material washes)
+    actually appear in the DXF instead of vanishing."""
+    pts = [P(p) for p in it.pts]
+    if len(pts) < 3:
+        return
+    try:
+        h = msp.add_hatch(dxfattribs={"layer": it.layer})
+        h.paths.add_polyline_path(pts, is_closed=True)
+        h.set_solid_fill()
+        h.rgb = _hex_rgb(getattr(it, "color", None))
+    except Exception:
+        msp.add_lwpolyline(pts, close=True, dxfattribs={"layer": it.layer})
 
 
 def _grid_block(msp, it: Hatch, P, s):

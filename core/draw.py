@@ -11,23 +11,27 @@ import math
 
 # layer -> (colour, line weight in mm, dxf aci colour)
 LAYERS = {
-    "WALL-EXT":  ("#111111", 0.30, 7),       # walls 0.30
-    "WALL-INT":  ("#111111", 0.30, 7),
-    "OPENING":   ("#111111", 0.13, 7),
-    "DOOR":      ("#8a5320", 0.13, 34),      # doors brown, 0.13
-    "WINDOW":    ("#1565c0", 0.13, 5),       # windows blue, 0.13
-    "STAIR":     ("#333333", 0.22, 8),
-    "RAILING":   ("#444444", 0.15, 8),
-    "COLUMN":    ("#d62828", 0.30, 1),       # structural columns red, 0.30
-    "COLUMNTAG": ("#d62828", 0.13, 1),
-    "GRASS":     ("#4a8a3a", 0.16, 3),       # lawn / garden — grass tufts only
-    # building section (vertical cut)
-    "SEC-CUT":   ("#111111", 0.30, 7),       # cut masonry / concrete outline
-    "SEC-SLAB":  ("#333333", 0.35, 8),       # slabs, plinth, footing
-    "SEC-EARTH": ("#7a5a3a", 0.12, 34),      # earth / filling hatch
-    "SEC-TEXT":  ("#111111", 0.13, 7),
-    "SEC-DIM":   ("#1d3557", 0.15, 5),       # level marks
-    "SEC-LINE":  ("#d1495b", 0.30, 1),       # section cut line on the plan
+    "WALL-EXT":  ("#111111", 0.22, 7),       # walls — clean, thin
+    "WALL-INT":  ("#111111", 0.18, 7),
+    "OPENING":   ("#111111", 0.10, 7),
+    "DOOR":      ("#8a5320", 0.11, 34),      # doors brown
+    "WINDOW":    ("#1565c0", 0.11, 5),       # windows blue
+    "STAIR":     ("#333333", 0.13, 8),
+    "RAILING":   ("#444444", 0.11, 8),
+    "COLUMN":    ("#d62828", 0.22, 1),       # structural columns red
+    "COLUMNTAG": ("#d62828", 0.11, 1),
+    "GRASS":     ("#4a8a3a", 0.12, 3),       # lawn / garden — grass tufts only
+    # building section (vertical cut) — fine, clean lines
+    "SEC-CUT":   ("#111111", 0.16, 7),       # cut masonry / concrete outline
+    "SEC-SLAB":  ("#333333", 0.18, 8),       # slabs, plinth, footing
+    "SEC-EARTH": ("#7a5a3a", 0.10, 34),      # earth / filling hatch
+    "DET-RED":   ("#e00000", 0.11, 1),       # detail: finish / RCC / membrane red outline
+    "DET-STONE": ("#3a3a3a", 0.13, 8),       # detail: stone tread / riser (dark grey)
+    "DET-DPC":   ("#9a9a9a", 0.11, 9),       # detail: DPC band (grey)
+    "DET-LBL":   ("#1a1ad0", 0.10, 5),       # detail: blue labels + leaders
+    "SEC-TEXT":  ("#111111", 0.11, 7),
+    "SEC-DIM":   ("#1d3557", 0.11, 5),       # level marks
+    "SEC-LINE":  ("#d1495b", 0.18, 1),       # section cut line on the plan
     "WALLTAG":   ("#2f5fd0", 0.15, 5),
     "FURNITURE": ("#666666", 0.18, 8),
     "FURNTAG":   ("#333333", 0.13, 7),
@@ -37,12 +41,15 @@ LAYERS = {
     "ELEC-LOOP": ("#c98a5a", 0.10, 31),   # switch → fixture loops, own layer
     # §14 of the plumbing prompt — the seven systems, the same colours on the
     # plan, in the legend and on the DXF layers
-    "PLUMB-CW":    ("#0d47a1", 0.28, 5),     # cold water, blue solid
-    "PLUMB-HW":    ("#d32f2f", 0.28, 1),     # hot water, red dashed
-    "PLUMB-SOIL":  ("#6d4c41", 0.40, 34),    # soil pipe, brown
-    "PLUMB-WASTE": ("#757575", 0.32, 8),     # waste pipe, grey
-    "PLUMB-VENT":  ("#2e7d32", 0.22, 3),     # vent, green dot-dash
-    "PLUMB-STORM": ("#00acc1", 0.28, 4),     # storm / RWP, cyan
+    "PLUMB-CW":    ("#0d47a1", 0.25, 5),     # cold water supply, blue dash-dot
+    "PLUMB-HW":    ("#d32f2f", 0.25, 1),     # hot water supply, red dash-dot
+    "PLUMB-SOIL":  ("#e8590c", 0.18, 30),    # SWP (soil water pipe) — ORANGE two-wall
+    "PLUMB-WASTE": ("#2e9e2e", 0.18, 3),     # WWP (waste water pipe) — GREEN two-wall
+    "PLUMB-CL":    ("#333333", 0.08, 8),     # pipe centre-line, dashed dark
+    "PLUMB-BORE":  ("#111111", 0.07, 8),     # inner pipe wall (bore), black solid
+    "PLUMB-FIT":   ("#7b2fbf", 0.11, 6),     # pipe fittings (elbow / 45° Y / coupling), violet
+    "PLUMB-VENT":  ("#1b8a3a", 0.16, 3),     # vent, green dot-dash
+    "PLUMB-STORM": ("#00acc1", 0.18, 4),     # storm / RWP, cyan two-wall
     "PLUMB-ACD":   ("#ad1457", 0.20, 6),     # AC condensate, magenta
     "PLUMB-TAG":   ("#263238", 0.13, 8),     # keynote circles and Ø tags
     "SANITARY":    ("#555555", 0.20, 8),     # the fixtures plumbing keeps

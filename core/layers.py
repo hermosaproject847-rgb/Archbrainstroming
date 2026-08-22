@@ -36,6 +36,7 @@ GROUPS = [
     ("plumbhw",   "Plumbing · hot water", ["PLUMB-HW"], True),
     ("plumbsoil", "Plumbing · soil", ["PLUMB-SOIL"], True),
     ("plumbwaste", "Plumbing · waste", ["PLUMB-WASTE"], True),
+    ("plumbcl",   "Plumbing · centre-line & fittings", ["PLUMB-CL", "PLUMB-BORE", "PLUMB-FIT"], True),
     ("plumbvent", "Plumbing · vent", ["PLUMB-VENT"], True),
     ("plumbstorm", "Plumbing · storm / RWP", ["PLUMB-STORM"], True),
     ("plumbacd",  "Plumbing · AC condensate", ["PLUMB-ACD"], True),
@@ -59,12 +60,20 @@ VIEWS = {
                   "furniture", "furntags", "sanitary", "notes", "title"],
     "electrical": ["shell", "columns", "grass", "seclines", "stairs", "rooms", "plot", "north",
                    "elec", "electags", "elecloops", "notes", "title"],
-    # Plumbing keeps ONLY the sanitary and kitchen fixtures — every other
-    # piece of furniture and all the lighting goes off, so the pipes read.
+    # Plumbing is split into TWO clean layouts so the sheets never turn into a
+    # khichdi: WATER SUPPLY (cold/hot supply pipes + valves) and DRAINAGE
+    # (soil/waste/vent + traps/chambers). Each keeps only the sanitary fixtures.
+    "watersupply": ["shell", "columns", "grass", "seclines", "stairs", "rooms", "plot", "north",
+                    "sanitary", "plumbcw", "plumbhw", "plumbcl", "plumbtags",
+                    "notes", "title"],
+    "drainage": ["shell", "columns", "grass", "seclines", "stairs", "rooms", "plot", "north",
+                 "sanitary", "plumbsoil", "plumbwaste", "plumbcl", "plumbvent",
+                 "plumbstorm", "plumbacd", "plumbtags", "notes", "title"],
+    # kept for anything that still asks for the combined plumbing view
     "plumbing": ["shell", "columns", "grass", "seclines", "stairs", "rooms", "plot", "north",
                  "sanitary", "plumbcw", "plumbhw", "plumbsoil", "plumbwaste",
-                 "plumbvent", "plumbstorm", "plumbacd", "plumbtags", "notes",
-                 "title"],
+                 "plumbcl", "plumbvent", "plumbstorm", "plumbacd", "plumbtags",
+                 "notes", "title"],
     # Flooring keeps only the shell and the flooring layers — furniture,
     # plumbing and electrical all go off, so the tile grid reads.
     "flooring": ["shell", "columns", "grass", "seclines", "stairs", "rooms", "plot", "north",

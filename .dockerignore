@@ -1,0 +1,19 @@
+# keep the image small + never ship secrets or local junk
+users.json
+cloudflared.exe
+*.exe
+*.dwg
+*.bak
+NBC/
+out/
+work/
+python/
+pyembed/
+scratchpad/
+node_modules/
+__pycache__/
+*.pyc
+.git/
+*.log
+*.zip
+*.mp4

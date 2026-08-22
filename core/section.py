@@ -284,26 +284,26 @@ def build(plan, p1, p2, params) -> tuple[DrawList, list]:
     # separately as ONE ordered note so its layers never cross-hatch a dozen
     # arrows into the same 400 mm band.
     ax = x_hi + 1.8
-    ents = [(0.0, x_hi, "G.L. ±0.000")]
-    ents.append((ffl0, x_hi,
-                 f"{'PLINTH / ' if plinth > 0 else ''}F.F.L {_lvl(ffl0)}"))
+    # level datums — reference names, drawn as dashed lines + half-filled bubbles
+    ents = [(0.0, x_hi, "INTERNAL RD")]
+    ents.append((ffl0, x_hi, "PLINTH" if plinth > 0 else "F.F.L"))
     for k in range(1, floors):
-        ents.append((tops[k], x_hi, f"F.F.L {_lvl(tops[k])}"))
-    ents.append((top, x_hi, f"R.C.C. ROOF SLAB {_lvl(top)}"))
+        ents.append((tops[k], x_hi, "FLOOR"))
+    ents.append((top, x_hi, "ROOF SLAB"))
     if rep.get("lint_y") is not None:
-        ents.append((rep["lint_y"], rep["lint_x"],
-                     f"LINTEL {_lvl(rep['lint_y'])}"))
+        ents.append((rep["lint_y"], rep["lint_x"], "LINTEL"))
     if rep.get("sill_y") is not None:
-        ents.append((rep["sill_y"], rep["sill_x"],
-                     f"WINDOW SILL {_lvl(rep['sill_y'])}"))
-    if beam > 0 and rep.get("beam_y") is not None:
-        ents.append((rep["beam_y"], rep["beam_x"],
-                     f"R.C.C. BEAM {round(beam * MM)}"))
+        ents.append((rep["sill_y"], rep["sill_x"], "SILL"))
     if para > 0:
-        ents.append((top + para, x_hi, f"PARAPET {_lvl(top + para)}"))
-        ents.append((top + para + coping, x_hi,
-                     f"R.C.C. COPING 150 {_lvl(top + para + coping)}"))
-    _leaders(dl, ax, ents, L_DIM)
+        ents.append((top + para, x_hi, "PARAPET"))
+        ents.append((top + para + coping, x_hi, "COPING"))
+    _level_marks(dl, ax, ents, L_DIM)
+
+    # detail callouts at the key junctions (parapet 'A', roof-slab edge 'B',
+    # plinth / step 'S') — keyed to blown-up 'DETAIL AT x' details
+    _detail_callout(dl, x_hi, (top + para + coping) if para > 0 else top, "A", L_DIM)
+    _detail_callout(dl, x_hi, top, "B", L_DIM)
+    _detail_callout(dl, x_lo, ffl0, "S", L_DIM)
 
     # ---- horizontal dimension chain: every cut-wall centreline + overall ---
     low = -found_depth if plinth > 0 else 0.0
@@ -405,18 +405,16 @@ def _project_levels(out, params, plinth, fh, n):
         segs.append((top, top + para, round(para * MM)))
     _dim_stack(out, x_lo - 2.2, segs, L_DIM)
 
-    ents = [(0.0, x_hi, "G.L. ±0.000"),
-            (plinth, x_hi, f"G.F. F.F.L {_lvl(plinth)}")]
+    ents = [(0.0, x_hi, "INTERNAL RD"),
+            (plinth, x_hi, "PLINTH")]
     for i in range(1, n):
         lv = plinth + i * fh
         ord_ = ["", "1ST", "2ND", "3RD", "4TH", "5TH"]
-        ents.append((lv, x_hi,
-                     f"{ord_[i] if i < len(ord_) else i} FLR F.F.L {_lvl(lv)}"))
-    ents.append((top, x_hi, f"R.C.C. ROOF SLAB {_lvl(top)}"))
+        ents.append((lv, x_hi, f"{ord_[i] if i < len(ord_) else i} FLOOR"))
+    ents.append((top, x_hi, "ROOF SLAB"))
     if para > 0:
-        ents.append((top + para + coping, x_hi,
-                     f"PARAPET {_lvl(top + para + coping)}"))
-    _leaders(out, x_hi + 1.8, ents, L_DIM)
+        ents.append((top + para + coping, x_hi, "PARAPET"))
+    _level_marks(out, x_hi + 1.8, ents, L_DIM)
 
 
 def _cut_column(dl, wx0, wx1, th, ffl, slab_bot, op, beam, dpc,
@@ -627,6 +625,59 @@ def _leaders(dl, x_edge, entries, layer, minsep=0.62, h=0.34):
         dl.line(x_edge, ly, x_edge + 0.35, ly, layer=layer)
         _arrowhead(dl, xp, yp, -1.0, 0.0, layer)
         dl.text(x_edge + 0.5, ly, txt, h=h, layer=layer, halign="left")
+
+
+def _lvl_fi(ft: float) -> str:
+    """Level value in feet-inches for the datum tag, e.g. '+21'-0"'."""
+    sign = "+" if ft >= -1e-6 else "-"
+    a = abs(ft)
+    f = int(a + 1e-6)
+    inch = int(round((a - f) * 12))
+    if inch >= 12:
+        f += 1
+        inch -= 12
+    return f"{sign}{f}'-{inch}\""
+
+
+def _detail_callout(dl, cx, cy, tag, layer, r=0.62):
+    """A DETAIL callout: a dashed circle round a junction with its tag (A/B/S),
+    keying it to the blown-up 'DETAIL AT x' below — the reference convention."""
+    ring = [(cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a)))
+            for a in range(0, 360, 18)]
+    dl.poly(ring, layer=layer, closed=True, dashed=True)
+    dl.text(cx, cy - 0.18, tag, h=0.5, layer=layer, bold=True, halign="center")
+
+
+def _level_bubble(dl, cx, cy, layer, r=0.32):
+    """The standard LEVEL DATUM symbol: a circle with its lower half filled."""
+    ring = [(cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a)))
+            for a in range(0, 360, 20)]
+    half = [(cx - r, cy), (cx + r, cy)] + \
+           [(cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a)))
+            for a in range(180, 361, 20)]
+    dl.fill(half, color="#000000", layer=layer)      # filled lower half
+    dl.poly(ring, layer=layer, closed=True)          # circle outline
+
+
+def _level_marks(dl, x_edge, entries, layer, minsep=0.9, r=0.32, h=0.36):
+    """Reference-style level datums down the right margin: a DASHED datum line
+    from each element across to the margin, a half-filled level bubble, and two
+    lines of text — the name ('SILL LVL.') and the level ('LVL. +3'-3"'). Rows
+    are pushed apart so nothing overlaps."""
+    ents = sorted(entries, key=lambda e: e[0])
+    ys = []
+    for (yp, xp, name) in ents:
+        y = yp if not ys else max(yp, ys[-1] + minsep)
+        ys.append(y)
+    for (yp, xp, name), ly in zip(ents, ys):
+        dl.line(xp, yp, x_edge, yp, layer=layer, dashed=True)   # dashed datum line
+        if abs(ly - yp) > 1e-3:
+            dl.line(x_edge, yp, x_edge, ly, layer=layer)        # jog to label row
+        bx = x_edge + r + 0.05
+        _level_bubble(dl, bx, ly, layer, r)
+        tx = bx + r + 0.4
+        dl.text(tx, ly + 0.14, f"{name} LVL.", h=h, layer=layer, halign="left", bold=True)
+        dl.text(tx, ly - 0.34, f"LVL. {_lvl_fi(yp)}", h=h * 0.82, layer=layer, halign="left")
 
 
 def _note_block(dl, px, py, tx, ty_top, lines, title, txt_layer, lead_layer,
@@ -850,6 +901,16 @@ def build_screen(plan, params):
         # a caption strip between the two
         out.text((pb[0] + pb[2]) / 2, pb[1] - gap * 0.5, "SECTIONS BELOW",
                  h=max(0.8, (pb[2] - pb[0]) * 0.012), layer="SEC-TEXT")
+        # the blown-up construction details (DETAIL AT A / B / S) below the sections
+        try:
+            from . import details as DET
+            wt = next((w.thickness_in for w in plan.walls
+                       if getattr(w, "exterior", False)), 9) / 12.0
+            sec_left = sb[0] + dxs
+            sec_bottom = sb[1] + dys
+            DET.draw_details(out, sec_left, sec_bottom - 6.0, wall_ft=wt)
+        except Exception:
+            pass
     return out, n
 
 
@@ -1147,10 +1208,10 @@ def _draw_stair_section(dl, ta, tb, y_low, rise, s, turn_hi, up_hi, layer):
             la, lb = (tb - run, ymid), (ta, ymid)
             f2 = _nosing_pts(ta + land, ymid, run / max(1, n2), riser, n2, +1)
         _polyline(dl, f1, layer)
-        dl.line(la[0], la[1], lb[0], lb[1], layer=layer)          # half-landing
+        _landing_slab(dl, la[0], lb[0], ymid, _mm_ft(150), layer)  # mid-landing SLAB
         _polyline(dl, f2, layer)
-        dl.line(f1[0][0], f1[0][1], f1[-1][0], f1[-1][1], layer=layer)  # soffits
-        dl.line(f2[0][0], f2[0][1], f2[-1][0], f2[-1][1], layer=layer)
+        _waist_band(dl, f1[0][0], f1[0][1], f1[-1][0], f1[-1][1], _mm_ft(150), layer)
+        _waist_band(dl, f2[0][0], f2[0][1], f2[-1][0], f2[-1][1], _mm_ft(150), layer)
         return
 
     # U3 — two main flights and a short middle flight, over two landings
@@ -1170,13 +1231,44 @@ def _draw_stair_section(dl, ta, tb, y_low, rise, s, turn_hi, up_hi, layer):
         f2 = _nosing_pts(ta, y2, run / max(1, n2), riser, n2, +1)
     for pl in (f1, mid, f2):
         _polyline(dl, pl, layer)
-        dl.line(pl[0][0], pl[0][1], pl[-1][0], pl[-1][1], layer=layer)
+        _waist_band(dl, pl[0][0], pl[0][1], pl[-1][0], pl[-1][1], _mm_ft(150), layer)
+
+
+def _landing_slab(dl, x0, x1, y, wt, layer):
+    """A LANDING / mid-landing as a real RCC slab: a horizontal concrete-hatched
+    band of thickness `wt` under the landing level `y` (not a bare line)."""
+    if abs(x1 - x0) < 1e-6:
+        return
+    lo, hi = min(x0, x1), max(x0, x1)
+    poly = [(lo, y), (hi, y), (hi, y - wt), (lo, y - wt)]
+    try:
+        dl.hatch([poly], kind="concrete", step=0.45, layer="SEC-SLAB")
+    except Exception:
+        pass
+    dl.poly(poly, layer=layer, closed=True)
+
+
+def _waist_band(dl, ax, ay, bx, by, wt, layer):
+    """The sloped RCC WAIST SLAB under a flight: a concrete-hatched band from the
+    pitch line (ax,ay)->(bx,by) down perpendicular by `wt` — so the stair reads
+    as a real slab with thickness, not a bare stepped line."""
+    L = math.hypot(bx - ax, by - ay) or 1e-9
+    ux, uy = (bx - ax) / L, (by - ay) / L
+    px, py = uy, -ux                                 # perpendicular
+    if py > 0:                                        # make it point DOWN
+        px, py = -px, -py
+    poly = [(ax, ay), (bx, by), (bx + px * wt, by + py * wt), (ax + px * wt, ay + py * wt)]
+    try:
+        dl.hatch([poly], kind="concrete", step=0.45, layer="SEC-SLAB")
+    except Exception:
+        pass
+    dl.poly(poly, layer=layer, closed=True)
 
 
 def _draw_flight(dl, ta, tb, y_low, rise, n, up_hi, layer):
-    """A stair flight in section: the stepped tread/riser nosing line rising
-    `rise` across [ta, tb], plus the sloped soffit under it. Standard riser
-    (~6\") sets the count when the sketch gives none."""
+    """A stair flight in section: the RCC waist slab (hatched), the stepped
+    tread/riser nosings on top, and the riser faces filled so it reads solid.
+    Standard riser (~6\") sets the count when the sketch gives none."""
     if tb - ta < 0.2 or rise <= 0:
         return
     n = int(n)
@@ -1188,6 +1280,13 @@ def _draw_flight(dl, ta, tb, y_low, rise, n, up_hi, layer):
         x, y, step = ta, y_low, going
     else:                                            # low at tb, high at ta
         x, y, step = tb, y_low, -going
+    # RCC waist slab first (pitch line runs a riser below the top nosing)
+    wt = _mm_ft(150)
+    if up_hi:
+        _waist_band(dl, ta, y_low, tb, y_low + rise - riser, wt, layer)
+    else:
+        _waist_band(dl, tb, y_low, ta, y_low + rise - riser, wt, layer)
+    # stepped tread / riser nosing line on top
     pts = [(x, y)]
     for _ in range(n):
         y += riser
@@ -1196,11 +1295,8 @@ def _draw_flight(dl, ta, tb, y_low, rise, n, up_hi, layer):
         pts.append((x, y))                           # tread
     for A, B in zip(pts, pts[1:]):
         dl.line(A[0], A[1], B[0], B[1], layer=layer)
-    # sloped soffit (underside of the waist slab)
-    if up_hi:
-        dl.line(ta, y_low, tb, y_low + rise - riser, layer=layer)
-    else:
-        dl.line(tb, y_low, ta, y_low + rise - riser, layer=layer)
+    # arrival LANDING slab at the top of the flight (a real slab, not a line)
+    _landing_slab(dl, x, x + (1 if step > 0 else -1) * _mm_ft(1000), y, wt, layer)
 
 
 def _cut_wall(dl, x0, x1, y0, y1, layer):
