@@ -472,6 +472,23 @@ if ($("#gizClose")) $("#gizClose").onclick = () => { _sel = null; $("#gizmo").cl
   addEventListener("mouseup", () => { on = false; });
 })();
 
+/* keyboard: move the selected item with the ARROW keys (same step as the gizmo).
+   Ignored while typing in a field. Openings only move left/right (along wall).  */
+addEventListener("keydown", e => {
+  if (!_sel || !POSCFG[_sel.key]) return;
+  const t = e.target;
+  if (t && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) return;
+  let dx = 0, dy = 0;
+  if (e.key === "ArrowLeft") dx = -1;
+  else if (e.key === "ArrowRight") dx = 1;
+  else if (e.key === "ArrowUp") dy = 1;
+  else if (e.key === "ArrowDown") dy = -1;
+  else return;
+  if (POSCFG[_sel.key].coord === "pos" && dy) return;   // openings: 1-D only
+  e.preventDefault();
+  moveSel(dx, dy);
+});
+
 /* ── zoom / pan ──────────────────────────────────────────── */
 function viewOf(k) { return k === "sk" ? $("#skView") : $("#plView"); }
 function nodeOf(k) { return k === "sk" ? $("#skImg") : $("#plHolder"); }

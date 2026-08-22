@@ -56,19 +56,10 @@ def _clear(plan: Plan, room):
         piece = max(pieces, key=lambda g: g.intersection(rb).area)
     if piece is None:
         return interior
-    # add each door threshold that touches this piece, so the floor runs into
-    # the doorway (the two rooms meet at the wall centre-line)
-    thresholds = []
-    for o in plan.openings:
-        if "door" not in getattr(o, "type", ""):
-            continue
-        w = plan.wall(o.wall_id)
-        if w is not None and not w.railing:
-            r = engine.opening_rect(w, o)
-            if piece.distance(r) < 0.08:
-                thresholds.append(r)
-    if thresholds:
-        piece = unary_union([piece] + thresholds)
+    # NOTE: the floor STOPS at the wall face on each side of a doorway — it is no
+    # longer extended into the door threshold. Extending it made BOTH adjacent
+    # rooms tile the same doorway (a doubled hatch) and pushed the skirting out
+    # into the opening. Tiles meeting the door line reads correctly.
     # steps carry their own finish — cut them out so tiles start AFTER the step
     for st in getattr(plan, "steps", []):
         try:
@@ -324,7 +315,9 @@ def _door_gaps(plan):
             b = w.point_at(o.pos + o.width)
         except Exception:
             continue
-        spans.append(LineString([a, b]).buffer(0.30, cap_style=2))
+        # flat cap → the gap spans the door WIDTH only (not beyond), while the
+        # 0.6 ft reach cuts through the wall thickness to the skirting line
+        spans.append(LineString([a, b]).buffer(0.6, cap_style=2))
     return unary_union(spans) if spans else None
 
 
