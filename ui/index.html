@@ -190,18 +190,22 @@
     <button class="giz-b down"  data-dir="down"  title="move down">▼</button>
   </div>
   <div class="giz-foot">
-    <label class="giz-step">Step
-      <select id="gizStep">
-        <option value="0.0833">1"</option>
-        <option value="0.25">3"</option>
-        <option value="0.5" selected>6"</option>
-        <option value="1">1'</option>
-        <option value="2">2'</option>
-      </select>
+    <label class="giz-step">Step (ft)
+      <input id="gizStep" type="number" step="0.05" min="0.01" value="0.5"
+             title="Type any step in feet, or tap a preset below">
     </label>
     <button id="gizRotL" class="giz-mini hidden" title="rotate left 15°">⟲</button>
     <button id="gizRotR" class="giz-mini hidden" title="rotate right 15°">⟳</button>
   </div>
+  <div class="giz-presets">
+    <button data-step="0.0833">1"</button>
+    <button data-step="0.25">3"</button>
+    <button data-step="0.5">6"</button>
+    <button data-step="1">1'</button>
+    <button data-step="2">2'</button>
+  </div>
+  <div id="gizFields" class="giz-fields"></div>
+  <button id="gizDelete" class="giz-del hidden">🗑 Delete</button>
 </div>
 
 <div id="busy" class="busy hidden">

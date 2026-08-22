@@ -243,9 +243,16 @@ if ($("#flyoutClose")) $("#flyoutClose").onclick = closeFlyout;
 /* ── move gizmo — pick an item, see its coordinates, nudge with a D-pad
    (click = one step, hold = keep moving). Like moving objects in CAD.        */
 const POSCFG = {
-  furniture:{xy:true, rot:"angle"}, elec:{xy:true}, columns:{xy:true},
-  rooms:{xy:true}, stairs:{xy:true}, steps:{xy:true},
-  openings:{pos:true},          // doors/windows slide along their wall (1-D)
+  furniture:{coord:"xy", rot:"angle", full:true},
+  elec:     {coord:"xy", full:true},
+  columns:  {coord:"xy", full:true},
+  walls:    {coord:"seg", full:true},          // move both ends together
+  openings: {coord:"pos", full:true},          // slides along its wall (1-D)
+  rooms:    {coord:"xy"},
+  stairs:   {coord:"xy"},
+  steps:    {coord:"xy"},
+  sections: {coord:"seg"},
+  beams:    {coord:"seg"},
 };
 let _sel = null;                 // {key, ri}
 const round2 = v => Math.round((+v || 0) * 100) / 100;
@@ -254,8 +261,10 @@ function selectItem(key, ri){
   if (!POSCFG[key]) return;
   _sel = { key, ri };
   $$("tr.selrow").forEach(t => t.classList.remove("selrow"));
-  const tr = $('#p-' + key + ' tr[data-ri="' + ri + '"]');
-  if (tr) tr.classList.add("selrow");
+  $$(".litem.on").forEach(t => t.classList.remove("on"));
+  const row = $('#p-' + key + ' tr[data-ri="' + ri + '"]')
+           || $('#p-' + key + ' .litem[data-ri="' + ri + '"]');
+  if (row) row.classList.add(row.classList.contains("litem") ? "on" : "selrow");
   showGizmo();
 }
 function showGizmo(){
@@ -264,24 +273,50 @@ function showGizmo(){
   if (!it || !_sel){ g.classList.add("hidden"); return; }
   const cfg = POSCFG[_sel.key];
   g.classList.remove("hidden");
-  g.classList.toggle("oneD", !!cfg.pos && !cfg.xy);
+  g.classList.toggle("oneD", cfg.coord === "pos");
   const extra = it.kind ? " · " + it.kind : (it.code ? " · " + it.code : "");
-  $("#gizName").textContent = (it.tag || it.name || _sel.key) + extra;
-  $("#gizXWrap").classList.toggle("hidden", !cfg.xy);
-  $("#gizYWrap").classList.toggle("hidden", !cfg.xy);
-  $("#gizPosWrap").classList.toggle("hidden", !cfg.pos);
-  if (cfg.xy){ $("#gizX").value = round2(it.x); $("#gizY").value = round2(it.y); }
-  if (cfg.pos){ $("#gizPos").value = round2(it.pos); }
+  $("#gizName").textContent = (it.tag || it.name || it.id || _sel.key) + extra;
+  const xy = cfg.coord === "xy", pos = cfg.coord === "pos";
+  $("#gizXWrap").classList.toggle("hidden", !xy);
+  $("#gizYWrap").classList.toggle("hidden", !xy);
+  $("#gizPosWrap").classList.toggle("hidden", !pos);
+  if (xy){ $("#gizX").value = round2(it.x); $("#gizY").value = round2(it.y); }
+  if (pos){ $("#gizPos").value = round2(it.pos); }
   $("#gizRotL").classList.toggle("hidden", !cfg.rot);
   $("#gizRotR").classList.toggle("hidden", !cfg.rot);
+  // full field editor — every editable property (swing, sill, lintel, width …)
+  const box = $("#gizFields"); box.innerHTML = "";
+  if (cfg.full) {
+    const skip = new Set(pos ? ["pos"] : xy ? ["x", "y"] : []);
+    (COLS[_sel.key] || []).forEach(c => {
+      if (skip.has(c[0])) return;
+      const el = makeFieldEl(_sel.key, it, c);
+      const lab = document.createElement("label");
+      lab.className = "giz-field";
+      const s = document.createElement("span"); s.textContent = c[1];
+      lab.appendChild(s); lab.appendChild(el);
+      box.appendChild(lab);
+    });
+  }
+  $("#gizDelete").classList.remove("hidden");
 }
-function gizStep(){ return parseFloat(($("#gizStep") || {}).value) || 0.5; }
+function updateGizmoCoords(){
+  const it = selItem(); if (!it || !_sel) return;
+  const c = POSCFG[_sel.key].coord;
+  if (c === "xy"){ $("#gizX").value = round2(it.x); $("#gizY").value = round2(it.y); }
+  else if (c === "pos"){ $("#gizPos").value = round2(it.pos); }
+}
+function gizStep(){ return Math.max(0.01, parseFloat(($("#gizStep") || {}).value) || 0.5); }
 function moveSel(dx, dy){
   const it = selItem(); if (!it) return;
-  const cfg = POSCFG[_sel.key], s = gizStep();
-  if (cfg.xy){ if (dx) it.x = r4((+it.x || 0) + dx * s); if (dy) it.y = r4((+it.y || 0) + dy * s); }
-  else if (cfg.pos){ if (dx) it.pos = r4(Math.max(0, (+it.pos || 0) + dx * s)); }
-  markDirty(); showGizmo(); redraw();
+  const c = POSCFG[_sel.key].coord, s = gizStep();
+  if (c === "xy"){ if (dx) it.x = r4((+it.x || 0) + dx * s); if (dy) it.y = r4((+it.y || 0) + dy * s); }
+  else if (c === "pos"){ if (dx) it.pos = r4(Math.max(0, (+it.pos || 0) + dx * s)); }
+  else if (c === "seg"){
+    it.x1 = r4((+it.x1 || 0) + dx * s); it.x2 = r4((+it.x2 || 0) + dx * s);
+    it.y1 = r4((+it.y1 || 0) + dy * s); it.y2 = r4((+it.y2 || 0) + dy * s);
+  }
+  markDirty(); updateGizmoCoords(); redraw();
 }
 function rotSel(dir){
   const it = selItem(); if (!it) return;
@@ -308,7 +343,15 @@ if ($("#gizY")) $("#gizY").onchange = () => { const it = selItem(); if (it){ it.
 if ($("#gizPos")) $("#gizPos").onchange = () => { const it = selItem(); if (it){ it.pos = r4(Math.max(0, parseFloat($("#gizPos").value) || 0)); markDirty(); redraw(); } };
 if ($("#gizRotL")) $("#gizRotL").onclick = () => rotSel(+1);
 if ($("#gizRotR")) $("#gizRotR").onclick = () => rotSel(-1);
-if ($("#gizClose")) $("#gizClose").onclick = () => { _sel = null; $("#gizmo").classList.add("hidden"); $$("tr.selrow").forEach(t => t.classList.remove("selrow")); };
+$$("#gizmo .giz-presets button").forEach(b => b.onclick = () => { $("#gizStep").value = b.dataset.step; });
+if ($("#gizDelete")) $("#gizDelete").onclick = () => {
+  if (!_sel) return;
+  const key = _sel.key, ri = _sel.ri;
+  pushUndo(); (S.plan[key] || []).splice(ri, 1);
+  _sel = null; $("#gizmo").classList.add("hidden");
+  markDirty(); buildTables(); redraw();
+};
+if ($("#gizClose")) $("#gizClose").onclick = () => { _sel = null; $("#gizmo").classList.add("hidden"); $$("tr.selrow,.litem.on").forEach(t => t.classList.remove("selrow", "on")); };
 
 /* ── zoom / pan ──────────────────────────────────────────── */
 function viewOf(k) { return k === "sk" ? $("#skView") : $("#plView"); }
@@ -1227,11 +1270,104 @@ if ($("#editFloor")) $("#editFloor").onchange = e => {
     + `the canvas still shows every floor`);
 };
 
+/* keys whose flyout shows only a MINIMAL identity list (click a row → the gizmo
+   opens with every editable field). Keeps the side panel clean. */
+const LIST_COLS = {
+  openings: ["type", "tag", "wall_id"],
+  furniture: ["tag", "kind", "room"],
+  elec: ["tag", "code", "room"],
+  columns: ["tag", "shape", "room"],
+  walls: ["id", "room", "thickness_in"],
+};
+function listCell(row, col) {
+  const v = dig(row, col[0]);
+  if (v == null || v === "") return "—";
+  return String(v).replace(/_/g, " ");
+}
+
+/* ONE editable control for a column (select / number / bool / wall / room /
+   computed) with all the special-case wiring — shared by the table AND the
+   gizmo so a door's swing, sill, lintel, width, retype … behave the same. */
+function makeFieldEl(key, row, col) {
+  const [path, , kind] = col;
+  const calc = (kind && typeof kind === "object" && !Array.isArray(kind))
+    ? kind : null;
+  let el;
+  if (calc && calc.opts) {
+    el = document.createElement("select");
+    el.innerHTML = calc.opts
+      .map(o => `<option value="${o[0]}">${esc(o[1])}</option>`).join("");
+    el.value = String(calc.get(row));
+  } else if (calc) {
+    el = document.createElement("input");
+    el.type = "number"; el.step = "0.05"; el.value = calc.get(row);
+    el._isNum = true;
+  } else if (Array.isArray(kind)) {
+    el = document.createElement("select");
+    el.innerHTML = '<option value=""></option>'
+      + kind.map(o => `<option>${o}</option>`).join("");
+    el.value = dig(row, path) ?? "";
+  } else if (kind === "wall" || kind === "room") {
+    el = document.createElement("select");
+    const list = kind === "wall"
+      ? (S.plan.walls || []).map(w => w.id)
+      : (S.plan.rooms || []).map(r => r.name);
+    el.innerHTML = '<option value=""></option>'
+      + list.map(o => `<option>${esc(o)}</option>`).join("");
+    el.value = dig(row, path) ?? "";
+  } else if (kind === "bool") {
+    el = document.createElement("select");
+    el.innerHTML = "<option value='false'>no</option><option value='true'>yes</option>";
+    el.value = String(!!dig(row, path));
+  } else if (kind === "list") {
+    el = document.createElement("input");
+    el.value = (dig(row, path) || []).join(", ");
+    el.placeholder = "+0'-6\", +1'-0\"";
+  } else {
+    el = document.createElement("input");
+    el.value = dig(row, path) ?? "";
+    if (kind === "num") { el.type = "number"; el.step = stepFor(path); el._isNum = true; }
+  }
+  el.onchange = () => {
+    let v = el.value;
+    if (kind === "num" || (calc && !calc.opts)) v = v === "" ? 0 : parseFloat(v);
+    else if (kind === "bool") v = v === "true";
+    else if (kind === "list") v = v.split(",").map(s => s.trim()).filter(Boolean);
+    pushUndo();
+    if (calc) { calc.set(row, v); markDirty(); refreshKey(key); redraw(); return; }
+    put(row, path, v);
+    if (key === "flooring" && path === "material") {
+      const dfl = FLOOR_DEFAULTS[v]; if (dfl) Object.assign(row, dfl); refreshKey(key);
+    }
+    if (path === "swing.hinge" || path === "swing.side") put(row, "swing.manual", true);
+    let retype = false;
+    if (key === "openings" && path === "width") {
+      const mm = (+v || 0) * 304.8;
+      if (row.type === "single_door" && mm > DOUBLE_MM) { row.type = "double_door"; retype = true; }
+      else if (row.type === "double_door" && mm <= DOUBLE_MM) { row.type = "single_door"; retype = true; }
+    }
+    markDirty();
+    if (retype) status(`${row.tag || "door"} is now a ${row.type.replace("_", " ")} `
+      + `(${Math.round((+v || 0) * 304.8)} mm wide)`);
+    if (retype || path.startsWith("swing.")) refreshKey(key);
+    redraw();
+  };
+  return el;
+}
+/* rebuild the list/table AND (if it is showing) the gizmo for a key */
+function refreshKey(key) {
+  buildTable(key);
+  if (_sel && _sel.key === key) showGizmo();
+}
+
 function buildTable(key) {
   const host = $("#p-" + key);
   if (!host || !COLS[key]) return;          // no panel for this key — skip safely
   const rows = S.plan[key] || (S.plan[key] = []);
-  const cols = COLS[key];
+  const listMode = !!LIST_COLS[key];
+  const cols = listMode
+    ? LIST_COLS[key].map(p => COLS[key].find(c => c[0] === p)).filter(Boolean)
+    : COLS[key];
 
   host.innerHTML = "";
   const view = buildFilters(host, key, rows);
@@ -1251,6 +1387,13 @@ function buildTable(key) {
       if (_sel && _sel.key === key && _sel.ri === ri) tr.classList.add("selrow");
     }
     cols.forEach(c => {
+      if (listMode) {                       // minimal read-only identity cell
+        const td = document.createElement("td");
+        td.className = "licell";
+        td.textContent = listCell(row, c);
+        tr.appendChild(td);
+        return;
+      }
       const [path, , kind] = c;
       // a computed column: not stored on the row, derived from it
       const calc = (kind && typeof kind === "object" && !Array.isArray(kind))
@@ -1341,7 +1484,7 @@ function buildTable(key) {
       tr.appendChild(td);
     });
     const td = document.createElement("td");
-    if (key === "elec") {
+    if (!listMode && key === "elec") {
       // move each light, fan, AC or board, and turn it on or off, without
       // typing coordinates. Shift = fine 3", Ctrl = coarse 1'-0".
       const btn = (label, title, fn) => {
@@ -1385,7 +1528,7 @@ function buildTable(key) {
       };
       td.appendChild(eye);
     }
-    if (key === "furniture") {
+    if (!listMode && key === "furniture") {
       // move, turn and resize the piece without typing coordinates.
       // Shift = fine (3"), Ctrl = coarse (1'-0"); rotation Shift = 15°.
       const btn = (label, title, fn) => {
@@ -1459,7 +1602,7 @@ function buildTable(key) {
       };
       td.appendChild(fb);
     }
-    if (key === "columns") {
+    if (!listMode && key === "columns") {
       // move in every direction, rotate (swap W/H at 90°), and snap flush to a
       // wall face at the junction (not centred on the intersection)
       const btn = (label, title, fn) => {
@@ -1535,7 +1678,7 @@ function buildTable(key) {
             () => flushBeam(row, "bottom"));
       }
     }
-    if (key === "walls") {
+    if (!listMode && key === "walls") {
       // step is in feet; hold Shift for 3", Ctrl for 1'-0"
       const nudge = (label, title, fn) => {
         const b = document.createElement("button");
@@ -1555,7 +1698,7 @@ function buildTable(key) {
       nudge("→←", "trim both ends (Shift 3\", Ctrl 1')",
             d => setWallLength(row, wallLength(row) - 2 * d));
     }
-    if (key === "openings" && String(row.type || "").endsWith("door")) {
+    if (!listMode && key === "openings" && String(row.type || "").endsWith("door")) {
       const flip = document.createElement("button");
       flip.className = "del"; flip.textContent = "⇄";
       flip.title = "flip this door's swing";
@@ -2103,11 +2246,35 @@ async function doRender() {
   }
 }
 
+/* Give a fresh plan four default section lines — two vertical, two horizontal —
+   spread across the building at the 1/3 and 2/3 lines. The user can move / add /
+   delete them like anything else. A plan that already has section lines is left
+   as-is (their own choices win). */
+function ensureDefaultSections(plan) {
+  if (!plan || (plan.sections && plan.sections.length)) return;
+  const xs = [], ys = [];
+  (plan.rooms || []).forEach(r => { xs.push(r.x, r.x + (+r.w || 0)); ys.push(r.y, r.y + (+r.h || 0)); });
+  (plan.walls || []).forEach(w => { xs.push(w.x1, w.x2); ys.push(w.y1, w.y2); });
+  if (!xs.length) return;
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const W = x1 - x0, H = y1 - y0, m = Math.max(2, Math.min(W, H) * 0.15);
+  const vx1 = r4(x0 + W / 3), vx2 = r4(x0 + 2 * W / 3);
+  const hy1 = r4(y0 + H / 3), hy2 = r4(y0 + 2 * H / 3);
+  plan.sections = [
+    { tag: "A", x1: vx1, y1: r4(y0 - m), x2: vx1, y2: r4(y1 + m) },  // vertical
+    { tag: "B", x1: vx2, y1: r4(y0 - m), x2: vx2, y2: r4(y1 + m) },  // vertical
+    { tag: "C", x1: r4(x0 - m), y1: hy1, x2: r4(x1 + m), y2: hy1 },  // horizontal
+    { tag: "D", x1: r4(x0 - m), y1: hy2, x2: r4(x1 + m), y2: hy2 },  // horizontal
+  ];
+}
+
 function setPlan(plan) {
   pushUndo();               // no-op on the first plan; makes a reload undoable
   _sel = null;              // drop any gizmo selection from the old plan
   if ($("#gizmo")) $("#gizmo").classList.add("hidden");
   S.forceFit = true;        // a fresh plan starts fitted to the pane
+  ensureDefaultSections(plan);   // 2 vertical + 2 horizontal cut lines by default
   S.plan = plan;
   ["btnRender", "btnExport"].forEach(i => $("#" + i).disabled = false);
   refreshStageButtons();
