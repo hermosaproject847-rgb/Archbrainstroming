@@ -286,6 +286,9 @@ function showGizmo(){
   if (pos){ $("#gizPos").value = round2(it.pos); }
   $("#gizRotL").classList.toggle("hidden", !cfg.rot);
   $("#gizRotR").classList.toggle("hidden", !cfg.rot);
+  // snap-to-wall makes sense for free x/y items (furniture, lights, columns,
+  // rooms, stairs, steps); openings already ride a wall, segments don't snap.
+  $("#gizSnap").classList.toggle("hidden", cfg.coord !== "xy");
   // full field editor — every editable property (swing, sill, lintel, width …)
   const box = $("#gizFields"); box.innerHTML = "";
   if (cfg.full) {
@@ -346,6 +349,16 @@ if ($("#gizPos")) $("#gizPos").onchange = () => { const it = selItem(); if (it){
 if ($("#gizRotL")) $("#gizRotL").onclick = () => rotSel(+1);
 if ($("#gizRotR")) $("#gizRotR").onclick = () => rotSel(-1);
 $$("#gizmo .giz-presets button").forEach(b => b.onclick = () => { $("#gizStep").value = b.dataset.step; });
+function snapSel(){
+  const it = selItem(); if (!it || !_sel) return;
+  if (POSCFG[_sel.key].coord !== "xy") return;
+  const box = ("w" in it && "h" in it);   // a piece with size vs a point fitting
+  pushUndo();
+  if (flushToWall(it, box)) { markDirty(); updateGizmoCoords(); redraw();
+    status("snapped to the nearest wall"); }
+  else status("no wall to snap to");
+}
+if ($("#gizSnap")) $("#gizSnap").onclick = snapSel;
 if ($("#gizDelete")) $("#gizDelete").onclick = () => {
   if (!_sel) return;
   const key = _sel.key, ri = _sel.ri;

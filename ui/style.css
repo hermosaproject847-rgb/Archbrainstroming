@@ -333,6 +333,11 @@ tr.selrow td{background:rgba(99,102,241,.20) !important; box-shadow:inset 3px 0 
   border:1px solid var(--line); border-radius:7px; padding:5px 7px; font:inherit; font-size:12px}
 .giz-field > select{background:var(--bg3)}
 .giz-field > input:focus,.giz-field > select:focus{outline:none; border-color:var(--pri)}
+.giz-snap{width:100%; margin-top:10px; background:rgba(34,211,238,.14); color:#7fe3f5;
+  border:1px solid rgba(34,211,238,.45); border-radius:9px; padding:8px; cursor:pointer;
+  font:inherit; font-size:12.5px; font-weight:600}
+.giz-snap:hover{background:rgba(34,211,238,.26)}
+.giz-snap.hidden{display:none}
 .giz-del{width:100%; margin-top:12px; background:rgba(242,96,105,.14); color:#ff9aa0;
   border:1px solid rgba(242,96,105,.4); border-radius:9px; padding:8px; cursor:pointer; font:inherit; font-size:12.5px}
 .giz-del:hover{background:rgba(242,96,105,.26)}
