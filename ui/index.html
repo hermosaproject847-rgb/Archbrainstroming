@@ -21,147 +21,155 @@
 </div>
 
 <header class="bar">
-  <div class="brand">ARCH&nbsp;BRAIN&nbsp;STORMING</div>
+  <div class="brand"><span class="logo">AB</span>ARCH&nbsp;BRAIN&nbsp;STORMING</div>
 
-  <button id="btnOpen"   class="btn primary" title="Open a drawing — sketch (PNG / JPG / PDF) or a CAD file (DXF)">Open Drawing</button>
-  <button id="btnLoad"   class="btn" title="Open a previously saved plan (.json) — your old files">Open Plan</button>
-  <button id="btnPdf2Dxf" class="btn" title="Convert a VECTOR PDF drawing straight to an editable DXF — geometry only (lines, curves, text), no AI, fully offline. Turns a PDF drawing into a CAD file in seconds.">PDF → DXF</button>
-  <button id="btnOpenFloors" class="btn" title="Open SEVERAL drawings at once — one per floor. Each is read into its own floor (Ground / First / Second …) and you can edit and export them together.">Open Floors (multi)</button>
-  <button id="btnRead"   class="btn accent" disabled title="Read the drawing into an editable plan">Read Drawing</button>
-  <button id="btnQuiz"   class="btn primary" title="Design a floor plan from a short questionnaire — Claude designs it from your brief (plot, floors, rooms) to NBC standards. Needs the Claude CLI (same as Read Drawing).">Questionnaire</button>
-  <button id="btnFurn"   class="btn accent" disabled title="Lay out furniture over the finished plan — standard sizes, clearances and Vaastu">Furniture Layout</button>
-  <button id="btnElec"   class="btn accent" disabled title="Lay out the electrical and lighting over the furnished plan — lux targets, fan rules, boards, circuits and load">Electrical Layout</button>
-  <button id="btnPlumb"  class="btn accent" disabled title="Lay out the plumbing and drainage over the plan's fixtures — cold and hot water, soil, waste and rain water as separate systems, chambers with computed invert levels">Plumbing Layout</button>
-  <button id="btnFloor"  class="btn accent" disabled title="Set the flooring for every room — tile / marble / wood / granite with size, spacer, start point, skirting and level drop, each editable room by room">Flooring Drawing</button>
-  <button id="btnBoq"    class="btn accent" disabled title="Generate the BOQ (bill of quantities) as an Excel workbook with live formulas — masonry, plaster, flooring, skirting, dado, doors/windows, painting, columns">BOQ</button>
-  <button id="btnSection" class="btn accent" disabled title="Cut a vertical section along a section line — fill the height questionnaire, then it exports the section">Section</button>
-  <button id="btnBeam" class="btn accent" disabled title="Beam layout — put an RCC beam (230 mm default) on every wall, numbered, with a schedule; edit width/depth and rotate each; exports on its own sheet">Beam Layout</button>
-  <button id="btnElev" class="btn accent" disabled title="Elevation — develop the four outer faces (front / rear / left / right) professionally: openings at true positions & heights, plinth, roof, parapet, sunshades and full dimensions. Uses the section-questionnaire heights">Elevation</button>
+  <div class="grp">
+    <button id="btnOpen"   class="btn primary" title="Open a drawing — sketch (PNG / JPG / PDF) or a CAD file (DXF)">Open Drawing</button>
+    <button id="btnLoad"   class="btn" title="Open a previously saved plan (.json) — your old files">Open Plan</button>
+    <button id="btnPdf2Dxf" class="btn" title="Convert a VECTOR PDF drawing straight to an editable DXF — geometry only, no AI, offline.">PDF → DXF</button>
+    <button id="btnOpenFloors" class="btn" title="Open SEVERAL drawings at once — one per floor.">Floors</button>
+    <button id="btnQuiz"   class="btn" title="Design a floor plan from a short questionnaire — Claude designs it to NBC standards. Needs the Claude CLI.">Questionnaire</button>
+  </div>
   <span class="sep"></span>
-  <button id="btnUndo"   class="btn" disabled title="Undo (Ctrl+Z)">↶</button>
-  <button id="btnRedo"   class="btn" disabled title="Redo (Ctrl+Y)">↷</button>
-  <span class="sep"></span>
-  <button id="btnSave"   class="btn" title="Save the plan as a .json file (Ctrl+S)">Save</button>
-  <button id="btnSaveAs" class="btn" title="Save the plan as a .json file under a new name (Ctrl+Shift+S)">Save as</button>
-  <span id="savedAs" class="sub">not saved</span>
-  <span class="sep"></span>
-  <button id="btnSample" class="btn">Sample</button>
+  <div class="grp">
+    <button id="btnRead"   class="btn accent" disabled title="Read the drawing into an editable plan">Read Drawing</button>
+    <button id="btnFurn"   class="btn accent" disabled title="Lay out furniture over the finished plan — standard sizes, clearances and Vaastu">Furniture</button>
+    <button id="btnElec"   class="btn accent" disabled title="Lay out the electrical and lighting over the furnished plan">Electrical</button>
+    <button id="btnPlumb"  class="btn accent" disabled title="Lay out the plumbing and drainage over the plan's fixtures">Plumbing</button>
+    <button id="btnFloor"  class="btn accent" disabled title="Set the flooring for every room — tile / marble / wood / granite">Flooring</button>
+    <button id="btnBoq"    class="btn accent" disabled title="Generate the BOQ (bill of quantities) as an Excel workbook">BOQ</button>
+    <button id="btnSection" class="btn accent" disabled title="Cut a vertical section along a section line">Section</button>
+    <button id="btnBeam" class="btn accent" disabled title="Beam layout — RCC beam on every wall, numbered, with a schedule">Beam</button>
+    <button id="btnElev" class="btn accent" disabled title="Elevation — develop the four outer faces professionally">Elevation</button>
+  </div>
 
   <span class="spacer"></span>
 
-  <label class="field">Sheet
-    <select id="selSheet">
-      <option>A4</option><option selected>A3</option>
-      <option>A2</option><option>A1</option>
-    </select>
-  </label>
-  <label class="field">Orientation
-    <select id="selOrient">
-      <option value="auto" selected>auto</option>
-      <option value="portrait">portrait</option>
-      <option value="landscape">landscape</option>
-    </select>
-  </label>
-
-  <label class="field" title="Show each wall's number on the drawing while you work. Turned off automatically when exporting."><input type="checkbox" id="chkTags" checked> Wall nos.</label>
-  <button id="btnRender" class="btn" disabled>Re-draw</button>
-  <button id="btnExport" class="btn primary" disabled>Export</button>
-  <button id="btnFolder" class="btn ghost">Output&nbsp;folder</button>
+  <div class="grp">
+    <button id="btnUndo"   class="btn icon" disabled title="Undo (Ctrl+Z)">↶</button>
+    <button id="btnRedo"   class="btn icon" disabled title="Redo (Ctrl+Y)">↷</button>
+    <button id="btnSave"   class="btn" title="Save the plan as a .json file (Ctrl+S)">Save</button>
+    <button id="btnSaveAs" class="btn" title="Save the plan as a .json file under a new name (Ctrl+Shift+S)">Save as</button>
+    <span id="savedAs" class="sub">not saved</span>
+    <button id="btnSample" class="btn ghost">Sample</button>
+  </div>
+  <span class="sep"></span>
+  <div class="grp">
+    <label class="field">Sheet
+      <select id="selSheet"><option>A4</option><option selected>A3</option><option>A2</option><option>A1</option></select>
+    </label>
+    <label class="field">Orient
+      <select id="selOrient"><option value="auto" selected>auto</option><option value="portrait">portrait</option><option value="landscape">landscape</option></select>
+    </label>
+    <label class="field" title="Show each wall's number on the drawing while you work."><input type="checkbox" id="chkTags" checked> Wall&nbsp;nos.</label>
+    <button id="btnRender" class="btn" disabled>Re-draw</button>
+    <button id="btnExport" class="btn primary" disabled>Export</button>
+    <button id="btnFolder" class="btn ghost">Output&nbsp;folder</button>
+  </div>
 </header>
 
-<main class="split">
-  <!-- ── input drawing ───────────────────────────────────── -->
-  <section class="pane">
-    <div class="pane-head">
-      <span class="ttl">Drawing</span>
-      <span id="sketchName" class="sub">no file</span>
-      <span class="spacer"></span>
-      <div id="pageTabs" class="pages"></div>
-      <button class="mini" data-zoom="sk" data-d="-1">−</button>
-      <button class="mini" data-zoom="sk" data-d="1">+</button>
-      <button class="mini" data-zoom="sk" data-d="0">fit</button>
-    </div>
-    <div id="skView" class="view">
-      <img id="skImg" alt="" draggable="false">
-      <div id="skEmpty" class="empty">
-        <div class="big">Drop a drawing here</div>
-        <div>PNG · JPG · PDF · DXF — or press <b>Open Drawing</b></div>
-      </div>
-    </div>
-  </section>
-
-  <div id="gutter" class="gutter"></div>
-
-  <!-- ── editable plan ───────────────────────────────────── -->
-  <section class="pane">
-    <div class="floorbar" id="floorBar"></div>
-    <div class="pane-head">
-      <span class="ttl">Plan</span>
-      <span id="planInfo" class="sub"></span>
-      <span class="spacer"></span>
-      <button id="btnBackPlan" class="mini hidden" title="Show the floor plan">Plan</button>
-      <button id="btnShowSection" class="mini hidden" title="Show the section (uses the last heights — press the top Section button to change them)">Section</button>
-      <button id="btnShowBeam" class="mini hidden" title="Show the beam layout">Beam</button>
-      <button id="btnShowStruct" class="mini hidden" title="Show ALL structural sheets together — beam layout, plinth framing, roof framing and the typical section">All structural</button>
-      <button class="mini" data-zoom="pl" data-d="-1">−</button>
-      <button class="mini" data-zoom="pl" data-d="1">+</button>
-      <button class="mini" data-zoom="pl" data-d="0">fit</button>
-    </div>
-    <div id="plView" class="view light">
-      <div id="plHolder"></div>
-      <div id="plEmpty" class="empty">
-        <div class="big">No drawing yet</div>
-        <div>Read a drawing, or load a plan</div>
-      </div>
-    </div>
-  </section>
-</main>
-
-<!-- ── dock ───────────────────────────────────────────────── -->
-<section class="dock">
-  <nav class="tabs">
-    <button class="tab on" data-tab="issues">Checks <b id="badge" class="badge"></b></button>
-    <button class="tab" data-tab="rooms">Rooms</button>
-    <button class="tab" data-tab="walls">Walls</button>
-    <button class="tab" data-tab="openings">Doors / Windows</button>
-    <button class="tab" data-tab="columns">Columns</button>
-    <button class="tab" data-tab="sections">Sections</button>
-    <button class="tab" data-tab="beams">Beams</button>
-    <button class="tab" data-tab="stairs">Stairs</button>
-    <button class="tab" data-tab="steps">Steps</button>
-    <button class="tab" data-tab="furniture">Furniture</button>
-    <button class="tab" data-tab="vaastu">Vaastu</button>
-    <button class="tab" data-tab="elec">Electrical</button>
-    <button class="tab" data-tab="flooring">Flooring</button>
-    <button class="tab" data-tab="layerspanel">Layers</button>
-    <button class="tab" data-tab="title">Title block</button>
-    <button class="tab" data-tab="log">Log</button>
-    <span class="spacer"></span>
-    <label id="editFloorWrap" class="editfloor hidden">Editing:
-      <select id="editFloor" title="Which floor these tables edit — the canvas keeps showing every floor"></select>
-    </label>
-    <span id="status" class="status"></span>
+<div class="body">
+  <!-- ── activity rail (tools) ───────────────────────────── -->
+  <nav class="rail">
+    <button class="tab" data-tab="issues" data-label="Checks" title="Checks — issues & rulebook"><span class="ic">✓</span><span class="lb">Checks</span><b id="badge" class="badge"></b></button>
+    <button class="tab" data-tab="rooms" data-label="Rooms" title="Rooms"><span class="ic">🏠</span><span class="lb">Rooms</span></button>
+    <button class="tab" data-tab="walls" data-label="Walls" title="Walls"><span class="ic">🧱</span><span class="lb">Walls</span></button>
+    <button class="tab" data-tab="openings" data-label="Doors / Windows" title="Doors / Windows"><span class="ic">🚪</span><span class="lb">Doors</span></button>
+    <button class="tab" data-tab="columns" data-label="Columns" title="Columns"><span class="ic">🏛️</span><span class="lb">Columns</span></button>
+    <button class="tab" data-tab="sections" data-label="Sections" title="Sections"><span class="ic">✂️</span><span class="lb">Section</span></button>
+    <button class="tab" data-tab="beams" data-label="Beams" title="Beams"><span class="ic">🏗️</span><span class="lb">Beams</span></button>
+    <button class="tab" data-tab="stairs" data-label="Stairs" title="Stairs"><span class="ic">🪜</span><span class="lb">Stairs</span></button>
+    <button class="tab" data-tab="steps" data-label="Steps" title="Steps"><span class="ic">👣</span><span class="lb">Steps</span></button>
+    <button class="tab" data-tab="furniture" data-label="Furniture" title="Furniture"><span class="ic">🛋️</span><span class="lb">Furniture</span></button>
+    <button class="tab" data-tab="vaastu" data-label="Vaastu" title="Vaastu"><span class="ic">🧭</span><span class="lb">Vaastu</span></button>
+    <button class="tab" data-tab="elec" data-label="Electrical" title="Electrical"><span class="ic">⚡</span><span class="lb">Electric</span></button>
+    <button class="tab" data-tab="flooring" data-label="Flooring" title="Flooring"><span class="ic">▦</span><span class="lb">Floor</span></button>
+    <button class="tab" data-tab="layerspanel" data-label="Layers" title="Layers"><span class="ic">🗂️</span><span class="lb">Layers</span></button>
+    <button class="tab" data-tab="title" data-label="Title block" title="Title block"><span class="ic">🏷️</span><span class="lb">Title</span></button>
+    <button class="tab" data-tab="log" data-label="Log" title="Log"><span class="ic">📋</span><span class="lb">Log</span></button>
   </nav>
 
-  <div class="panels">
-    <div class="panel on" id="p-issues"></div>
-    <div class="panel" id="p-rooms"></div>
-    <div class="panel" id="p-walls"></div>
-    <div class="panel" id="p-openings"></div>
-    <div class="panel" id="p-columns"></div>
-    <div class="panel" id="p-sections"></div>
-    <div class="panel" id="p-beams"></div>
-    <div class="panel" id="p-stairs"></div>
-    <div class="panel" id="p-steps"></div>
-    <div class="panel" id="p-furniture"></div>
-    <div class="panel" id="p-vaastu"></div>
-    <div class="panel" id="p-elec"></div>
-    <div class="panel" id="p-flooring"></div>
-    <div class="panel" id="p-layerspanel"></div>
-    <div class="panel" id="p-title"></div>
-    <div class="panel" id="p-log"><pre id="logBox"></pre></div>
-  </div>
-</section>
+  <!-- ── flyout: the active tool's side window ────────────── -->
+  <aside class="flyout" id="flyout">
+    <div class="flyout-head">
+      <span class="ttl2" id="flyoutTitle">Checks</span>
+      <button class="flyout-close" id="flyoutClose" title="Close">×</button>
+    </div>
+    <div class="panels">
+      <div class="panel on" id="p-issues"></div>
+      <div class="panel" id="p-rooms"></div>
+      <div class="panel" id="p-walls"></div>
+      <div class="panel" id="p-openings"></div>
+      <div class="panel" id="p-columns"></div>
+      <div class="panel" id="p-sections"></div>
+      <div class="panel" id="p-beams"></div>
+      <div class="panel" id="p-stairs"></div>
+      <div class="panel" id="p-steps"></div>
+      <div class="panel" id="p-furniture"></div>
+      <div class="panel" id="p-vaastu"></div>
+      <div class="panel" id="p-elec"></div>
+      <div class="panel" id="p-flooring"></div>
+      <div class="panel" id="p-layerspanel"></div>
+      <div class="panel" id="p-title"></div>
+      <div class="panel" id="p-log"><pre id="logBox"></pre></div>
+    </div>
+  </aside>
+
+  <!-- ── stage: the drawing canvas ───────────────────────── -->
+  <main class="stage split">
+    <section class="pane" id="paneInput">
+      <div class="pane-head">
+        <span class="ttl">Drawing</span>
+        <span id="sketchName" class="sub">no file</span>
+        <span class="spacer"></span>
+        <div id="pageTabs" class="pages"></div>
+        <button class="mini" data-zoom="sk" data-d="-1">−</button>
+        <button class="mini" data-zoom="sk" data-d="1">+</button>
+        <button class="mini" data-zoom="sk" data-d="0">fit</button>
+      </div>
+      <div id="skView" class="view">
+        <img id="skImg" alt="" draggable="false">
+        <div id="skEmpty" class="empty">
+          <div class="big">Drop a drawing here</div>
+          <div>PNG · JPG · PDF · DXF — or press <b>Open Drawing</b></div>
+        </div>
+      </div>
+    </section>
+
+    <div id="gutter" class="gutter"></div>
+
+    <section class="pane" id="paneOutput">
+      <div class="floorbar" id="floorBar"></div>
+      <div class="pane-head">
+        <span class="ttl">Plan</span>
+        <span id="planInfo" class="sub"></span>
+        <span class="spacer"></span>
+        <button id="btnBackPlan" class="mini hidden" title="Show the floor plan">Plan</button>
+        <button id="btnShowSection" class="mini hidden" title="Show the section">Section</button>
+        <button id="btnShowBeam" class="mini hidden" title="Show the beam layout">Beam</button>
+        <button id="btnShowStruct" class="mini hidden" title="Show ALL structural sheets together">All structural</button>
+        <button class="mini" data-zoom="pl" data-d="-1">−</button>
+        <button class="mini" data-zoom="pl" data-d="1">+</button>
+        <button class="mini" data-zoom="pl" data-d="0">fit</button>
+      </div>
+      <div id="plView" class="view light">
+        <div id="plHolder"></div>
+        <div id="plEmpty" class="empty">
+          <div class="big">No drawing yet</div>
+          <div>Read a drawing, or load a plan</div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ── status bar ─────────────────────────────────────────── -->
+<footer class="statusbar">
+  <span id="status" class="status">ready</span>
+  <label id="editFloorWrap" class="editfloor hidden">Editing:
+    <select id="editFloor" title="Which floor these tables edit — the canvas keeps showing every floor"></select>
+  </label>
+</footer>
 
 <div id="busy" class="busy hidden">
   <div class="spin"></div>

@@ -213,11 +213,32 @@ function banner(msg) {
   };
 }
 
-$$(".tab").forEach(t => t.onclick = () => tab(t.dataset.tab));
+// rail tool → open its flyout side-window; click the active tool again to close
+$$(".tab").forEach(t => t.onclick = () => {
+  const fo = $("#flyout");
+  if (fo && fo.classList.contains("open") && t.classList.contains("on")) {
+    closeFlyout();
+  } else {
+    tab(t.dataset.tab);
+  }
+});
 function tab(name) {
   $$(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === name));
   $$(".panel").forEach(p => p.classList.toggle("on", p.id === "p-" + name));
+  const fo = $("#flyout");
+  if (fo) {
+    fo.classList.add("open");
+    const t = $$(".tab").find(x => x.dataset.tab === name);
+    const ft = $("#flyoutTitle");
+    if (ft && t) ft.textContent = t.dataset.label || t.textContent.trim();
+  }
 }
+function closeFlyout() {
+  const fo = $("#flyout");
+  if (fo) fo.classList.remove("open");
+  $$(".tab").forEach(t => t.classList.remove("on"));
+}
+if ($("#flyoutClose")) $("#flyoutClose").onclick = closeFlyout;
 
 /* ── zoom / pan ──────────────────────────────────────────── */
 function viewOf(k) { return k === "sk" ? $("#skView") : $("#plView"); }
@@ -2862,6 +2883,7 @@ function addLogoutButton() {
 async function boot() {
   status("ready");
   if (isWeb()) {
+    document.body.classList.add("web");  // single display — hide the input pane
     addLogoutButton();                  // a Log out control on the web build
     // The AI 'Read Drawing' runs on the SERVER via the Claude CLI. A cloud host
     // has no CLI (off), but when the server runs on your OWN PC (localhost /
