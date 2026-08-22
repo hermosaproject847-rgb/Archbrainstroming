@@ -312,7 +312,12 @@ tr.selrow td{background:rgba(99,102,241,.20) !important; box-shadow:inset 3px 0 
 .giz-mini{width:30px; height:30px; background:var(--bg3); color:var(--fg); border:1px solid var(--line2);
   border-radius:8px; cursor:pointer; font-size:15px}
 .giz-mini:hover{background:var(--pri); color:#fff; border-color:var(--pri)}
-.gizmo{width:216px; max-height:calc(100vh - 96px); overflow-y:auto}
+.gizmo{width:216px; max-height:calc(100vh - 150px); overflow-y:auto}
+.giz-head{cursor:move}                    /* drag the panel anywhere by its header */
+.gizmo.nomove .giz-coords,
+.gizmo.nomove .giz-pad,
+.gizmo.nomove .giz-foot,
+.gizmo.nomove .giz-presets{display:none}  /* flooring etc. — settings only, no move */
 .giz-step input{width:64px; background:var(--bg); color:var(--fg); border:1px solid var(--line);
   border-radius:7px; padding:4px 6px; font:inherit; font-size:12px; text-align:right}
 .giz-step input:focus{outline:none; border-color:var(--pri)}

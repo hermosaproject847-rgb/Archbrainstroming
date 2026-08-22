@@ -248,11 +248,12 @@ const POSCFG = {
   columns:  {coord:"xy", full:true},
   walls:    {coord:"seg", full:true},          // move both ends together
   openings: {coord:"pos", full:true},          // slides along its wall (1-D)
-  rooms:    {coord:"xy"},
-  stairs:   {coord:"xy"},
-  steps:    {coord:"xy"},
-  sections: {coord:"seg"},
-  beams:    {coord:"seg"},
+  rooms:    {coord:"xy", full:true},
+  stairs:   {coord:"xy", full:true},
+  steps:    {coord:"xy", full:true},
+  sections: {coord:"seg", full:true},
+  beams:    {coord:"seg", full:true},
+  flooring: {coord:"none", full:true},         // no move — just its settings
 };
 let _sel = null;                 // {key, ri}
 const round2 = v => Math.round((+v || 0) * 100) / 100;
@@ -274,8 +275,9 @@ function showGizmo(){
   const cfg = POSCFG[_sel.key];
   g.classList.remove("hidden");
   g.classList.toggle("oneD", cfg.coord === "pos");
+  g.classList.toggle("nomove", cfg.coord === "none");
   const extra = it.kind ? " · " + it.kind : (it.code ? " · " + it.code : "");
-  $("#gizName").textContent = (it.tag || it.name || it.id || _sel.key) + extra;
+  $("#gizName").textContent = (it.tag || it.name || it.id || it.room || _sel.key) + extra;
   const xy = cfg.coord === "xy", pos = cfg.coord === "pos";
   $("#gizXWrap").classList.toggle("hidden", !xy);
   $("#gizYWrap").classList.toggle("hidden", !xy);
@@ -352,6 +354,27 @@ if ($("#gizDelete")) $("#gizDelete").onclick = () => {
   markDirty(); buildTables(); redraw();
 };
 if ($("#gizClose")) $("#gizClose").onclick = () => { _sel = null; $("#gizmo").classList.add("hidden"); $$("tr.selrow,.litem.on").forEach(t => t.classList.remove("selrow", "on")); };
+/* drag the gizmo by its header so it never has to overlap anything */
+(function dragGizmo(){
+  const g = $("#gizmo"); if (!g) return;
+  const h = g.querySelector(".giz-head"); if (!h) return;
+  let ox = 0, oy = 0, on = false;
+  h.addEventListener("mousedown", e => {
+    if (e.target.closest(".giz-x")) return;    // the × still closes
+    const r = g.getBoundingClientRect();
+    ox = e.clientX - r.left; oy = e.clientY - r.top; on = true;
+    g.style.right = "auto"; g.style.bottom = "auto";
+    g.style.left = r.left + "px"; g.style.top = r.top + "px";
+    e.preventDefault();
+  });
+  addEventListener("mousemove", e => {
+    if (!on) return;
+    const x = Math.max(4, Math.min(e.clientX - ox, innerWidth - g.offsetWidth - 4));
+    const y = Math.max(4, Math.min(e.clientY - oy, innerHeight - g.offsetHeight - 4));
+    g.style.left = x + "px"; g.style.top = y + "px";
+  });
+  addEventListener("mouseup", () => { on = false; });
+})();
 
 /* ── zoom / pan ──────────────────────────────────────────── */
 function viewOf(k) { return k === "sk" ? $("#skView") : $("#plView"); }
@@ -1278,6 +1301,12 @@ const LIST_COLS = {
   elec: ["tag", "code", "room"],
   columns: ["tag", "shape", "room"],
   walls: ["id", "room", "thickness_in"],
+  rooms: ["name", "size_label"],
+  sections: ["tag"],
+  beams: ["tag", "width_mm", "depth_mm"],
+  stairs: ["type"],
+  steps: ["label", "count"],
+  flooring: ["room", "material"],
 };
 function listCell(row, col) {
   const v = dig(row, col[0]);
@@ -1561,7 +1590,7 @@ function buildTable(key) {
       });
       btn("🧲", "flush against the nearest wall", () => flushToWall(row, true));
     }
-    if (key === "sections") {
+    if (!listMode && key === "sections") {
       // move the whole cut line, and rotate it about its centre
       const btn = (label, title, fn) => {
         const b = document.createElement("button");
@@ -1632,7 +1661,7 @@ function buildTable(key) {
       btn("⤓B", "flush BOTTOM face to the nearest horizontal wall",
           () => flushColumnSide(row, "bottom"));
     }
-    if (key === "beams") {
+    if (!listMode && key === "beams") {
       // move / rotate a beam, and quick width/depth steps. Always re-draw the
       // BEAM layout (switching to it if needed) so the change is visible.
       const btn = (label, title, fn) => {
