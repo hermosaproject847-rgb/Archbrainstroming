@@ -308,6 +308,7 @@ function selectItem(key, ri){
            || $('#p-' + key + ' .litem[data-ri="' + ri + '"]');
   if (row) row.classList.add(row.classList.contains("litem") ? "on" : "selrow");
   showGizmo();
+  if (typeof buildHandles === "function") buildHandles(S.plInfo);   // canvas grips
 }
 function showGizmo(){
   const g = $("#gizmo"); if (!g) return;
@@ -449,7 +450,7 @@ if ($("#gizDelete")) $("#gizDelete").onclick = () => {
   _sel = null; $("#gizmo").classList.add("hidden");
   markDirty(); buildTables(); redraw();
 };
-if ($("#gizClose")) $("#gizClose").onclick = () => { _sel = null; $("#gizmo").classList.add("hidden"); $$("tr.selrow,.litem.on").forEach(t => t.classList.remove("selrow", "on")); };
+if ($("#gizClose")) $("#gizClose").onclick = () => { _sel = null; $("#gizmo").classList.add("hidden"); clearHandles(); $$("tr.selrow,.litem.on").forEach(t => t.classList.remove("selrow", "on")); };
 /* drag the gizmo by its header so it never has to overlap anything */
 (function dragGizmo(){
   const g = $("#gizmo"); if (!g) return;
@@ -623,24 +624,72 @@ function showSvg(svg, info) {
   buildHandles(info);          // draggable handles on top of the drawing
 }
 
-/* ── canvas direct-manipulation: drag handles right on the plan ───────
-   An overlay SVG (same viewBox, same pan/zoom parent) carries a handle on every
-   element. Drag a wall end to stretch it, a door to slide it along its wall,
-   a piece to move it, a corner to resize — mouse or touch. Model stays in feet;
-   pointer deltas are converted feet ← px via the sheet scale.                 */
+/* ── canvas direct-manipulation ───────────────────────────────────────
+   Click an element on the plan to SELECT it; only the selected element shows a
+   clean highlight with small SQUARE grips (no clutter). Drag a wall end to
+   stretch it, its body to move it, a piece / its corner to move / resize, a
+   door along its wall. Snapping: a grid + orthogonal (90°) + alignment to other
+   walls — essential for clean drawings. Mouse and touch.                       */
 const NS_SVG = "http://www.w3.org/2000/svg";
-let _hdrag = null;             // {onMove, pxPerUnit, lastX, lastY}
+let _hdrag = null;
 function clearHandles() { const o = document.getElementById("plHandles"); if (o) o.remove(); }
 function wallById(id) { return (S.plan && S.plan.walls || []).find(w => w.id === id); }
 
+/* --- snapping ------------------------------------------------------- */
+const GRID = 0.25, ORTHO = 7, ALIGN = 0.4;      // ft grid, ° ortho, ft align
+const snapG = v => Math.round(v / GRID) * GRID;
+function _xs() { const s = []; (S.plan.walls || []).forEach(w => s.push(w.x1, w.x2)); return s; }
+function _ys() { const s = []; (S.plan.walls || []).forEach(w => s.push(w.y1, w.y2)); return s; }
+function snapX(x) { for (const v of _xs()) if (Math.abs(x - v) < ALIGN) return v; return snapG(x); }
+function snapY(y) { for (const v of _ys()) if (Math.abs(y - v) < ALIGN) return v; return snapG(y); }
+function orthoEnd(mx, my, ox, oy) {              // snap a wall end to H/V + grid
+  const a = ((Math.atan2(my - oy, mx - ox) * 180 / Math.PI) % 180 + 180) % 180;
+  if (a < ORTHO || a > 180 - ORTHO) return [snapX(mx), oy];      // horizontal
+  if (Math.abs(a - 90) < ORTHO) return [ox, snapY(my)];         // vertical
+  return [snapX(mx), snapY(my)];
+}
+
+/* --- coordinate maps ----------------------------------------------- */
+function m2s(info, mx, my) { return [mx * info.k + info.ox, info.h_mm - (my * info.k + info.oy)]; }
+function screenToModel(cx, cy) {
+  const draw = $("#plHolder").querySelector("svg"); if (!draw || !S.plInfo) return null;
+  const r = draw.getBoundingClientRect(), ppu = r.width / S.plInfo.w_mm;
+  const sx = (cx - r.left) / ppu, sy = (cy - r.top) / ppu;
+  return [(sx - S.plInfo.ox) / S.plInfo.k, (S.plInfo.h_mm - sy - S.plInfo.oy) / S.plInfo.k];
+}
+function _distSeg(px, py, x1, y1, x2, y2) {
+  const vx = x2 - x1, vy = y2 - y1, L2 = vx * vx + vy * vy || 1e-9;
+  let t = ((px - x1) * vx + (py - y1) * vy) / L2; t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (x1 + vx * t), py - (y1 + vy * t));
+}
+/* which element is under a model point (closest within tolerance) */
+function hitTest(mx, my) {
+  let best = null, bd = 0.7;
+  (S.plan.walls || []).forEach((w, i) => { const d = _distSeg(mx, my, w.x1, w.y1, w.x2, w.y2); if (d < bd) { bd = d; best = { key: "walls", ri: i }; } });
+  (S.plan.beams || []).forEach((w, i) => { const d = _distSeg(mx, my, w.x1, w.y1, w.x2, w.y2); if (d < bd) { bd = d; best = { key: "beams", ri: i }; } });
+  (S.plan.sections || []).forEach((w, i) => { const d = _distSeg(mx, my, w.x1, w.y1, w.x2, w.y2); if (d < bd) { bd = d; best = { key: "sections", ri: i }; } });
+  (S.plan.openings || []).forEach((o, i) => {
+    const w = wallById(o.wall_id); if (!w) return;
+    const L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) || 1e-6, ux = (w.x2 - w.x1) / L, uy = (w.y2 - w.y1) / L;
+    const cx = w.x1 + ux * (o.pos + o.width / 2), cy = w.y1 + uy * (o.pos + o.width / 2);
+    const d = Math.hypot(mx - cx, my - cy); if (d < bd) { bd = d; best = { key: "openings", ri: i }; }
+  });
+  const boxHit = (arr, centred) => (S.plan[arr] || []).forEach((it, i) => {
+    const w = +it.w || 0, h = +it.h || 0, x0 = centred ? it.x - w / 2 : it.x, y0 = centred ? it.y - h / 2 : it.y;
+    if (mx >= x0 && mx <= x0 + w && my >= y0 && my <= y0 + h) { best = { key: arr, ri: i }; bd = 0; }
+  });
+  boxHit("furniture", false); boxHit("columns", true); boxHit("stairs", false);
+  boxHit("steps", false); if (!best) boxHit("rooms", false);   // rooms only if nothing smaller
+  return best;
+}
+
 function buildHandles(info) {
   clearHandles();
-  if (!S.plan || !info) return;
+  if (!S.plan || !info || !_sel || _hdrag) return;
   if (S.beamView || S.sectionView || S.structView || S.elevView) return;
-  if (floorsWithPlans() >= 2) return;         // project view: skip (offset floors)
-  if (_hdrag) return;                          // don't rebuild mid-drag
-  const holder = $("#plHolder"), draw = holder.querySelector("svg");
-  if (!draw) return;
+  if (floorsWithPlans() >= 2 || !POSCFG[_sel.key]) return;
+  const it = selItem(); if (!it) return;
+  const holder = $("#plHolder"), draw = holder.querySelector("svg"); if (!draw) return;
   const ov = document.createElementNS(NS_SVG, "svg");
   ov.id = "plHandles";
   ov.setAttribute("viewBox", `0 0 ${info.w_mm} ${info.h_mm}`);
@@ -648,83 +697,137 @@ function buildHandles(info) {
   ov.setAttribute("height", draw.getAttribute("height"));
   ov.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;overflow:visible";
   holder.appendChild(ov);
-  const R = Math.max(1.3, info.w_mm * 0.0065);
+  const G = Math.max(1.7, info.w_mm * 0.009);
 
-  const H = (mx, my, cls, onMove) => {
-    const cx = mx * info.k + info.ox, cy = info.h_mm - (my * info.k + info.oy);
-    const c = document.createElementNS(NS_SVG, "circle");
-    c.setAttribute("cx", cx); c.setAttribute("cy", cy); c.setAttribute("r", R);
-    c.setAttribute("class", "handle " + cls);
-    c.style.pointerEvents = "auto";
-    const dn = e => startDrag(e, onMove);
-    c.addEventListener("mousedown", dn);
-    c.addEventListener("touchstart", dn, { passive: false });
-    ov.appendChild(c);
+  const grip = (mx, my, cls, spec) => {
+    const [sx, sy] = m2s(info, mx, my);
+    const r = document.createElementNS(NS_SVG, "rect");
+    r.setAttribute("x", sx - G / 2); r.setAttribute("y", sy - G / 2);
+    r.setAttribute("width", G); r.setAttribute("height", G);
+    r.setAttribute("class", "grip " + cls); r.style.pointerEvents = "auto";
+    const dn = e => startDrag(e, spec);
+    r.addEventListener("mousedown", dn); r.addEventListener("touchstart", dn, { passive: false });
+    ov.appendChild(r);
+  };
+  const moveLine = (x1, y1, x2, y2, spec) => {
+    const [ax, ay] = m2s(info, x1, y1), [bx, by] = m2s(info, x2, y2);
+    const l = document.createElementNS(NS_SVG, "line");
+    l.setAttribute("x1", ax); l.setAttribute("y1", ay); l.setAttribute("x2", bx); l.setAttribute("y2", by);
+    l.setAttribute("class", "selhi"); l.style.pointerEvents = "auto";
+    const dn = e => startDrag(e, spec);
+    l.addEventListener("mousedown", dn); l.addEventListener("touchstart", dn, { passive: false });
+    ov.appendChild(l);
+  };
+  const moveRect = (x0, y0, w, h, spec) => {
+    const [ax, ay] = m2s(info, x0, y0 + h);       // svg top-left (y is flipped)
+    const r = document.createElementNS(NS_SVG, "rect");
+    r.setAttribute("x", ax); r.setAttribute("y", ay);
+    r.setAttribute("width", w * info.k); r.setAttribute("height", h * info.k);
+    r.setAttribute("class", "selhi"); r.style.pointerEvents = "auto";
+    const dn = e => startDrag(e, spec);
+    r.addEventListener("mousedown", dn); r.addEventListener("touchstart", dn, { passive: false });
+    ov.appendChild(r);
   };
 
-  // walls / beams / sections — two ends (stretch) + midpoint (move whole)
-  const seg = (arr, cls) => (S.plan[arr] || []).forEach(it => {
-    H(it.x1, it.y1, cls + " h-end", (dx, dy) => { it.x1 = r4(it.x1 + dx); it.y1 = r4(it.y1 + dy); });
-    H(it.x2, it.y2, cls + " h-end", (dx, dy) => { it.x2 = r4(it.x2 + dx); it.y2 = r4(it.y2 + dy); });
-    H((it.x1 + it.x2) / 2, (it.y1 + it.y2) / 2, cls + " h-move",
-      (dx, dy) => { it.x1 = r4(it.x1 + dx); it.x2 = r4(it.x2 + dx); it.y1 = r4(it.y1 + dy); it.y2 = r4(it.y2 + dy); });
-  });
-  seg("walls", ""); seg("beams", ""); seg("sections", "");
-
-  // openings — slide along their wall
-  (S.plan.openings || []).forEach(o => {
-    const w = wallById(o.wall_id); if (!w) return;
-    const L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) || 1e-6;
-    const ux = (w.x2 - w.x1) / L, uy = (w.y2 - w.y1) / L;
-    H(w.x1 + ux * (o.pos + o.width / 2), w.y1 + uy * (o.pos + o.width / 2), "h-open",
-      (dx, dy) => { o.pos = r4(Math.min(Math.max(0, o.pos + dx * ux + dy * uy), Math.max(0, L - o.width))); });
-  });
-
-  // boxes — centre moves, a corner resizes (columns are stored centred)
-  const boxes = (arr, centred) => (S.plan[arr] || []).forEach(it => {
-    const w = +it.w || 0, h = +it.h || 0;
-    const cx = centred ? it.x : it.x + w / 2, cy = centred ? it.y : it.y + h / 2;
-    H(cx, cy, "h-move", (dx, dy) => { it.x = r4(it.x + dx); it.y = r4(it.y + dy); });
-    const ex = centred ? it.x + w / 2 : it.x + w, ey = centred ? it.y + h / 2 : it.y + h;
-    H(ex, ey, "h-size", (dx, dy) => {
-      const f = centred ? 2 : 1;
-      it.w = r4(Math.max(0.3, w + f * dx)); it.h = r4(Math.max(0.3, h + f * dy));
-    });
-  });
-  boxes("furniture", false); boxes("rooms", false);
-  boxes("stairs", false); boxes("steps", false); boxes("columns", true);
+  const key = _sel.key;
+  if (key === "walls" || key === "beams" || key === "sections") {
+    moveLine(it.x1, it.y1, it.x2, it.y2, { role: "seg-move" });
+    grip(it.x1, it.y1, "g-end", { role: "seg-a" });
+    grip(it.x2, it.y2, "g-end", { role: "seg-b" });
+  } else if (key === "openings") {
+    const w = wallById(it.wall_id);
+    if (w) {
+      const L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) || 1e-6, ux = (w.x2 - w.x1) / L, uy = (w.y2 - w.y1) / L;
+      const ax = w.x1 + ux * it.pos, ay = w.y1 + uy * it.pos;
+      const bx = w.x1 + ux * (it.pos + it.width), by = w.y1 + uy * (it.pos + it.width);
+      moveLine(ax, ay, bx, by, { role: "open-move" });
+      grip((ax + bx) / 2, (ay + by) / 2, "g-move", { role: "open-move" });
+    }
+  } else {
+    const centred = key === "columns", w = +it.w || 0, h = +it.h || 0;
+    const x0 = centred ? it.x - w / 2 : it.x, y0 = centred ? it.y - h / 2 : it.y;
+    moveRect(x0, y0, w, h, { role: "box-move" });
+    [[x0, y0], [x0 + w, y0], [x0, y0 + h], [x0 + w, y0 + h]]
+      .forEach((c, i) => grip(c[0], c[1], "g-size", { role: "box-size", corner: i, centred }));
+  }
 }
 
-function startDrag(e, onMove) {
-  e.preventDefault(); e.stopPropagation();     // never start a pan
+function startDrag(e, spec) {
+  e.preventDefault(); e.stopPropagation();
   const p = e.touches ? e.touches[0] : e;
-  const draw = $("#plHolder").querySelector("svg");
-  const rect = draw.getBoundingClientRect();
-  _hdrag = { onMove, pxPerUnit: rect.width / (S.plInfo.w_mm || 1),
-             lastX: p.clientX, lastY: p.clientY };
+  const g = screenToModel(p.clientX, p.clientY);
+  const it = selItem(); if (!it || !g) return;
+  _hdrag = { spec, it, gx: g[0], gy: g[1], init: JSON.parse(JSON.stringify(it)) };
   pushUndo();
+}
+function applyDrag(d, mx, my) {
+  const it = d.it, sp = d.spec, I = d.init;
+  if (sp.role === "seg-a") { const [x, y] = orthoEnd(mx, my, it.x2, it.y2); it.x1 = r4(x); it.y1 = r4(y); }
+  else if (sp.role === "seg-b") { const [x, y] = orthoEnd(mx, my, it.x1, it.y1); it.x2 = r4(x); it.y2 = r4(y); }
+  else if (sp.role === "seg-move") {
+    const dx = snapG(mx - d.gx), dy = snapG(my - d.gy);
+    it.x1 = r4(I.x1 + dx); it.x2 = r4(I.x2 + dx); it.y1 = r4(I.y1 + dy); it.y2 = r4(I.y2 + dy);
+  } else if (sp.role === "open-move") {
+    const w = wallById(it.wall_id); if (!w) return;
+    const L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) || 1e-6, ux = (w.x2 - w.x1) / L, uy = (w.y2 - w.y1) / L;
+    const proj = (mx - w.x1) * ux + (my - w.y1) * uy - it.width / 2;
+    it.pos = r4(Math.min(Math.max(0, snapG(proj)), Math.max(0, L - it.width)));
+  } else if (sp.role === "box-move") {
+    it.x = r4(I.x + snapG(mx - d.gx)); it.y = r4(I.y + snapG(my - d.gy));
+  } else if (sp.role === "box-size") {
+    if (sp.centred) {
+      it.w = r4(Math.max(0.3, 2 * Math.abs(mx - I.x)));
+      it.h = r4(Math.max(0.3, 2 * Math.abs(my - I.y)));
+    } else {
+      const w = +I.w || 0, h = +I.h || 0;
+      const corners = [[I.x, I.y], [I.x + w, I.y], [I.x, I.y + h], [I.x + w, I.y + h]];
+      const opp = { 0: 3, 1: 2, 2: 1, 3: 0 }[sp.corner];
+      const fx = corners[opp][0], fy = corners[opp][1];
+      const nx = snapX(mx), ny = snapY(my);
+      it.x = r4(Math.min(fx, nx)); it.y = r4(Math.min(fy, ny));
+      it.w = r4(Math.max(0.3, Math.abs(nx - fx))); it.h = r4(Math.max(0.3, Math.abs(ny - fy)));
+    }
+  }
 }
 function _dragMove(e) {
   if (!_hdrag) return;
   const p = e.touches ? e.touches[0] : e;
-  const k = S.plInfo.k || 1, ppu = _hdrag.pxPerUnit || 1;
-  const dfx = (p.clientX - _hdrag.lastX) / ppu / k;
-  const dfy = -(p.clientY - _hdrag.lastY) / ppu / k;   // svg y is flipped
-  _hdrag.lastX = p.clientX; _hdrag.lastY = p.clientY;
-  _hdrag.onMove(dfx, dfy);
+  const m = screenToModel(p.clientX, p.clientY); if (!m) return;
+  applyDrag(_hdrag, m[0], m[1]);
   markDirty(); redraw();
   if (e.cancelable) e.preventDefault();
 }
-function _dragEnd() {
-  if (!_hdrag) return;
-  _hdrag = null;
-  buildHandles(S.plInfo);       // refresh handle positions once the drag settles
-}
+function _dragEnd() { if (!_hdrag) return; _hdrag = null; buildHandles(S.plInfo); }
 addEventListener("mousemove", _dragMove);
 addEventListener("touchmove", _dragMove, { passive: false });
 addEventListener("mouseup", _dragEnd);
 addEventListener("touchend", _dragEnd);
 addEventListener("touchcancel", _dragEnd);
+
+/* click an element on the plan to select it (vs a pan / handle drag) */
+(() => {
+  const pv = $("#plView"); if (!pv) return;
+  let dn = null;
+  const down = e => { const p = e.touches ? e.touches[0] : e; dn = { x: p.clientX, y: p.clientY, t: e.target }; };
+  const up = e => {
+    if (!dn) return;
+    const p = e.changedTouches ? e.changedTouches[0] : e;
+    const moved = Math.hypot(p.clientX - dn.x, p.clientY - dn.y);
+    const onHandle = dn.t && dn.t.closest && dn.t.closest("#plHandles");
+    const wasDn = dn; dn = null;
+    if (moved > 5 || onHandle || _hdrag) return;      // a pan or a handle drag
+    if (S.beamView || S.sectionView || S.structView || S.elevView) return;
+    const m = screenToModel(p.clientX, p.clientY); if (!m) return;
+    const hit = hitTest(m[0], m[1]);
+    if (hit) selectItem(hit.key, hit.ri);
+    else { _sel = null; clearHandles(); showGizmo();
+      $$("tr.selrow,.litem.on").forEach(t => t.classList.remove("selrow", "on")); }
+  };
+  pv.addEventListener("mousedown", down);
+  pv.addEventListener("mouseup", up);
+  pv.addEventListener("touchstart", down, { passive: true });
+  pv.addEventListener("touchend", up);
+})();
 
 /* ── stage buttons ───────────────────────────────────────────
    A stage that is already in the file cannot be run again by accident: the
