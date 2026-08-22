@@ -286,9 +286,12 @@ function showGizmo(){
   if (pos){ $("#gizPos").value = round2(it.pos); }
   $("#gizRotL").classList.toggle("hidden", !cfg.rot);
   $("#gizRotR").classList.toggle("hidden", !cfg.rot);
-  // snap-to-wall makes sense for free x/y items (furniture, lights, columns,
-  // rooms, stairs, steps); openings already ride a wall, segments don't snap.
-  $("#gizSnap").classList.toggle("hidden", cfg.coord !== "xy");
+  // snap-to-wall: columns get the precise directional face-flush (⇤/⇥/⤒/⤓ at
+  // T- and L-junctions, as before); other free x/y items (furniture, lights,
+  // rooms, stairs, steps) get the simple 'nearest wall' snap.
+  const isCol = _sel.key === "columns";
+  $("#gizSnap").classList.toggle("hidden", cfg.coord !== "xy" || isCol);
+  $("#gizColSnap").classList.toggle("hidden", !isCol);
   // full field editor — every editable property (swing, sill, lintel, width …)
   const box = $("#gizFields"); box.innerHTML = "";
   if (cfg.full) {
@@ -359,6 +362,12 @@ function snapSel(){
   else status("no wall to snap to");
 }
 if ($("#gizSnap")) $("#gizSnap").onclick = snapSel;
+$$("#gizColSnap button").forEach(b => b.onclick = () => {
+  const it = selItem(); if (!it || !_sel || _sel.key !== "columns") return;
+  pushUndo(); flushColumnSide(it, b.dataset.side);
+  markDirty(); updateGizmoCoords(); redraw();
+  status("column flushed " + b.dataset.side + " to the wall");
+});
 if ($("#gizDelete")) $("#gizDelete").onclick = () => {
   if (!_sel) return;
   const key = _sel.key, ri = _sel.ri;
