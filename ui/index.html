@@ -171,6 +171,39 @@
   </label>
 </footer>
 
+<!-- ── move gizmo (AutoCAD-style: select an item → coords + D-pad) ── -->
+<div id="gizmo" class="gizmo hidden">
+  <div class="giz-head">
+    <span id="gizName" class="giz-name">—</span>
+    <button id="gizClose" class="giz-x" title="Deselect">×</button>
+  </div>
+  <div class="giz-coords">
+    <label id="gizXWrap">X <input id="gizX" type="number" step="0.05"></label>
+    <label id="gizYWrap">Y <input id="gizY" type="number" step="0.05"></label>
+    <label id="gizPosWrap" class="hidden">Pos <input id="gizPos" type="number" step="0.05"></label>
+  </div>
+  <div class="giz-pad">
+    <button class="giz-b up"    data-dir="up"    title="move up (hold to keep moving)">▲</button>
+    <button class="giz-b left"  data-dir="left"  title="move left">◀</button>
+    <span class="giz-hub">✛</span>
+    <button class="giz-b right" data-dir="right" title="move right">▶</button>
+    <button class="giz-b down"  data-dir="down"  title="move down">▼</button>
+  </div>
+  <div class="giz-foot">
+    <label class="giz-step">Step
+      <select id="gizStep">
+        <option value="0.0833">1"</option>
+        <option value="0.25">3"</option>
+        <option value="0.5" selected>6"</option>
+        <option value="1">1'</option>
+        <option value="2">2'</option>
+      </select>
+    </label>
+    <button id="gizRotL" class="giz-mini hidden" title="rotate left 15°">⟲</button>
+    <button id="gizRotR" class="giz-mini hidden" title="rotate right 15°">⟳</button>
+  </div>
+</div>
+
 <div id="busy" class="busy hidden">
   <div class="spin"></div>
   <div id="busyMsg">Working…</div>

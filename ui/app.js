@@ -240,6 +240,76 @@ function closeFlyout() {
 }
 if ($("#flyoutClose")) $("#flyoutClose").onclick = closeFlyout;
 
+/* ── move gizmo — pick an item, see its coordinates, nudge with a D-pad
+   (click = one step, hold = keep moving). Like moving objects in CAD.        */
+const POSCFG = {
+  furniture:{xy:true, rot:"angle"}, elec:{xy:true}, columns:{xy:true},
+  rooms:{xy:true}, stairs:{xy:true}, steps:{xy:true},
+  openings:{pos:true},          // doors/windows slide along their wall (1-D)
+};
+let _sel = null;                 // {key, ri}
+const round2 = v => Math.round((+v || 0) * 100) / 100;
+function selItem(){ return _sel ? ((S.plan && S.plan[_sel.key]) || [])[_sel.ri] : null; }
+function selectItem(key, ri){
+  if (!POSCFG[key]) return;
+  _sel = { key, ri };
+  $$("tr.selrow").forEach(t => t.classList.remove("selrow"));
+  const tr = $('#p-' + key + ' tr[data-ri="' + ri + '"]');
+  if (tr) tr.classList.add("selrow");
+  showGizmo();
+}
+function showGizmo(){
+  const g = $("#gizmo"); if (!g) return;
+  const it = selItem();
+  if (!it || !_sel){ g.classList.add("hidden"); return; }
+  const cfg = POSCFG[_sel.key];
+  g.classList.remove("hidden");
+  g.classList.toggle("oneD", !!cfg.pos && !cfg.xy);
+  const extra = it.kind ? " · " + it.kind : (it.code ? " · " + it.code : "");
+  $("#gizName").textContent = (it.tag || it.name || _sel.key) + extra;
+  $("#gizXWrap").classList.toggle("hidden", !cfg.xy);
+  $("#gizYWrap").classList.toggle("hidden", !cfg.xy);
+  $("#gizPosWrap").classList.toggle("hidden", !cfg.pos);
+  if (cfg.xy){ $("#gizX").value = round2(it.x); $("#gizY").value = round2(it.y); }
+  if (cfg.pos){ $("#gizPos").value = round2(it.pos); }
+  $("#gizRotL").classList.toggle("hidden", !cfg.rot);
+  $("#gizRotR").classList.toggle("hidden", !cfg.rot);
+}
+function gizStep(){ return parseFloat(($("#gizStep") || {}).value) || 0.5; }
+function moveSel(dx, dy){
+  const it = selItem(); if (!it) return;
+  const cfg = POSCFG[_sel.key], s = gizStep();
+  if (cfg.xy){ if (dx) it.x = r4((+it.x || 0) + dx * s); if (dy) it.y = r4((+it.y || 0) + dy * s); }
+  else if (cfg.pos){ if (dx) it.pos = r4(Math.max(0, (+it.pos || 0) + dx * s)); }
+  markDirty(); showGizmo(); redraw();
+}
+function rotSel(dir){
+  const it = selItem(); if (!it) return;
+  const f = POSCFG[_sel.key] && POSCFG[_sel.key].rot; if (!f) return;
+  it[f] = r4(((+it[f] || 0) + dir * 15 + 360) % 360);
+  markDirty(); redraw();
+}
+function holdRepeat(el, fn){
+  if (!el) return;
+  let iv = null;
+  const start = e => { e.preventDefault(); fn(); clearInterval(iv); iv = setInterval(fn, 110); };
+  const stop = () => { clearInterval(iv); iv = null; };
+  el.addEventListener("mousedown", start);
+  el.addEventListener("touchstart", start, { passive: false });
+  ["mouseup", "mouseleave", "touchend", "touchcancel"]
+    .forEach(ev => el.addEventListener(ev, stop));
+}
+holdRepeat($("#gizmo .up"),    () => moveSel(0, +1));
+holdRepeat($("#gizmo .down"),  () => moveSel(0, -1));
+holdRepeat($("#gizmo .left"),  () => moveSel(-1, 0));
+holdRepeat($("#gizmo .right"), () => moveSel(+1, 0));
+if ($("#gizX")) $("#gizX").onchange = () => { const it = selItem(); if (it){ it.x = r4(parseFloat($("#gizX").value) || 0); markDirty(); redraw(); } };
+if ($("#gizY")) $("#gizY").onchange = () => { const it = selItem(); if (it){ it.y = r4(parseFloat($("#gizY").value) || 0); markDirty(); redraw(); } };
+if ($("#gizPos")) $("#gizPos").onchange = () => { const it = selItem(); if (it){ it.pos = r4(Math.max(0, parseFloat($("#gizPos").value) || 0)); markDirty(); redraw(); } };
+if ($("#gizRotL")) $("#gizRotL").onclick = () => rotSel(+1);
+if ($("#gizRotR")) $("#gizRotR").onclick = () => rotSel(-1);
+if ($("#gizClose")) $("#gizClose").onclick = () => { _sel = null; $("#gizmo").classList.add("hidden"); $$("tr.selrow").forEach(t => t.classList.remove("selrow")); };
+
 /* ── zoom / pan ──────────────────────────────────────────── */
 function viewOf(k) { return k === "sk" ? $("#skView") : $("#plView"); }
 function nodeOf(k) { return k === "sk" ? $("#skImg") : $("#plHolder"); }
@@ -1173,6 +1243,13 @@ function buildTable(key) {
 
   view.forEach(({ row, ri }) => {
     const tr = document.createElement("tr");
+    // positionable rows: click to pick the item up with the move gizmo
+    if (POSCFG[key]) {
+      tr.dataset.ri = ri;
+      tr.style.cursor = "pointer";
+      tr.addEventListener("click", () => selectItem(key, ri));
+      if (_sel && _sel.key === key && _sel.ri === ri) tr.classList.add("selrow");
+    }
     cols.forEach(c => {
       const [path, , kind] = c;
       // a computed column: not stored on the row, derived from it
@@ -2028,6 +2105,8 @@ async function doRender() {
 
 function setPlan(plan) {
   pushUndo();               // no-op on the first plan; makes a reload undoable
+  _sel = null;              // drop any gizmo selection from the old plan
+  if ($("#gizmo")) $("#gizmo").classList.add("hidden");
   S.forceFit = true;        // a fresh plan starts fitted to the pane
   S.plan = plan;
   ["btnRender", "btnExport"].forEach(i => $("#" + i).disabled = false);
