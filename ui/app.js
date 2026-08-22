@@ -333,6 +333,8 @@ function showGizmo(){
   const isCol = _sel.key === "columns";
   $("#gizSnap").classList.toggle("hidden", cfg.coord !== "xy" || isCol);
   $("#gizColSnap").classList.toggle("hidden", !isCol);
+  // openings (doors/windows) can be centred on their wall in one tap
+  $("#gizCenter").classList.toggle("hidden", _sel.key !== "openings");
   // full field editor — every editable property (swing, sill, lintel, width …)
   const box = $("#gizFields"); box.innerHTML = "";
   if (cfg.full) {
@@ -424,6 +426,16 @@ function snapSel(){
   else status("no wall to snap to");
 }
 if ($("#gizSnap")) $("#gizSnap").onclick = snapSel;
+if ($("#gizCenter")) $("#gizCenter").onclick = () => {
+  const it = selItem(); if (!it || !_sel || _sel.key !== "openings") return;
+  const w = (S.plan.walls || []).find(x => x.id === it.wall_id);
+  if (!w) { status("set this opening's Wall first"); return; }
+  const L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
+  pushUndo();
+  it.pos = r4(Math.max(0, (L - (+it.width || 0)) / 2));   // centred on the wall
+  markDirty(); showGizmo(); redraw();
+  status("centered on wall " + it.wall_id);
+};
 $$("#gizColSnap button").forEach(b => b.onclick = () => {
   const it = selItem(); if (!it || !_sel || _sel.key !== "columns") return;
   pushUndo(); flushColumnSide(it, b.dataset.side);

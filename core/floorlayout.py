@@ -215,15 +215,11 @@ def draw(plan: Plan, dl: DrawList) -> None:
         ax = F.cut_pieces(gx1 - gx0, rep.tile_w, rep.spacer_mm)
         ay = F.cut_pieces(gy1 - gy0, rep.tile_h, rep.spacer_mm)
         origin = _origin(gx0, gy0, gx1, gy1, rep, ax, ay)
-        single = len(grp) == 1
         for i, (s, room, clear) in enumerate(grp):
+            # skirting is ROOM-WISE (each room its own run, broken at doorways),
+            # never one continuous line across rooms
             _draw_room(plan, room, clear, s, dl, origin=origin,
-                       draw_start=(i == 0), draw_skirt=single)
-        # a merged region gets ONE skirting round its whole outline, so no
-        # skirting line is drawn across the open join between the rooms
-        if not single and rep.skirting_mm > 0:
-            union = unary_union([c for _s, _r, c in grp])
-            _region_skirting(dl, union)
+                       draw_start=(i == 0), draw_skirt=(s.skirting_mm > 0))
 
 
 def _union_find(n, connected):
@@ -311,17 +307,46 @@ def _interface(A, B):
     return ("v", coord, max(ay0, by0), min(ay1, by1))
 
 
-def _region_skirting(dl, poly) -> None:
-    """One skirting line round a merged region's outline (follows the real
-    walls, never crosses the open join between the rooms)."""
-    inner = poly.buffer(-0.12)
+def _door_gaps(plan):
+    """A buffered shape covering every DOOR/gate/open opening — the skirting is
+    cut wherever it would cross a doorway (skirting never runs across a door)."""
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+    spans = []
+    for o in plan.openings:
+        if not (getattr(o, "is_door", False) or o.type in ("gate", "open")):
+            continue                              # windows keep skirting (sill above)
+        w = plan.wall(o.wall_id)
+        if w is None:
+            continue
+        try:
+            a = w.point_at(o.pos)
+            b = w.point_at(o.pos + o.width)
+        except Exception:
+            continue
+        spans.append(LineString([a, b]).buffer(0.30, cap_style=2))
+    return unary_union(spans) if spans else None
+
+
+def _skirting(dl, plan, clear) -> None:
+    """Skirting round THIS room's floor (room-wise), BROKEN at every doorway."""
+    inner = clear.buffer(-0.12)
     if inner.is_empty:
         return
+    gaps = _door_gaps(plan)
     geoms = inner.geoms if inner.geom_type == "MultiPolygon" else [inner]
     for g in geoms:
-        dl.poly([(round(x, 3), round(y, 3))
-                 for x, y in list(g.exterior.coords)[:-1]],
-                layer="FLR-SKIRT", closed=True)
+        line = g.exterior
+        if gaps is not None:
+            line = line.difference(gaps)          # cut the door openings out
+        parts = (line.geoms if getattr(line, "geom_type", "") == "MultiLineString"
+                 else [line])
+        for p in parts:
+            if getattr(p, "geom_type", "") != "LineString":
+                continue
+            cs = [(round(x, 3), round(y, 3)) for x, y in p.coords]
+            for a, b in zip(cs, cs[1:]):
+                dl.line(a[0], a[1], b[0], b[1], layer="FLR-SKIRT")
 
 
 def _draw_room(plan, room, clear, s, dl, origin=None, draw_start=True,
@@ -368,7 +393,7 @@ def _draw_room(plan, room, clear, s, dl, origin=None, draw_start=True,
     # skirting run round the room's own floor (skip 0 = dado; a merged region
     # draws its skirting once, round the whole outline, instead)
     if draw_skirt and s.skirting_mm > 0:
-        _region_skirting(dl, clear)
+        _skirting(dl, plan, clear)
 
     # the room's flooring label, on a clean white panel so no line runs through
     _label(dl, room, clear, s)

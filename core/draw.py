@@ -11,15 +11,15 @@ import math
 
 # layer -> (colour, line weight in mm, dxf aci colour)
 LAYERS = {
-    "WALL-EXT":  ("#111111", 0.50, 7),
+    "WALL-EXT":  ("#111111", 0.30, 7),       # walls 0.30
     "WALL-INT":  ("#111111", 0.30, 7),
-    "OPENING":   ("#111111", 0.25, 7),
-    "DOOR":      ("#444444", 0.18, 8),
-    "WINDOW":    ("#222222", 0.22, 7),
+    "OPENING":   ("#111111", 0.13, 7),
+    "DOOR":      ("#8a5320", 0.13, 34),      # doors brown, 0.13
+    "WINDOW":    ("#1565c0", 0.13, 5),       # windows blue, 0.13
     "STAIR":     ("#333333", 0.22, 8),
     "RAILING":   ("#444444", 0.15, 8),
-    "COLUMN":    ("#111111", 0.35, 7),       # structural columns, drawn solid
-    "COLUMNTAG": ("#111111", 0.13, 7),
+    "COLUMN":    ("#d62828", 0.30, 1),       # structural columns red, 0.30
+    "COLUMNTAG": ("#d62828", 0.13, 1),
     "GRASS":     ("#4a8a3a", 0.16, 3),       # lawn / garden — grass tufts only
     # building section (vertical cut)
     "SEC-CUT":   ("#111111", 0.30, 7),       # cut masonry / concrete outline
@@ -57,7 +57,7 @@ LAYERS = {
     "BEAM-WALL":   ("#c2c2c2", 0.12, 8),     # walls shown light under the beams
     # flooring (master prompt SECTION 12 drafting layers)
     "FLR-GRID":    ("#8d99ae", 0.10, 8),     # the tile joints / spacer grid
-    "FLR-HATCH":   ("#c9ccd4", 0.08, 254),   # material fill hatch
+    "FLR-HATCH":   ("#c9ccd4", 0.05, 254),   # material fill hatch, thin
     "FLR-START":   ("#d1495b", 0.22, 1),     # start point, its own colour
     "FLR-SKIRT":   ("#5a7d5a", 0.18, 3),     # skirting run
     "FLR-LEVEL":   ("#1d3557", 0.15, 5),     # spot levels & slope arrows
@@ -68,7 +68,7 @@ LAYERS = {
     "PLOT":      ("#999999", 0.20, 253),
     "NORTH":     ("#111111", 0.25, 7),
     "TITLE":     ("#111111", 0.25, 7),
-    "HATCH":     ("#bbbbbb", 0.10, 254),
+    "HATCH":     ("#bbbbbb", 0.05, 254),     # hatch fills thin, 0.05
 }
 
 
