@@ -3,6 +3,33 @@
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 
+/* ── drawing unit for EDITING ─────────────────────────────────
+   The model stores lengths in FEET. The user can edit in Feet-Inch / mm / Meter;
+   these helpers convert to the chosen unit for display and back to feet on save,
+   so every coordinate / size / the gizmo / the step read & accept that unit.
+   (Defined up here so the gizmo wiring below can use them at load.)            */
+let DUNIT = "ft";
+const UNIT_F = { ft: 1, mm: 304.8, m: 0.3048 };   // feet → unit
+const unitFactor = () => UNIT_F[DUNIT] || 1;
+const unitStepAttr = () => ({ ft: "0.02", mm: "1", m: "0.005" }[DUNIT] || "0.02");
+const FEET_LEN = new Set(["x", "y", "w", "h", "x1", "y1", "x2", "y2", "pos",
+  "width", "size", "rx", "ry", "landing_size", "landing_depth", "well_gap",
+  "__len"]);
+const isFeetLen = path => FEET_LEN.has(String(path || ""));
+const toDisp = f => {
+  const v = (+f || 0) * unitFactor();
+  return DUNIT === "mm" ? Math.round(v)
+    : DUNIT === "m" ? Math.round(v * 1000) / 1000
+      : Math.round(v * 10000) / 10000;
+};
+const fromDisp = d => (parseFloat(d) || 0) / unitFactor();
+const STEP_PRESETS = {
+  ft: [["1\"", 0.0833], ["3\"", 0.25], ["6\"", 0.5], ["1'", 1], ["2'", 2]],
+  mm: [["10", 10], ["25", 25], ["50", 50], ["100", 100], ["300", 300]],
+  m:  [["0.05", 0.05], ["0.1", 0.1], ["0.25", 0.25], ["0.5", 0.5], ["1", 1]],
+};
+const STEP_DEFAULT = { ft: "0.5", mm: "100", m: "0.1" };
+
 const S = {
   pages: [],
   page: 0,
@@ -296,8 +323,8 @@ function showGizmo(){
   $("#gizXWrap").classList.toggle("hidden", !xy);
   $("#gizYWrap").classList.toggle("hidden", !xy);
   $("#gizPosWrap").classList.toggle("hidden", !pos);
-  if (xy){ $("#gizX").value = round2(it.x); $("#gizY").value = round2(it.y); }
-  if (pos){ $("#gizPos").value = round2(it.pos); }
+  if (xy){ $("#gizX").value = toDisp(it.x); $("#gizY").value = toDisp(it.y); }
+  if (pos){ $("#gizPos").value = toDisp(it.pos); }
   $("#gizRotL").classList.toggle("hidden", !cfg.rot);
   $("#gizRotR").classList.toggle("hidden", !cfg.rot);
   // snap-to-wall: columns get the precise directional face-flush (⇤/⇥/⤒/⤓ at
@@ -325,10 +352,13 @@ function showGizmo(){
 function updateGizmoCoords(){
   const it = selItem(); if (!it || !_sel) return;
   const c = POSCFG[_sel.key].coord;
-  if (c === "xy"){ $("#gizX").value = round2(it.x); $("#gizY").value = round2(it.y); }
-  else if (c === "pos"){ $("#gizPos").value = round2(it.pos); }
+  if (c === "xy"){ $("#gizX").value = toDisp(it.x); $("#gizY").value = toDisp(it.y); }
+  else if (c === "pos"){ $("#gizPos").value = toDisp(it.pos); }
 }
-function gizStep(){ return Math.max(0.01, parseFloat(($("#gizStep") || {}).value) || 0.5); }
+function gizStep(){                     // returns the step in FEET (model unit)
+  const d = parseFloat(($("#gizStep") || {}).value);
+  return Math.max(0.001, isNaN(d) ? 0.5 : d / unitFactor());
+}
 function moveSel(dx, dy){
   const it = selItem(); if (!it) return;
   const c = POSCFG[_sel.key].coord, s = gizStep();
@@ -360,12 +390,29 @@ holdRepeat($("#gizmo .up"),    () => moveSel(0, +1));
 holdRepeat($("#gizmo .down"),  () => moveSel(0, -1));
 holdRepeat($("#gizmo .left"),  () => moveSel(-1, 0));
 holdRepeat($("#gizmo .right"), () => moveSel(+1, 0));
-if ($("#gizX")) $("#gizX").onchange = () => { const it = selItem(); if (it){ it.x = r4(parseFloat($("#gizX").value) || 0); markDirty(); redraw(); } };
-if ($("#gizY")) $("#gizY").onchange = () => { const it = selItem(); if (it){ it.y = r4(parseFloat($("#gizY").value) || 0); markDirty(); redraw(); } };
-if ($("#gizPos")) $("#gizPos").onchange = () => { const it = selItem(); if (it){ it.pos = r4(Math.max(0, parseFloat($("#gizPos").value) || 0)); markDirty(); redraw(); } };
+if ($("#gizX")) $("#gizX").onchange = () => { const it = selItem(); if (it){ it.x = r4(fromDisp($("#gizX").value)); markDirty(); redraw(); } };
+if ($("#gizY")) $("#gizY").onchange = () => { const it = selItem(); if (it){ it.y = r4(fromDisp($("#gizY").value)); markDirty(); redraw(); } };
+if ($("#gizPos")) $("#gizPos").onchange = () => { const it = selItem(); if (it){ it.pos = r4(Math.max(0, fromDisp($("#gizPos").value))); markDirty(); redraw(); } };
 if ($("#gizRotL")) $("#gizRotL").onclick = () => rotSel(+1);
 if ($("#gizRotR")) $("#gizRotR").onclick = () => rotSel(-1);
-$$("#gizmo .giz-presets button").forEach(b => b.onclick = () => { $("#gizStep").value = b.dataset.step; });
+function rebuildStepPresets(){
+  const box = $("#gizmo .giz-presets"); if (!box) return;
+  box.innerHTML = (STEP_PRESETS[DUNIT] || STEP_PRESETS.ft)
+    .map(([lb, val]) => `<button data-step="${val}">${lb}</button>`).join("");
+  box.querySelectorAll("button").forEach(b =>
+    b.onclick = () => { $("#gizStep").value = b.dataset.step; });
+  const lbl = $("#gizmo .giz-step");
+  if (lbl && lbl.childNodes[0]) lbl.childNodes[0].nodeValue = "Step (" + DUNIT + ") ";
+}
+rebuildStepPresets();
+if ($("#selUnit")) $("#selUnit").onchange = () => {
+  DUNIT = $("#selUnit").value;
+  if ($("#gizStep")) $("#gizStep").value = STEP_DEFAULT[DUNIT];
+  rebuildStepPresets();
+  buildTables();                       // re-show every table in the new unit
+  if (_sel) showGizmo();               // and the gizmo
+  status("editing unit set to " + ({ ft: "Feet-Inch", mm: "Millimeter", m: "Meter" }[DUNIT]));
+};
 function snapSel(){
   const it = selItem(); if (!it || !_sel) return;
   if (POSCFG[_sel.key].coord !== "xy") return;
@@ -1365,7 +1412,9 @@ function makeFieldEl(key, row, col) {
     el.value = String(calc.get(row));
   } else if (calc) {
     el = document.createElement("input");
-    el.type = "number"; el.step = "0.05"; el.value = calc.get(row);
+    el.type = "number";
+    el.step = isFeetLen(path) ? unitStepAttr() : "0.05";
+    el.value = isFeetLen(path) ? toDisp(calc.get(row)) : calc.get(row);
     el._isNum = true;
   } else if (Array.isArray(kind)) {
     el = document.createElement("select");
@@ -1390,12 +1439,18 @@ function makeFieldEl(key, row, col) {
     el.placeholder = "+0'-6\", +1'-0\"";
   } else {
     el = document.createElement("input");
-    el.value = dig(row, path) ?? "";
-    if (kind === "num") { el.type = "number"; el.step = stepFor(path); el._isNum = true; }
+    if (kind === "num") {
+      el.type = "number"; el._isNum = true;
+      el.step = isFeetLen(path) ? unitStepAttr() : stepFor(path);
+      el.value = isFeetLen(path) ? toDisp(dig(row, path)) : (dig(row, path) ?? "");
+    } else {
+      el.value = dig(row, path) ?? "";
+    }
   }
   el.onchange = () => {
     let v = el.value;
-    if (kind === "num" || (calc && !calc.opts)) v = v === "" ? 0 : parseFloat(v);
+    if ((kind === "num" || (calc && !calc.opts)) && isFeetLen(path)) v = fromDisp(el.value);
+    else if (kind === "num" || (calc && !calc.opts)) v = v === "" ? 0 : parseFloat(v);
     else if (kind === "bool") v = v === "true";
     else if (kind === "list") v = v.split(",").map(s => s.trim()).filter(Boolean);
     pushUndo();
