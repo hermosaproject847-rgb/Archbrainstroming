@@ -121,7 +121,10 @@ def compose(plan: Plan, dl: DrawList, sheet: str = "A3",
         floorlegend.draw(out, plan, W, H)
 
     info = {"sheet": sheet.upper(), "orientation": orientation,
-            "w_mm": W, "h_mm": H, "scale": f"1:{int(denom)}", "k": k}
+            "w_mm": W, "h_mm": H, "scale": f"1:{int(denom)}", "k": k,
+            # model→sheet mapping (sheet_x = model_x*k + ox, y likewise) so the
+            # web UI can place interactive drag-handles exactly on each element
+            "ox": ox, "oy": oy}
     return out, info
 
 

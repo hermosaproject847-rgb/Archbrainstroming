@@ -619,7 +619,112 @@ function showSvg(svg, info) {
   if (S.forceFit || !sameSize || !S.pl.z) fit("pl");
   else apply("pl");
   S.forceFit = false;
+  S.plInfo = info;
+  buildHandles(info);          // draggable handles on top of the drawing
 }
+
+/* ── canvas direct-manipulation: drag handles right on the plan ───────
+   An overlay SVG (same viewBox, same pan/zoom parent) carries a handle on every
+   element. Drag a wall end to stretch it, a door to slide it along its wall,
+   a piece to move it, a corner to resize — mouse or touch. Model stays in feet;
+   pointer deltas are converted feet ← px via the sheet scale.                 */
+const NS_SVG = "http://www.w3.org/2000/svg";
+let _hdrag = null;             // {onMove, pxPerUnit, lastX, lastY}
+function clearHandles() { const o = document.getElementById("plHandles"); if (o) o.remove(); }
+function wallById(id) { return (S.plan && S.plan.walls || []).find(w => w.id === id); }
+
+function buildHandles(info) {
+  clearHandles();
+  if (!S.plan || !info) return;
+  if (S.beamView || S.sectionView || S.structView || S.elevView) return;
+  if (floorsWithPlans() >= 2) return;         // project view: skip (offset floors)
+  if (_hdrag) return;                          // don't rebuild mid-drag
+  const holder = $("#plHolder"), draw = holder.querySelector("svg");
+  if (!draw) return;
+  const ov = document.createElementNS(NS_SVG, "svg");
+  ov.id = "plHandles";
+  ov.setAttribute("viewBox", `0 0 ${info.w_mm} ${info.h_mm}`);
+  ov.setAttribute("width", draw.getAttribute("width"));
+  ov.setAttribute("height", draw.getAttribute("height"));
+  ov.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;overflow:visible";
+  holder.appendChild(ov);
+  const R = Math.max(1.3, info.w_mm * 0.0065);
+
+  const H = (mx, my, cls, onMove) => {
+    const cx = mx * info.k + info.ox, cy = info.h_mm - (my * info.k + info.oy);
+    const c = document.createElementNS(NS_SVG, "circle");
+    c.setAttribute("cx", cx); c.setAttribute("cy", cy); c.setAttribute("r", R);
+    c.setAttribute("class", "handle " + cls);
+    c.style.pointerEvents = "auto";
+    const dn = e => startDrag(e, onMove);
+    c.addEventListener("mousedown", dn);
+    c.addEventListener("touchstart", dn, { passive: false });
+    ov.appendChild(c);
+  };
+
+  // walls / beams / sections — two ends (stretch) + midpoint (move whole)
+  const seg = (arr, cls) => (S.plan[arr] || []).forEach(it => {
+    H(it.x1, it.y1, cls + " h-end", (dx, dy) => { it.x1 = r4(it.x1 + dx); it.y1 = r4(it.y1 + dy); });
+    H(it.x2, it.y2, cls + " h-end", (dx, dy) => { it.x2 = r4(it.x2 + dx); it.y2 = r4(it.y2 + dy); });
+    H((it.x1 + it.x2) / 2, (it.y1 + it.y2) / 2, cls + " h-move",
+      (dx, dy) => { it.x1 = r4(it.x1 + dx); it.x2 = r4(it.x2 + dx); it.y1 = r4(it.y1 + dy); it.y2 = r4(it.y2 + dy); });
+  });
+  seg("walls", ""); seg("beams", ""); seg("sections", "");
+
+  // openings — slide along their wall
+  (S.plan.openings || []).forEach(o => {
+    const w = wallById(o.wall_id); if (!w) return;
+    const L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) || 1e-6;
+    const ux = (w.x2 - w.x1) / L, uy = (w.y2 - w.y1) / L;
+    H(w.x1 + ux * (o.pos + o.width / 2), w.y1 + uy * (o.pos + o.width / 2), "h-open",
+      (dx, dy) => { o.pos = r4(Math.min(Math.max(0, o.pos + dx * ux + dy * uy), Math.max(0, L - o.width))); });
+  });
+
+  // boxes — centre moves, a corner resizes (columns are stored centred)
+  const boxes = (arr, centred) => (S.plan[arr] || []).forEach(it => {
+    const w = +it.w || 0, h = +it.h || 0;
+    const cx = centred ? it.x : it.x + w / 2, cy = centred ? it.y : it.y + h / 2;
+    H(cx, cy, "h-move", (dx, dy) => { it.x = r4(it.x + dx); it.y = r4(it.y + dy); });
+    const ex = centred ? it.x + w / 2 : it.x + w, ey = centred ? it.y + h / 2 : it.y + h;
+    H(ex, ey, "h-size", (dx, dy) => {
+      const f = centred ? 2 : 1;
+      it.w = r4(Math.max(0.3, w + f * dx)); it.h = r4(Math.max(0.3, h + f * dy));
+    });
+  });
+  boxes("furniture", false); boxes("rooms", false);
+  boxes("stairs", false); boxes("steps", false); boxes("columns", true);
+}
+
+function startDrag(e, onMove) {
+  e.preventDefault(); e.stopPropagation();     // never start a pan
+  const p = e.touches ? e.touches[0] : e;
+  const draw = $("#plHolder").querySelector("svg");
+  const rect = draw.getBoundingClientRect();
+  _hdrag = { onMove, pxPerUnit: rect.width / (S.plInfo.w_mm || 1),
+             lastX: p.clientX, lastY: p.clientY };
+  pushUndo();
+}
+function _dragMove(e) {
+  if (!_hdrag) return;
+  const p = e.touches ? e.touches[0] : e;
+  const k = S.plInfo.k || 1, ppu = _hdrag.pxPerUnit || 1;
+  const dfx = (p.clientX - _hdrag.lastX) / ppu / k;
+  const dfy = -(p.clientY - _hdrag.lastY) / ppu / k;   // svg y is flipped
+  _hdrag.lastX = p.clientX; _hdrag.lastY = p.clientY;
+  _hdrag.onMove(dfx, dfy);
+  markDirty(); redraw();
+  if (e.cancelable) e.preventDefault();
+}
+function _dragEnd() {
+  if (!_hdrag) return;
+  _hdrag = null;
+  buildHandles(S.plInfo);       // refresh handle positions once the drag settles
+}
+addEventListener("mousemove", _dragMove);
+addEventListener("touchmove", _dragMove, { passive: false });
+addEventListener("mouseup", _dragEnd);
+addEventListener("touchend", _dragEnd);
+addEventListener("touchcancel", _dragEnd);
 
 /* ── stage buttons ───────────────────────────────────────────
    A stage that is already in the file cannot be run again by accident: the
