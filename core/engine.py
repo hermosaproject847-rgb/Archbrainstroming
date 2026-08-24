@@ -698,11 +698,10 @@ def draw_auto_dims(plan: Plan, dl: DrawList) -> None:
     """Automatic civil-layout dimensioning, done the way a working drawing is
     actually dimensioned: all COLLINEAR walls on one line share ONE continuous
     chain beside that line. The chain runs internal-face to internal-face and
-    breaks at (a) BOTH faces of every crossing wall — so the crossing wall's
-    thickness prints as its own 5"/9" figure, never an undimensioned gap,
-    (b) column faces, (c) every door / window edge on any wall of the line.
-    Collinear walls are never split at their own joints (a joint is not a
-    break unless a wall or column actually crosses there)."""
+    breaks ONLY at (a) column faces and (b) every door / window edge on any
+    wall of the line. A crossing internal wall does NOT break the chain — the
+    figure runs continuous wall-to-window across it (its thickness reads on its
+    own line inside). Collinear walls are never split at their own joints."""
     OFF = 1.0
     x0, y0, x1, y1 = plan.extents()
     mx, my = (x0 + x1) / 2.0, (y0 + y1) / 2.0
@@ -730,10 +729,9 @@ def draw_auto_dims(plan: Plan, dl: DrawList) -> None:
             continue
         exterior = any(getattr(w, "exterior", False) for w in ws)
 
-        # 1) crossing walls: pull the ENDS in to their inner faces; a crossing
-        #    wall INSIDE the run adds both its faces (its thickness = a figure)
+        # 1) crossing walls at the ENDS only: pull each end IN to that wall's
+        #    inner face. A wall crossing MID-run does not break the chain.
         span0, span1 = lo, hi
-        inner_faces = []
         for o in plan.walls:
             if o in ws or getattr(o, "railing", False):
                 continue
@@ -749,13 +747,9 @@ def draw_auto_dims(plan: Plan, dl: DrawList) -> None:
                 span0 = max(span0, oc + half_ft(o))
             elif abs(oc - hi) < 0.6:
                 span1 = min(span1, oc - half_ft(o))
-            elif lo + 0.6 < oc < hi - 0.6:
-                inner_faces.append((oc - half_ft(o), oc + half_ft(o)))
         ticks = [span0, span1]
 
-        # 2) columns on the line — their faces break the chain; a crossing
-        #    wall face buried inside a column is dropped (the column governs)
-        col_iv = []
+        # 2) columns on the line — their faces break the chain
         for c in plan.columns:
             ccross = c.y if horiz else c.x
             calong = c.x if horiz else c.y
@@ -764,16 +758,9 @@ def draw_auto_dims(plan: Plan, dl: DrawList) -> None:
             if not (lo - 0.6 <= calong <= hi + 0.6):
                 continue
             chw = ((getattr(c, "w", 0) if horiz else getattr(c, "h", 0)) or 0) / 2.0
-            col_iv.append((calong - chw, calong + chw))
             for t in (calong - chw, calong + chw):
                 if span0 - 0.05 <= t <= span1 + 0.05:
                     ticks.append(min(max(t, span0), span1))
-        for f0, f1 in inner_faces:
-            for t in (f0, f1):
-                if any(iv[0] - 0.05 <= t <= iv[1] + 0.05 for iv in col_iv):
-                    continue                          # inside a column
-                if span0 - 0.05 <= t <= span1 + 0.05:
-                    ticks.append(t)
 
         # 3) door / window edges on ANY wall of this line
         for w in ws:
