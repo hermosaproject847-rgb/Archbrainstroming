@@ -497,10 +497,116 @@
     // the bottom, waste above it, storm above that â€” so two crossing runs
     // NEVER pass through each other; branches step DOWN into the main via
     // the connector, exactly how the levels work on site
-    const SYS_DZ = { SOIL: -0.38, WASTE: 0, STORM: 0.14 };
+    // each drainage SYSTEM owns an EXCLUSIVE depth band with a clear gap
+    // between bands: the deep soil main at the bottom, waste above it, storm
+    // above that. A run is clamped INSIDE its own band, so two systems can
+    // never end up sharing a level however long the fall runs.
+    // dz is measured from the FLOOR of this storey, and the gap between two
+    // bands (0.55 ft = 168 mm) is wider than the fattest pipe, so a crossing
+    // always shows daylight between the two runs.
+    const SYS_BAND = {                  // { top of band, max fall inside band }
+      SOIL:  { dz: -2.24, drop: 0.20 },   // deepest: the soil main
+      WASTE: { dz: -1.26, drop: 0.18 },   // above it: waste
+      STORM: { dz: -0.30, drop: 0.16 },   // shallowest: rainwater
+    };
+    // turn angle at vertex i - a fitting belongs only on a real change of
+    // direction; a straight continuation gets no ball
+    const turnAt = (P, i) => {
+      const ax = P[i][0] - P[i - 1][0], ay = P[i][1] - P[i - 1][1];
+      const bx = P[i + 1][0] - P[i][0], by = P[i + 1][1] - P[i][1];
+      const la = Math.hypot(ax, ay) || 1e-9, lb = Math.hypot(bx, by) || 1e-9;
+      return Math.acos(Math.max(-1, Math.min(1, (ax * bx + ay * by) / (la * lb))));
+    };
+    const fitR = r => Math.min(r * 1.06, r + 0.022);   // slim fittings, no blobs
+    // ONE fitting per physical point: an elbow, a socket and a joint ball all
+    // landing on the same corner used to pile up into a big blob
+    const fitSeen = new Set();
+    const addFit = (gr, x, y, z, rr, mat) => {
+      const k = Math.round(x * 12) + "|" + Math.round(y * 12) + "|" + Math.round(z * 12);
+      if (fitSeen.has(k)) return;
+      fitSeen.add(k);
+      const j = new THREE.Mesh(new THREE.SphereGeometry(rr, 10, 10), mat);
+      j.position.set(x, z, -y);
+      gr.add(j);
+    };
+    // ---- LATERAL LANES: besides its depth band every system runs in its own
+    // side lane, so parallel services sit SIDE BY SIDE like a real services
+    // drawing instead of stacking one over the other. Corners are mitred so
+    // an offset run stays continuous.
+    const LANE = { SOIL: 0, WASTE: 0.62, STORM: 1.24,
+      CW: 0, HW: 0.5, VENT: 1.0, ACD: 1.5 };
+    const offsetPoly = (P, off) => {
+      if (!off) return P.map(p => [p[0], p[1]]);
+      const n = P.length, Q = [];
+      const perp = (a, b) => {
+        const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1e-9;
+        return [-dy / L, dx / L];
+      };
+      for (let i = 0; i < n; i++) {
+        let d;
+        if (i === 0) d = perp(P[0], P[1]);
+        else if (i === n - 1) d = perp(P[n - 2], P[n - 1]);
+        else {
+          const a = perp(P[i - 1], P[i]), b = perp(P[i], P[i + 1]);
+          let mx = a[0] + b[0], my = a[1] + b[1];
+          const L = Math.hypot(mx, my);
+          if (L < 1e-6) d = a;
+          else {
+            const c = Math.abs((a[0] * mx + a[1] * my) / L);   // cos half-angle
+            const sc = Math.max(0.4, c);
+            d = [mx / L / sc, my / L / sc];                    // mitred corner
+          }
+        }
+        Q.push([P[i][0] + d[0] * off, P[i][1] + d[1] * off]);
+      }
+      return Q;
+    };
     const drains = [];             // drawn drainage runs, for the joins pass
+    const supplies = [];           // drawn CW / HW runs, for their joins pass
+    // A system band is not enough: two runs of the SAME system used to share
+    // one lane, so parallel runs sat inside each other. Now every run that
+    // would actually clash with an earlier one takes the next free SUB-LANE
+    // (greedy colouring) — runs that do not clash stay exactly where they
+    // belong, so the drawing stays tight instead of fanning out.
+    const seg2d = (p1, q1, p2, q2) => {
+      const ux = q1[0] - p1[0], uy = q1[1] - p1[1];
+      const vx = q2[0] - p2[0], vy = q2[1] - p2[1];
+      const wx = p1[0] - p2[0], wy = p1[1] - p2[1];
+      const a = ux * ux + uy * uy, b = ux * vx + uy * vy, c = vx * vx + vy * vy;
+      const d = ux * wx + uy * wy, e = vx * wx + vy * wy, D = a * c - b * b;
+      let sc, tc;
+      if (D < 1e-9) { sc = 0; tc = (b > c ? d / b : e / c); }
+      else { sc = (b * e - c * d) / D; tc = (a * e - b * d) / D; }
+      sc = Math.max(0, Math.min(1, sc)); tc = Math.max(0, Math.min(1, tc));
+      return Math.hypot(wx + sc * ux - tc * vx, wy + sc * uy - tc * vy);
+    };
+    const runsClash = (A, B) => {
+      for (let i = 0; i < A.length - 1; i++)
+        for (let j = 0; j < B.length - 1; j++)
+          if (seg2d(A[i], A[i + 1], B[j], B[j + 1]) < 1.3) return true;
+      return false;
+    };
+    const laneIdx = new Map(), bySys = {};
+    (plan.pipes || []).forEach(r => { (bySys[r.system] = bySys[r.system] || []).push(r); });
+    for (const sys in bySys) {
+      const list = bySys[sys];
+      for (let i = 0; i < list.length; i++) {
+        const used = new Set();
+        for (let j = 0; j < i; j++)
+          if (runsClash(list[i].pts || [], list[j].pts || []))
+            used.add(laneIdx.get(list[j]));
+        let k = 0; while (used.has(k)) k++;
+        laneIdx.set(list[i], k);
+      }
+    }
+    // 0, +0.42, -0.42, +0.84 … — alternating, so a group stays centred and the
+    // spacing is always wider than the fattest pipe
+    const subLane = k => (k ? (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.55 : 0);
     for (const r of (plan.pipes || [])) {
-      const P = r.pts || []; if (P.length < 2) continue;
+      const P0 = r.pts || []; if (P0.length < 2) continue;
+      const lk = laneIdx.get(r) || 0;      // clash colour: lane AND level
+      const sub = subLane(lk);             // its own clash-free side lane
+      const P = offsetPoly(P0, (LANE[r.system] || 0) + sub);
       const col = PIPE3D[r.system] || 0x888888;
       const mat = new THREE.MeshLambertMaterial({ color: col });
       const dia = +r.dia_mm || 50;
@@ -521,19 +627,17 @@
         // continuous 1:50 fall, and only drops down OUTSIDE to the drain
         // each high-level system gets its OWN band: cold lowest, hot above
         // it, vent above that â€” parallel runs never merge into one another
-        const zBase = isACD ? z0 + 7.1
-          : r.system === "HW" ? z0 + fh - 0.62
-          : r.system === "VENT" ? z0 + fh - 0.45
-          : z0 + fh - 0.8;
+        const zBase = (isACD ? z0 + 7.1
+          : r.system === "HW" ? z0 + fh - 1.05
+          : r.system === "VENT" ? z0 + fh - 0.50
+          : z0 + fh - 1.62) - lk * 0.17;    // clashing runs step clear too
         const fHi = isACD ? 1 / 50 : 0;
         for (let i = 0; i < P.length - 1; i++) {
           const zA = zBase - cum[i] * fHi, zB = zBase - cum[i + 1] * fHi;
           const c = cylBetween(P[i][0], P[i][1], zA, P[i + 1][0], P[i + 1][1], zB, rad, mat);
           if (c) rg.add(c);
-          if (i > 0) {
-            const j = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.1, 10, 10), mat);
-            j.position.set(P[i][0], zA, -P[i][1]);
-            rg.add(j);
+          if (i > 0 && turnAt(P, i) > 0.26) {
+            addFit(rg, P[i][0], P[i][1], zA, fitR(rad), mat);
           }
         }
         if (supply) {
@@ -551,6 +655,7 @@
             if (d) rg.add(d);
           }
         }
+        if (supply) supplies.push({ P, z: zBase, rad, mat, sys: r.system, dia });
         g.add(rg);
         continue;
       }
@@ -558,13 +663,17 @@
       let prevZ = null;
       // within a system the SMALLER branch rides slightly higher than the
       // bigger main, so same-colour crossings clear each other too
-      const sysDz = (SYS_DZ[r.system] || 0) + (0.18 - Math.min(0.18, rad)) * 1.4;
+      const band = SYS_BAND[r.system] || { dz: -1.26, drop: 0.18 };
+      // inside its own band a SMALLER branch rides above the bigger main, so
+      // two runs of the same system clear each other as well (max 0.10 ft,
+      // which is what the band header leaves free)
+      const sysDz = band.dz + (0.26 - Math.min(0.26, rad)) / 0.18 * 0.06
+        + (lk % 4) * 0.34;              // clashing runs step clear too
       for (let i = 0; i < P.length - 1; i++) {
-        const midx = (P[i][0] + P[i + 1][0]) / 2, midy = (P[i][1] + P[i + 1][1]) / 2;
-        const b = baseAt(midx, midy) + sysDz;
+        const b = z0 + sysDz;
         // never deeper than just under the ground â€” long falls are capped
-        const zA = Math.max(-0.5, b - cum[i] * fall);
-        const zB = Math.max(-0.5, b - cum[i + 1] * fall);
+        const zA = Math.max(b - band.drop, b - cum[i] * fall);
+        const zB = Math.max(b - band.drop, b - cum[i + 1] * fall);
         if (i === 0) zs[0] = zA;
         zs[i + 1] = zB;
         const c = cylBetween(P[i][0], P[i][1], zA, P[i + 1][0], P[i + 1][1], zB, rad, mat);
@@ -573,11 +682,9 @@
           const v = cylBetween(P[i][0], P[i][1], prevZ, P[i][0], P[i][1], zA, rad, mat);
           if (v) rg.add(v);                    // level change at the zone edge
         }
-        // joint ball at this segment's start vertex
-        if (i > 0) {
-          const j = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.1, 10, 10), mat);
-          j.position.set(P[i][0], zA, -P[i][1]);
-          rg.add(j);
+        // joint ball only where the run actually turns
+        if (i > 0 && turnAt(P, i) > 0.26) {
+          addFit(rg, P[i][0], P[i][1], zA, fitR(rad), mat);
         }
         prevZ = zB;
       }
@@ -595,6 +702,7 @@
     };
     const stacksXY = (plan.plumb || []).filter(p =>
       p.code === "SS" || p.code === "WS" || p.code === "RWP");
+    const tied = new Set();          // junctions already fitted, no doubling
     for (const a of drains) {
       const endIdx = [0, a.P.length - 1];
       for (const ei of endIdx) {
@@ -621,14 +729,26 @@
           }
         }
         if (!best) continue;
-        const c = cylBetween(e[0], e[1], ez, best.x, best.y, best.z, a.rad, a.mat);
-        if (c) g.add(c);
+        // ONE connector per junction - if another branch already tied in at
+        // (almost) this point, don't stack a second set of fittings on it
+        const key = Math.round(e[0] * 4) + "|" + Math.round(e[1] * 4);
+        if (tied.has(key)) continue;
+        tied.add(key);
+        // L-SHAPE, never a diagonal: run HORIZONTAL at the branch level up to
+        // the main, then DROP VERTICALLY into the tee - the way it is actually
+        // laid on site, and it keeps the crossings readable in 3D
+        const h = cylBetween(e[0], e[1], ez, best.x, best.y, ez, a.rad, a.mat);
+        if (h) g.add(h);
+        if (Math.abs(ez - best.z) > 0.02) {
+          const v = cylBetween(best.x, best.y, ez, best.x, best.y, best.z, a.rad, a.mat);
+          if (v) g.add(v);
+          addFit(g, best.x, best.y, ez, fitR(a.rad), a.mat);   // elbow at top of drop
+        }
         // connector fittings: a socket on the branch, a TEE boss on the main
-        const s1 = new THREE.Mesh(new THREE.SphereGeometry(a.rad * 1.25, 10, 10), a.mat);
-        s1.position.set(e[0], ez, -e[1]);
-        g.add(s1);
+        addFit(g, e[0], e[1], ez, fitR(a.rad), a.mat);        // socket on the branch
         if (best.stack) {
-          const ring = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.06, 8, 14), a.mat);
+          const ring = new THREE.Mesh(
+            new THREE.TorusGeometry(a.rad + 0.05, 0.035, 8, 14), a.mat);
           ring.rotation.x = Math.PI / 2;
           ring.position.set(best.x, best.z, -best.y);
           g.add(ring);
@@ -636,10 +756,58 @@
           const bb = best.b, k = best.k;
           const ux = bb.P[k + 1][0] - bb.P[k][0], uy = bb.P[k + 1][1] - bb.P[k][1];
           const L = Math.hypot(ux, uy) || 1;
-          const tee = cylBetween(best.x - ux / L * 0.25, best.y - uy / L * 0.25, best.z,
-            best.x + ux / L * 0.25, best.y + uy / L * 0.25, best.z, bb.rad * 1.18, bb.mat);
+          const tee = cylBetween(best.x - ux / L * 0.18, best.y - uy / L * 0.18, best.z,
+            best.x + ux / L * 0.18, best.y + uy / L * 0.18, best.z,
+            fitR(bb.rad), bb.mat);
           if (tee) g.add(tee);
         }
+      }
+    }
+    // ------- WATER SUPPLY CONNECTIVITY. Only DRAINAGE had a joins pass, so a
+    // CW / HW branch simply STOPPED IN MID AIR. Every supply run now ties
+    // into its own DOWNTAKE STACK (CW -> CWD, HW -> HWD, never the other
+    // one), or failing that into the nearest bigger main of the SAME system,
+    // with an L-shape - horizontal at branch level, then the riser - and a
+    // tee, exactly like the drainage side.
+    const downtakes = (plan.plumb || []).filter(p =>
+      p.code === "CWD" || p.code === "HWD");
+    const WANT = { CW: "CWD", HW: "HWD" };
+    for (const a of supplies) {
+      for (const ei of [0, a.P.length - 1]) {
+        const e = a.P[ei];
+        if (inTap(e[0], e[1])) continue;     // that end already drops to a tap
+        let best = null;
+        for (const st of downtakes) {
+          if (st.code !== WANT[a.sys]) continue;   // hot never joins the cold main
+          const d = Math.hypot(st.x - e[0], st.y - e[1]);
+          if (d > 0.2 && d < 3.0 && (!best || d < best.d))
+            best = { d, x: st.x, y: st.y, stack: true };
+        }
+        if (!best) {
+          for (const b of supplies) {
+            if (b === a || b.sys !== a.sys || b.dia < a.dia) continue;
+            for (let k = 0; k < b.P.length - 1; k++) {
+              const cp = closestOnSeg(e, b.P[k], b.P[k + 1]);
+              const d = Math.hypot(cp[0] - e[0], cp[1] - e[1]);
+              if (d < 0.2 || d > 3.5) continue;
+              if (!best || d < best.d) best = { d, x: cp[0], y: cp[1], b };
+            }
+          }
+        }
+        if (!best) continue;
+        const h = cylBetween(e[0], e[1], a.z, best.x, best.y, a.z, a.rad, a.mat);
+        if (h) g.add(h);                     // horizontal leg to the main
+        if (best.stack) {                    // riser into the downtake band
+          const v = cylBetween(best.x, best.y, a.z,
+            best.x, best.y, z0 + fh - 0.9, a.rad, a.mat);
+          if (v) g.add(v);
+        } else if (Math.abs(a.z - best.b.z) > 0.02) {
+          const v = cylBetween(best.x, best.y, a.z,
+            best.x, best.y, best.b.z, a.rad, a.mat);
+          if (v) g.add(v);
+        }
+        addFit(g, e[0], e[1], a.z, fitR(a.rad), a.mat);           // socket
+        addFit(g, best.x, best.y, a.z, fitR(a.rad), a.mat);       // tee / elbow
       }
     }
     // vertical STACKS / downtakes: DOWN from the sunk to ground drainage â€”
@@ -657,10 +825,14 @@
         let zt, zb;
         if (p.code === "CWD" || p.code === "HWD") { zt = z0 + fh + 0.6; zb = z0 + fh - 0.9; }
         else if (p.code === "VP") { zt = z0 + fh + 1.0; zb = z0 - 0.25; }
-        else { zt = z0 - 0.25; zb = -0.45; }
-        const st = cylBetween(p.x, p.y, zt, p.x, p.y, zb, 0.19, mat);
+        else if (p.code === "SS") { zt = z0 - 0.15; zb = -2.42; }
+        else if (p.code === "WS") { zt = z0 - 0.15; zb = -1.52; }
+        else { zt = z0 - 0.15; zb = -0.50; }
+        const srad = Math.max(0.075,
+          ((+p.dia_mm || (p.code === "SS" ? 110 : p.code === "VP" ? 75 : 63)) * MM) / 2);
+        const st = cylBetween(p.x, p.y, zt, p.x, p.y, zb, srad, mat);
         if (st) sg.add(st);
-        const clamp = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.05, 8, 14), mat);
+        const clamp = new THREE.Mesh(new THREE.TorusGeometry(srad + 0.04, 0.03, 8, 14), mat);
         clamp.rotation.x = Math.PI / 2;
         clamp.position.set(p.x, (zt + zb) / 2, -p.y);
         sg.add(clamp);
@@ -714,6 +886,176 @@
     (plan.elec || []).forEach(p =>
       (p.controls || []).forEach(t => CTRL.add(t)));
     const claimed = new Set();
+    // ---- LOOPING COMES FROM THE DRAWING, not from a second guess here.
+    // core/looping.py chains every switch inside ONE room (switch -> nearest
+    // fitting -> next). The 3D used to re-chain a board's whole controls list
+    // nearest-first, and the DB looped to EVERY board on the floor, so runs
+    // wandered into the next room. Draw exactly what the 2D decided.
+    // The conduit also runs IN THE SLAB now: `ceil` sits 0.15 under the slab,
+    // which is INSIDE a 300 mm beam drop, so every ceiling run used to spear
+    // straight through the beams. Cast-in conduit passes OVER them.
+    const slab = z0 + fh + 0.10;
+    const LOOPS = plan.elec_loops || [];
+    // An older plan carries no elec_loops. Rather than fall back to the walk
+    // that crossed rooms, derive the SAME rule here: per ROOM, per DUTY,
+    // chained from the board nearest-first (core/looping.py GROUPS).
+    const GROUPS3D = [
+      ["General lighting", ["SL", "ASL", "PL", "CSL"]],
+      ["Cove / profile", ["CV", "TR"]],
+      ["Decorative", ["HL", "CH"]],
+      ["Wall lights", ["WL"]],
+      ["Bedside lights", ["BWL"]],
+      ["Mirror light", ["ML"]],
+      ["Step / foot", ["STL"]],
+      ["Fan", ["CF"]],
+      ["Exhaust", ["EF"]],
+    ];
+    const roomOf = (x, y) => (plan.rooms || []).find(r => !r.void &&
+      x >= r.x - 0.1 && x <= r.x + r.w + 0.1 &&
+      y >= r.y - 0.1 && y <= r.y + r.h + 0.1) || null;
+    const GENERAL3D = "General lighting", BANK_MIN = 4, MAX_W = 800, MAX_PTS = 10;
+    // farthest-point sampling: the alternate bank must still light the WHOLE
+    // room, so its fittings are the ones furthest apart, not every other one
+    function spreadPick(pts, m) {
+      if (m >= pts.length) return pts.slice();
+      const cx = pts.reduce((t, p) => t + p.x, 0) / pts.length;
+      const cy = pts.reduce((t, p) => t + p.y, 0) / pts.length;
+      const d2 = (p, q) => (p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y);
+      let first = pts[0];
+      for (const p of pts)
+        if (d2(p, { x: cx, y: cy }) > d2(first, { x: cx, y: cy })) first = p;
+      const chosen = [first], taken = new Set([pts.indexOf(first)]);
+      while (chosen.length < m) {
+        let bi = -1, bd = -1;
+        pts.forEach((p, i) => {
+          if (taken.has(i)) return;
+          let near = Infinity;
+          for (const ch of chosen) near = Math.min(near, d2(p, ch));
+          if (near > bd) { bd = near; bi = i; }
+        });
+        if (bi < 0) break;
+        chosen.push(pts[bi]); taken.add(bi);
+      }
+      return chosen;
+    }
+    function banks(duty, chain) {
+      const n = chain.length;
+      if (duty !== GENERAL3D || n < BANK_MIN) return [[duty, chain]];
+      const m = Math.max(2, Math.round(n / 3));
+      if (m >= n) return [[duty, chain]];
+      const pick = new Set(spreadPick(chain, m));
+      const alt = chain.filter(p => pick.has(p));
+      const main = chain.filter(p => !pick.has(p));
+      if (!alt.length || !main.length) return [[duty, chain]];
+      return [[duty + " — main", main], [duty + " — alternate", alt]];
+    }
+    function splitRun(chain) {
+      const runs = []; let cur = [], w = 0;
+      for (const p of chain) {
+        const pw = +p.watts || 0;
+        if (cur.length && (cur.length + 1 > MAX_PTS || w + pw > MAX_W)) {
+          runs.push(cur); cur = []; w = 0;
+        }
+        cur.push(p); w += pw;
+      }
+      if (cur.length) runs.push(cur);
+      return runs;
+    }
+    function localLoops() {
+      const byRoom = new Map();
+      for (const q of (plan.elec || [])) {
+        if (q.visible === false) continue;
+        const rm = roomOf(q.x, q.y);
+        if (!rm) continue;                 // nothing outside a room is looped
+        if (!byRoom.has(rm)) byRoom.set(rm, []);
+        byRoom.get(rm).push(q);
+      }
+      const out = [];
+      for (const [rm, here] of byRoom) {
+        const bd = here.find(q => q.code === "SB") || null;
+        for (const [duty, codes] of GROUPS3D) {
+          const todo = here.filter(q => codes.indexOf(q.code || "") >= 0);
+          if (!todo.length) continue;
+          const seq = [];
+          let cur = bd || todo[0];
+          while (todo.length) {            // nearest first, then nearest to that
+            let bi = 0, bdist = 1e18;
+            todo.forEach((q, k) => {
+              const d = (q.x - cur.x) * (q.x - cur.x) + (q.y - cur.y) * (q.y - cur.y);
+              if (d < bdist) { bdist = d; bi = k; }
+            });
+            const q = todo.splice(bi, 1)[0];
+            seq.push({ x: q.x, y: q.y, tag: q.tag, code: q.code, watts: q.watts });
+            cur = q;
+          }
+          // Rule 6 - general lighting splits into a MAIN and a smaller
+          // ALTERNATE bank; Rule 4 - a run breaks at 800 W or 10 points. Each
+          // resulting run is its OWN switch, its own loop, exactly as the
+          // sheet draws it. Without this the whole room came out as one loop.
+          for (const [label, bank] of banks(duty, seq))
+            for (const run of splitRun(bank))
+              out.push({ id: "", duty: label, room: rm.name, seq: run,
+                board: bd ? { x: bd.x, y: bd.y, height_mm: bd.height_mm } : null });
+        }
+      }
+      return out;
+    }
+    const CHAINS = LOOPS.length ? LOOPS : localLoops();
+    // EVERY SWITCH IS ITS OWN LOOP. Drawn all at one level, in one colour, the
+    // chains fused into a single web and the view read as "everything looped
+    // together". The 2D sheet keeps them apart by bowing alternate chains
+    // (engine.draw_elec_loops) and lettering S1, S2 - so do the same here:
+    // each switch gets its OWN slab sub-level, its OWN bow direction and its
+    // OWN shade, so you can trace one loop from its board to its last point.
+    const LOOPTONE = [0xff8c1a, 0xffc247, 0xe0651a, 0xffa76b, 0xc4761f];
+    const loopMat = LOOPTONE.map(c => new THREE.MeshLambertMaterial({ color: c }));
+    CHAINS.forEach((s, ci) => {
+      const seq = (s.seq || []).filter(q => q && isFinite(q.x) && isFinite(q.y));
+      if (!seq.length) return;
+      const zc = slab + (ci % 4) * 0.09;     // its own level inside the slab
+      const bow = (ci % 2 === 0 ? 1 : -1) * (1 + (ci % 3) * 0.35);
+      const mat = loopMat[ci % loopMat.length];
+      const pts = [];
+      if (s.board) {
+        const hz = ((+s.board.height_mm || 1200) * MM);
+        const dg = windowDodge(s.board.x, s.board.y, z0 + hz);
+        const bx = dg ? dg.x : s.board.x, by = dg ? dg.y : s.board.y;
+        if (dg) {
+          const side = cylBetween(s.board.x, s.board.y, z0 + hz, bx, by, z0 + hz, 0.05, mat);
+          if (side) g.add(side);
+        }
+        const up = cylBetween(bx, by, z0 + hz, bx, by, zc, 0.05, mat);
+        if (up) g.add(up);                   // this switch's own riser
+        pts.push([bx, by]);
+      }
+      seq.forEach(q => pts.push([q.x, q.y]));
+      for (let i = 0; i < pts.length - 1; i++) {
+        // one leg, bowed the way the 2D sheet bows it, so two chains sharing
+        // a route stay traceable instead of lying on top of each other
+        const A = pts[i], B = pts[i + 1];
+        const L = Math.hypot(B[0] - A[0], B[1] - A[1]);
+        if (L < 0.3) continue;
+        const sag = Math.max(0.18, Math.min(0.9, L * 0.16)) * bow;
+        const px = -(B[1] - A[1]) / L, py = (B[0] - A[0]) / L;
+        const mx = (A[0] + B[0]) / 2 + px * sag, my = (A[1] + B[1]) / 2 + py * sag;
+        let prev = A;
+        for (let k = 1; k <= 6; k++) {       // quadratic bezier, same as the 2D
+          const t = k / 6, u = 1 - t;
+          const qx = u * u * A[0] + 2 * u * t * mx + t * t * B[0];
+          const qy = u * u * A[1] + 2 * u * t * my + t * t * B[1];
+          const c = cylBetween(prev[0], prev[1], zc, qx, qy, zc, 0.05, mat);
+          if (c) g.add(c);
+          prev = [qx, qy];
+        }
+      }
+      for (const q of seq) {                 // drop out of the slab at the point
+        const d = cylBetween(q.x, q.y, zc, q.x, q.y, ceil, 0.05, mat);
+        if (d) g.add(d);
+        const jb = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 8), mat);
+        jb.position.set(q.x, zc, -q.y);
+        g.add(jb);                           // loop joint at the rose / box
+      }
+    });
     for (const p of (plan.elec || [])) {
       if (p.visible === false) continue;
       const code = p.code || "SL";
@@ -722,58 +1064,32 @@
         const plate = box(0.8, 0.25, 0.5, p.x, p.y, z0 + hz, new THREE.MeshLambertMaterial({ color: 0xf5f2ea }));
         plate.userData.edit = { kind: "elec", ref: p, plan };
         g.add(plate);
-        // conduit: board â†’ up to ceiling â†’ along ceiling to each controlled
-        // fitting. If a window sits above the board, the riser side-steps it.
-        const dg = windowDodge(p.x, p.y, z0 + hz);
-        const rx = dg ? dg.x : p.x, ry = dg ? dg.y : p.y;
-        if (dg) {
-          const side = cylBetween(p.x, p.y, z0 + hz, rx, ry, z0 + hz, 0.05, conduit);
-          if (side) g.add(side);
-        }
-        const up = cylBetween(rx, ry, z0 + hz, rx, ry, ceil, 0.05, conduit);
-        if (up) g.add(up);
-        // LOOPING exactly like the 2D drawing: one wire CHAINS through the
-        // fittings nearest-first, as a smooth curve â€” no random criss-cross.
-        // A board with NO controls list still loops its OWN ROOM's lighting,
-        // and the DB feeds every switchboard â€” nothing is left unwired.
-        let rem = (p.controls || []).map(tg => byTag[tg]).filter(Boolean);
-        if (!rem.length) {
-          if (code === "DB") {
-            rem = (plan.elec || []).filter(q =>
-              q !== p && q.code === "SB" && q.visible !== false);
-          } else {
-            rem = (plan.elec || []).filter(q =>
-              q !== p && q.visible !== false && q.tag &&
-              !CTRL.has(q.tag) && !claimed.has(q.tag) &&
-              q.code !== "SB" && q.code !== "DB" && q.code !== "AC" &&
-              (q.room || "") && (q.room || "") === (p.room || ""));
-            rem.forEach(q => claimed.add(q.tag));
-          }
-        }
-        let cur = { x: rx, y: ry };
-        const cps = [new THREE.Vector3(rx, ceil, -ry)];
-        while (rem.length) {
-          let bi = 0, bd = 1e18;
-          rem.forEach((q, i) => {
-            const d = (q.x - cur.x) ** 2 + (q.y - cur.y) ** 2;
-            if (d < bd) { bd = d; bi = i; }
-          });
-          const q = rem.splice(bi, 1)[0];
-          // sagging mid-point gives the loop its curved 2D-arc look
-          cps.push(new THREE.Vector3((cur.x + q.x) / 2, ceil - 0.4, -(cur.y + q.y) / 2));
-          cps.push(new THREE.Vector3(q.x, ceil, -q.y));
-          cur = q;
-        }
-        if (cps.length > 1) {
-          const curve = new THREE.CatmullRomCurve3(cps);
-          g.add(new THREE.Mesh(
-            new THREE.TubeGeometry(curve, Math.max(24, cps.length * 10), 0.05, 8, false),
-            conduit));
-        }
+        // the riser and the loop are drawn by the CHAINS pass above, which
+        // follows the 2D drawing room by room. The DB is NOT looped to every
+        // board any more - that was a lighting loop the drawing never had,
+        // and it is what sent long runs across the whole floor.
       } else if (code === "CF") {                    // ceiling fan â€” one solid unit
         const fan = new THREE.Group();
         const grey = new THREE.MeshLambertMaterial({ color: 0x8a919c });
         const dark = new THREE.MeshLambertMaterial({ color: 0x6b727d });
+        // FAN BOX: the 150 mm octagonal GI hook box cast into the slab. The
+        // fan hangs off the hook bar in this box and the conduits land on it -
+        // it is what the conduiting layout has to show, so it is modelled too.
+        const gi = new THREE.MeshLambertMaterial({ color: 0xb0b6bd });
+        const boxR = 0.25, boxD = 0.20;
+        const fb = new THREE.Mesh(new THREE.CylinderGeometry(boxR, boxR, boxD, 8), gi);
+        fb.rotation.y = Math.PI / 8;                 // flat face to the front
+        fb.position.y = boxD / 2;                    // recessed up into the slab
+        fan.add(fb);
+        const lip = new THREE.Mesh(
+          new THREE.TorusGeometry(boxR + 0.015, 0.022, 8, 16), gi);
+        lip.rotation.x = Math.PI / 2;
+        fan.add(lip);                                // rim flush with the ceiling
+        const hook = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.028, 0.028, boxR * 2, 8), dark);
+        hook.rotation.z = Math.PI / 2;
+        hook.position.y = boxD * 0.72;
+        fan.add(hook);                               // MS hook bar across the box
         const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.0, 10), dark);
         rod.position.y = -0.5;
         fan.add(rod);
