@@ -648,27 +648,89 @@ def draw_dims(plan: Plan, dl: DrawList) -> None:
 
 def draw_auto_dims(plan: Plan, dl: DrawList) -> None:
     """Automatic INTERNAL (clear, inner-face to inner-face) dimensions: for every
-    room its CLEAR width is dimensioned just below it and its clear height just
-    to its left — ONE clean dimension per side that matches the room's printed
-    size (7'-10" clear, never the centre-line 10'-0" and never fragmented by
-    neighbouring openings). Overall size on the top & right."""
+    civil-layout convention: EVERY wall carries its own dimension chain right
+    beside it, measured INTERNAL FACE to INTERNAL FACE (span from the faces of
+    the perpendicular walls it meets), broken at every column face and every
+    door / window edge on that wall — so each bay, each opening width and each
+    column width reads as its own figure. Overall size on the top & right."""
     OFF = 1.0
     x0, y0, x1, y1 = plan.extents()
-    for room in plan.rooms:
-        if getattr(room, "void", False):
+    mx, my = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+
+    def half_ft(w):
+        return (getattr(w, "thickness_in", 0) or 0) / 24.0   # half thickness, feet
+
+    for w in plan.walls:
+        if getattr(w, "railing", False):
             continue
-        poly = room_clear(plan, room)
-        if poly.is_empty:
+        horiz = abs(w.x2 - w.x1) >= abs(w.y2 - w.y1)
+        # run coordinates along the wall, cross coordinate of its centre-line
+        a, b = (w.x1, w.x2) if horiz else (w.y1, w.y2)
+        lo, hi = min(a, b), max(a, b)
+        cross = (w.y1 + w.y2) / 2.0 if horiz else (w.x1 + w.x2) / 2.0
+        if hi - lo < 1.0:
             continue
-        cx0, cy0, cx1, cy1 = poly.bounds
-        if cx1 - cx0 < 0.5 or cy1 - cy0 < 0.5:
+        # 1) span: pull each end IN to the face of the perpendicular wall there
+        span0, span1 = lo, hi
+        for o in plan.walls:
+            if o is w or getattr(o, "railing", False):
+                continue
+            o_horiz = abs(o.x2 - o.x1) >= abs(o.y2 - o.y1)
+            if o_horiz == horiz:
+                continue                              # parallel — not an end wall
+            oc = (o.x1 + o.x2) / 2.0 if horiz else (o.y1 + o.y2) / 2.0
+            # the perpendicular wall must actually cross this wall's line
+            plo, phi = (min(o.y1, o.y2), max(o.y1, o.y2)) if horiz \
+                else (min(o.x1, o.x2), max(o.x1, o.x2))
+            if not (plo - 0.6 <= cross <= phi + 0.6):
+                continue
+            if abs(oc - lo) < 0.6:
+                span0 = max(span0, oc + half_ft(o))
+            if abs(oc - hi) < 0.6:
+                span1 = min(span1, oc - half_ft(o))
+        ticks = [span0, span1]
+        # 2) column faces on this wall
+        for c in plan.columns:
+            ccross = c.y if horiz else c.x
+            calong = c.x if horiz else c.y
+            if abs(ccross - cross) > 0.7:
+                continue
+            if not (lo - 0.6 <= calong <= hi + 0.6):
+                continue
+            chw = (getattr(c, "w", 0) if horiz else getattr(c, "h", 0)) or 0
+            chw = chw / 2.0
+            for t in (calong - chw, calong + chw):
+                if span0 - 0.05 <= t <= span1 + 0.05:
+                    ticks.append(min(max(t, span0), span1))
+        # 3) door / window edges on this wall
+        L = math.hypot(w.x2 - w.x1, w.y2 - w.y1) or 1e-6
+        ux, uy = (w.x2 - w.x1) / L, (w.y2 - w.y1) / L
+        for o in plan.openings:
+            if o.wall_id != w.id:
+                continue
+            for d in (o.pos, o.pos + o.width):
+                t = (w.x1 + ux * d) if horiz else (w.y1 + uy * d)
+                if span0 - 0.05 <= t <= span1 + 0.05:
+                    ticks.append(min(max(t, span0), span1))
+        # merge near-coincident ticks so hairline segments never print
+        ticks = sorted(set(round(t, 3) for t in ticks))
+        merged = []
+        for t in ticks:
+            if not merged or t - merged[-1] > 0.12:
+                merged.append(t)
+        if len(merged) < 2:
             continue
-        # one clean per-room dimension each way (no opening fragmentation)
-        _dim_chain(dl, [cx0, cx1], cy0 - OFF, True)      # clear WIDTH, below the room
-        _dim_chain(dl, [cy0, cy1], cx0 - OFF, False)     # clear HEIGHT, left of the room
+        # 4) the chain sits just OFF the wall, on its OUTER side (away from the
+        #    middle of the plan) so it never lands inside the room text
+        if horiz:
+            base = cross + OFF if cross >= my else cross - OFF
+        else:
+            base = cross + OFF if cross >= mx else cross - OFF
+        _dim_chain(dl, merged, base, horiz)
+
     # overall size on the top & right
-    _dim_chain(dl, [x0, x1], y1 + 1.4, True)
-    _dim_chain(dl, [y0, y1], x1 + 1.4, False)
+    _dim_chain(dl, [x0, x1], y1 + 2.4, True)
+    _dim_chain(dl, [y0, y1], x1 + 2.4, False)
 
 
 def draw_north(plan: Plan, dl: DrawList) -> None:
