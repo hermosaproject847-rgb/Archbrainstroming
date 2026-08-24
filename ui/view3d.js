@@ -1349,10 +1349,34 @@
     let mode = 0, lx = 0, ly = 0, pinch = 0;
     let dragEd = null, dragPlane = null, dragStart = null, dragDelta = null, downXY = null;
     cv.addEventListener("contextmenu", e => e.preventDefault());
+    // the model-surface point under the cursor (ground plane as fallback) —
+    // SketchUp pivots its orbit and its zoom on exactly this point
+    function surfPoint(e) {
+      const rc = cv.getBoundingClientRect();
+      const nd = new THREE.Vector2(
+        ((e.clientX - rc.left) / rc.width) * 2 - 1,
+        -((e.clientY - rc.top) / rc.height) * 2 + 1);
+      raycaster.setFromCamera(nd, camera);
+      if (modelRoot) {
+        for (const h of raycaster.intersectObjects(modelRoot.children, true)) {
+          let vis = true;
+          for (let a = h.object; a; a = a.parent) if (a.visible === false) vis = false;
+          if (vis) return h.point;
+        }
+      }
+      const p = new THREE.Vector3();
+      return raycaster.ray.intersectPlane(
+        new THREE.Plane(new THREE.Vector3(0, 1, 0), -orbit.ty), p) ? p : null;
+    }
     cv.addEventListener("mousedown", e => {
       lx = e.clientX; ly = e.clientY; downXY = [e.clientX, e.clientY];
-      if (e.button === 1 || e.button === 2 || e.shiftKey) {   // MIDDLE = pan too
-        mode = 2; e.preventDefault(); return;
+      // SKETCHUP scheme: middle-drag = ORBIT, Shift+drag / right-drag = PAN
+      if (e.shiftKey || e.button === 2) { mode = 2; e.preventDefault(); return; }
+      if (e.button === 1) {
+        if (topMode) { mode = 2; e.preventDefault(); return; }
+        const sp = surfPoint(e);
+        if (sp) retarget(sp);                  // orbit about the cursor point
+        mode = 1; e.preventDefault(); return;
       }
       const hit = pick(e);                       // L-down on a thing = grab it
       if (hit) {
@@ -1365,18 +1389,18 @@
       } else {
         clearSel();
         if (topMode) { mode = 2; return; }   // in exact-2D, L-drag pans
-        // look-around keeps a sensible pivot distance for pan/fly speeds
-        if (homeCenter) retarget(homeCenter);
+        const sp = surfPoint(e);             // SketchUp: orbit about the point
+        if (sp) retarget(sp);                // the cursor is ON
+        else if (homeCenter) retarget(homeCenter);
         mode = 1;
       }
     });
     addEventListener("mousemove", e => {
       if (!mode || !open) return;
       const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY;
-      if (mode === 1) {          // ORBIT about the FIXED pivot (model centre /
-        // selection) — steady, nothing else moves
+      if (mode === 1) {          // ORBIT about the grabbed point, SketchUp-style
         orbit.az -= dx * 0.008;
-        orbit.el = Math.min(1.55, Math.max(-0.2, orbit.el + dy * 0.006));
+        orbit.el = Math.min(1.55, Math.max(-1.35, orbit.el + dy * 0.006));
       } else if (mode === 2) {
         if (topMode) {                       // exact-2D pan, pixel-true
           const rc = cv.getBoundingClientRect();
@@ -1453,23 +1477,7 @@
       }
       // SKETCHUP zoom: dolly straight along the ray to the point the cursor
       // is ON (model surface, else the ground) — you fly INTO what you point
-      const nd = new THREE.Vector2(
-        ((e.clientX - rc.left) / rc.width) * 2 - 1,
-        -((e.clientY - rc.top) / rc.height) * 2 + 1);
-      raycaster.setFromCamera(nd, camera);
-      let hp = null;
-      if (modelRoot) {
-        for (const h of raycaster.intersectObjects(modelRoot.children, true)) {
-          let vis = true;
-          for (let a = h.object; a; a = a.parent) if (a.visible === false) vis = false;
-          if (vis) { hp = h.point; break; }
-        }
-      }
-      if (!hp) {
-        const p = new THREE.Vector3();
-        if (raycaster.ray.intersectPlane(
-              new THREE.Plane(new THREE.Vector3(0, 1, 0), -orbit.ty), p)) hp = p;
-      }
+      const hp = surfPoint(e);
       if (hp) {
         const cp = camera.position, k = 1 - f;      // camera slides toward hp,
         orbit.tx += (hp.x - cp.x) * k;              // the pivot rides with it
