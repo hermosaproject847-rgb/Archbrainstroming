@@ -41,6 +41,7 @@
     <button id="btnSection" class="btn accent" disabled title="Cut a vertical section along a section line">Section</button>
     <button id="btnBeam" class="btn accent" disabled title="Beam layout — RCC beam on every wall, numbered, with a schedule">Beam</button>
     <button id="btnElev" class="btn accent" disabled title="Elevation — develop the four outer faces professionally">Elevation</button>
+    <button id="btn3D" class="btn accent" title="3D Model — pura ghar 3D me: walls, columns, beams, slab, parapet, stairs. Drag = rotate, wheel = zoom, right-drag = pan.">3D Model</button>
   </div>
 
   <span class="spacer"></span>
@@ -459,6 +460,23 @@
   </div>
 </div>
 
+<!-- ── 3D MODEL viewer overlay ─────────────────────────── -->
+<div id="view3d" class="hidden">
+  <div class="v3-top">
+    <b>3D MODEL</b>
+    <label class="v3-op">External walls
+      <input id="v3op" type="range" min="8" max="100" value="100">
+    </label>
+    <button id="v3iso" class="btn ghost">Isometric</button>
+    <button id="v3rebuild" class="btn ghost" title="plan badla ho to model dobara banao">↻ Rebuild</button>
+    <span class="v3-hint">drag = rotate · wheel = zoom · right-drag = pan</span>
+    <button id="v3close" class="btn">✕ Close</button>
+  </div>
+  <canvas id="v3canvas"></canvas>
+</div>
+
 <script src="app.js"></script>
+<script src="vendor/three.min.js"></script>
+<script src="view3d.js?v=1"></script>
 </body>
 </html>

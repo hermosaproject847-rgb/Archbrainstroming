@@ -1207,11 +1207,14 @@ def _draw_stair_section(dl, ta, tb, y_low, rise, s, turn_hi, up_hi, layer):
             f1 = _nosing_pts(tb, y_low, run / max(1, n1), riser, n1, -1)
             la, lb = (tb - run, ymid), (ta, ymid)
             f2 = _nosing_pts(ta + land, ymid, run / max(1, n2), riser, n2, +1)
+        # only the CUT flight carries the hatched waist slab; the RETURN flight
+        # is beyond the cut and reads as a plain stepped outline — hatching both
+        # made the two bands cross mid-air into an unreadable X
         _polyline(dl, f1, layer)
         _landing_slab(dl, la[0], lb[0], ymid, _mm_ft(150), layer)  # mid-landing SLAB
         _polyline(dl, f2, layer)
         _waist_band(dl, f1[0][0], f1[0][1], f1[-1][0], f1[-1][1], _mm_ft(150), layer)
-        _waist_band(dl, f2[0][0], f2[0][1], f2[-1][0], f2[-1][1], _mm_ft(150), layer)
+        dl.line(f2[0][0], f2[0][1], f2[-1][0], f2[-1][1], layer=layer)  # thin soffit
         return
 
     # U3 — two main flights and a short middle flight, over two landings
@@ -1229,9 +1232,14 @@ def _draw_stair_section(dl, ta, tb, y_low, rise, s, turn_hi, up_hi, layer):
         f1 = _nosing_pts(tb, y_low, run / max(1, n1), riser, n1, -1)
         mid = _nosing_pts(tb - run, y1, land / max(1, n3), riser, n3, -1)
         f2 = _nosing_pts(ta, y2, run / max(1, n2), riser, n2, +1)
-    for pl in (f1, mid, f2):
+    # U3: hatch the waist under the CUT (first) flight only; the middle and
+    # return flights are beyond the cut — plain outlines with a thin soffit
+    for i, pl in enumerate((f1, mid, f2)):
         _polyline(dl, pl, layer)
-        _waist_band(dl, pl[0][0], pl[0][1], pl[-1][0], pl[-1][1], _mm_ft(150), layer)
+        if i == 0:
+            _waist_band(dl, pl[0][0], pl[0][1], pl[-1][0], pl[-1][1], _mm_ft(150), layer)
+        else:
+            dl.line(pl[0][0], pl[0][1], pl[-1][0], pl[-1][1], layer=layer)
 
 
 def _landing_slab(dl, x0, x1, y, wt, layer):
