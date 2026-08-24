@@ -364,23 +364,49 @@ td.licell{color:var(--fg); font-size:12.5px; padding:7px 8px; text-transform:cap
 #plHandles .grip.g-size{stroke:#22d3ee; cursor:nwse-resize}
 #plHandles .grip.g-move{stroke:#10b981; cursor:move}
 #plHandles .grip.g-rot{stroke:#f59e0b; fill:#fff7e6; cursor:grab}
-/* ── 3D MODEL viewer ─────────────────────────────────────── */
-#view3d{position:fixed; inset:0; z-index:400; background:#151a26;
+/* ── 3D STUDIO viewer — dark professional (Revit / 3ds-max feel) ── */
+#view3d{position:fixed; inset:0; z-index:400; background:#10141f;
   display:flex; flex-direction:column}
 #view3d.hidden{display:none}
-#view3d .v3-top{display:flex; align-items:center; gap:14px; padding:8px 14px;
-  background:#1d2434; border-bottom:1px solid #2c3550; color:#e8ecf6}
-#view3d .v3-top b{letter-spacing:.5px}
-#view3d .v3-op{display:flex; align-items:center; gap:8px; font-size:12.5px;
-  color:#aab4cd}
-#view3d .v3-op input{width:140px; accent-color:#6366f1}
-#view3d .v3-chk{display:flex; align-items:center; gap:5px; font-size:12.5px;
-  color:#aab4cd; white-space:nowrap}
-#view3d .v3-chk input[type=checkbox]{accent-color:#6366f1}
-#view3d .v3-chk select{background:#252d42; color:#e8ecf6; border:1px solid #39435f;
-  border-radius:6px; padding:2px 6px; font-size:12px}
-#view3d .v3-hint{margin-left:auto; font-size:12px; color:#7d88a6}
+#view3d .v3-top{display:flex; align-items:center; gap:16px; padding:0 14px;
+  height:44px; background:linear-gradient(180deg,#1c2436,#171e2d);
+  border-bottom:1px solid #2c3550; color:#e8ecf6; flex:none}
+#view3d .v3-top b{letter-spacing:1.5px; font-size:14px;
+  background:linear-gradient(90deg,#8b93ff,#27e0a3);
+  -webkit-background-clip:text; background-clip:text; color:transparent}
+#view3d .v3-tools{display:flex; gap:6px}
+.v3btn{background:#232c44; color:#cfd6ea; border:1px solid #354060;
+  border-radius:8px; padding:5px 12px; font-size:12.5px;
+  cursor:pointer; transition:background .15s, border-color .15s}
+.v3btn:hover{background:#2e3a5c; border-color:#4c5b88; color:#fff}
+.v3btn.v3x{background:#3a2330; border-color:#5c3448}
+.v3btn.v3x:hover{background:#552f42}
+#view3d .v3-hint{margin-left:auto; font-size:11.5px; color:#6f7a99; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis}
 #v3canvas{flex:1; width:100%; height:100%; display:block; touch-action:none}
+/* floating LAYERS / X-RAY side panel, like a 3D package's scene tree */
+#v3side{position:absolute; left:14px; top:58px; width:196px; padding:10px 12px 12px;
+  background:rgba(23,30,46,.92); border:1px solid #2f3a58; border-radius:12px;
+  backdrop-filter:blur(6px); box-shadow:0 8px 28px rgba(0,0,0,.45);
+  display:flex; flex-direction:column; gap:7px; max-height:calc(100% - 80px);
+  overflow-y:auto}
+#v3side .v3-sec{font-size:10.5px; letter-spacing:1.6px; color:#5f6c92;
+  border-bottom:1px solid #2a3450; padding-bottom:3px; margin-top:4px}
+#v3side .v3-sec:first-child{margin-top:0}
+#view3d .v3-op{display:flex; flex-direction:column; align-items:stretch; gap:3px;
+  font-size:12px; color:#aab4cd}
+#view3d .v3-op input{width:100%; accent-color:#6d74f6}
+#view3d .v3-chk{display:flex; align-items:center; gap:7px; font-size:12.5px;
+  color:#c3cbe2; white-space:nowrap; cursor:pointer; border-radius:6px; padding:2px 4px}
+#view3d .v3-chk:hover{background:#232c44}
+#view3d .v3-chk input[type=checkbox]{accent-color:#6d74f6}
+#v3side select{background:#252d42; color:#e8ecf6; border:1px solid #39435f;
+  border-radius:6px; padding:4px 6px; font-size:12px; width:100%}
+/* selected-item chip, bottom centre */
+#v3selname{position:absolute; left:50%; bottom:16px; transform:translateX(-50%);
+  background:rgba(20,28,44,.92); color:#27e0a3; border:1px solid #27e0a355;
+  padding:6px 16px; border-radius:99px; font-size:12.5px; pointer-events:none}
+#v3selname:empty{display:none}
 /* live alignment guide lines drawn while dragging */
 #plGuides{position:absolute; left:0; top:0}
 #plGuides .aguide{stroke:#f43f5e; stroke-width:1; stroke-dasharray:6 5;

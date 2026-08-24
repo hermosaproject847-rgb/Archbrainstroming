@@ -13,6 +13,8 @@
   let renderer = null, scene = null, camera = null, raf = 0, open = false;
   let extMats = [], intMats = [], floorMats = [];
   let G = {};                                // named groups (toggle layers)
+  let modelRoot = null;                      // the built house (for rebuilds)
+  let selObj = null, selHelper = null;       // 3D EDIT: current selection
   const orbit = { az: -0.9, el: 0.55, dist: 90, tx: 0, ty: 6, tz: 0 };
   const $ = s => document.querySelector(s);
 
@@ -447,6 +449,7 @@
 
       if (+f.angle) grp.rotation.y = (+f.angle) * Math.PI / 180;
       grp.position.set(cx, z0, -cy);
+      grp.userData.edit = { kind: "furn", ref: f, plan };
       g.add(grp);
     }
   }
@@ -478,40 +481,46 @@
         const midx = (a[0] + b[0]) / 2, midy = (a[1] + b[1]) / 2;
         return inWet(midx, midy) ? z0 - 0.25 : z0 - 0.12;
       };
+      const rg = new THREE.Group();            // whole run = ONE editable thing
+      rg.userData.edit = { kind: "pipe", ref: r, plan };
       let prevZ = null;
       for (let i = 0; i < P.length - 1; i++) {
         const z = segZ(P[i], P[i + 1]);
         const c = cylBetween(P[i][0], P[i][1], z, P[i + 1][0], P[i + 1][1], z, rad, mat);
-        if (c) g.add(c);
+        if (c) rg.add(c);
         if (prevZ !== null && Math.abs(prevZ - z) > 0.02) {
           const v = cylBetween(P[i][0], P[i][1], prevZ, P[i][0], P[i][1], z, rad, mat);
-          if (v) g.add(v);                     // level change through the sunk edge
+          if (v) rg.add(v);                    // level change through the sunk edge
         }
         // joint ball at this segment's start vertex
         if (i > 0) {
           const j = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.25, 10, 10), mat);
           j.position.set(P[i][0], z, -P[i][1]);
-          g.add(j);
+          rg.add(j);
         }
         prevZ = z;
       }
+      g.add(rg);
     }
     // vertical STACKS / downtakes: DOWN from the sunk to ground drainage —
     // a stack never rises above the floor it serves in this view
     for (const p of (plan.plumb || [])) {
       const sc = STACK3D[p.code];
+      const sg = new THREE.Group();
+      sg.userData.edit = { kind: "plumb", ref: p, plan };
       if (sc != null) {
         const mat = new THREE.MeshLambertMaterial({ color: sc });
         const st = cylBetween(p.x, p.y, z0 - 0.25, p.x, p.y, 0.05, 0.19, mat);
-        if (st) g.add(st);
+        if (st) sg.add(st);
         const clamp = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.05, 8, 14), mat);
         clamp.rotation.x = Math.PI / 2;
         clamp.position.set(p.x, Math.max(0.3, (z0 - 0.25) / 2), -p.y);
-        g.add(clamp);
+        sg.add(clamp);
       } else {                                     // traps / chambers markers
-        g.add(box(0.8, 0.8, 0.35, p.x, p.y, z0 + 0.17,
+        sg.add(box(0.8, 0.8, 0.35, p.x, p.y, z0 + 0.17,
           new THREE.MeshLambertMaterial({ color: 0x6d4c41 })));
       }
+      g.add(sg);
     }
   }
 
@@ -551,7 +560,9 @@
       const code = p.code || "SL";
       if (code === "SB" || code === "DB") {          // board plate at its height
         const hz = ((+p.height_mm || 1200) * MM);
-        g.add(box(0.8, 0.25, 0.5, p.x, p.y, z0 + hz, new THREE.MeshLambertMaterial({ color: 0xf5f2ea })));
+        const plate = box(0.8, 0.25, 0.5, p.x, p.y, z0 + hz, new THREE.MeshLambertMaterial({ color: 0xf5f2ea }));
+        plate.userData.edit = { kind: "elec", ref: p, plan };
+        g.add(plate);
         // conduit: board → up to ceiling → along ceiling to each controlled
         // fitting. If a window sits above the board, the riser side-steps it.
         const dg = windowDodge(p.x, p.y, z0 + hz);
@@ -562,11 +573,29 @@
         }
         const up = cylBetween(rx, ry, z0 + hz, rx, ry, ceil, 0.05, conduit);
         if (up) g.add(up);
-        (p.controls || []).forEach(tg => {
-          const q = byTag[tg]; if (!q) return;
-          const run = cylBetween(rx, ry, ceil, q.x, q.y, ceil, 0.05, conduit);
-          if (run) g.add(run);
-        });
+        // LOOPING exactly like the 2D drawing: one wire CHAINS through the
+        // fittings nearest-first, as a smooth curve — no random criss-cross
+        const rem = (p.controls || []).map(tg => byTag[tg]).filter(Boolean);
+        let cur = { x: rx, y: ry };
+        const cps = [new THREE.Vector3(rx, ceil, -ry)];
+        while (rem.length) {
+          let bi = 0, bd = 1e18;
+          rem.forEach((q, i) => {
+            const d = (q.x - cur.x) ** 2 + (q.y - cur.y) ** 2;
+            if (d < bd) { bd = d; bi = i; }
+          });
+          const q = rem.splice(bi, 1)[0];
+          // sagging mid-point gives the loop its curved 2D-arc look
+          cps.push(new THREE.Vector3((cur.x + q.x) / 2, ceil - 0.4, -(cur.y + q.y) / 2));
+          cps.push(new THREE.Vector3(q.x, ceil, -q.y));
+          cur = q;
+        }
+        if (cps.length > 1) {
+          const curve = new THREE.CatmullRomCurve3(cps);
+          g.add(new THREE.Mesh(
+            new THREE.TubeGeometry(curve, Math.max(24, cps.length * 10), 0.05, 8, false),
+            conduit));
+        }
       } else if (code === "CF") {                    // ceiling fan — one solid unit
         const fan = new THREE.Group();
         const grey = new THREE.MeshLambertMaterial({ color: 0x8a919c });
@@ -588,6 +617,7 @@
           fan.add(arm);
         }
         fan.position.set(p.x, ceil, -p.y);
+        fan.userData.edit = { kind: "elec", ref: p, plan };
         g.add(fan);
       } else if (code === "AC") {                    // high-wall SPLIT unit
         const ac = new THREE.Group();
@@ -610,11 +640,13 @@
         ac.add(led);
         ac.position.set(p.x, z0 + ((+p.height_mm || 2175) * MM) + 0.45, -p.y);
         ac.rotation.y = ((+p.angle || 0)) * Math.PI / 180;
+        ac.userData.edit = { kind: "elec", ref: p, plan };
         g.add(ac);
       } else {                                       // any light: warm disc
         const d = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.1, 14),
           new THREE.MeshLambertMaterial({ color: 0xffd76a }));
         d.position.set(p.x, ceil, -p.y);
+        d.userData.edit = { kind: "elec", ref: p, plan };
         g.add(d);
       }
     }
@@ -816,8 +848,10 @@
       const H = P.fh;
       (plan.walls || []).forEach(w => { if (!w.railing) addWall(G.walls, plan, w, z0, H, P, M, cx, cy); });
       (plan.columns || []).forEach(c => {
-        G.struct.add(box(Math.max(+c.w || 0.8, 0.3), Math.max(+c.h || 0.8, 0.3), H,
-          c.x, c.y, z0 + H / 2, M.conc));
+        const cm = box(Math.max(+c.w || 0.8, 0.3), Math.max(+c.h || 0.8, 0.3), H,
+          c.x, c.y, z0 + H / 2, M.conc);
+        cm.userData.edit = { kind: "col", ref: c, plan };
+        G.struct.add(cm);
       });
       (plan.beams || []).forEach(b => {
         const L = Math.hypot(b.x2 - b.x1, b.y2 - b.y1); if (L < 0.1) return;
@@ -825,6 +859,7 @@
         const m = box(L, bw, bd, (b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2,
           z0 + H - bd / 2, M.conc);
         m.rotation.y = Math.atan2(-(b.y2 - b.y1), (b.x2 - b.x1));
+        m.userData.edit = { kind: "beam", ref: b, plan };
         G.struct.add(m);
       });
       // the slab is CUT OUT over every staircase (the stair well) — a slab
@@ -908,6 +943,9 @@
   function syncLayers() {
     const on = id => { const e = $(id); return !e || e.checked; };
     if (!G.walls) return;
+    G.walls.visible = on("#v3walls");
+    G.struct.visible = on("#v3struct");
+    G.stairs.visible = on("#v3stairs");
     G.roof.visible = on("#v3roof");
     G.top.visible = on("#v3roof");
     if (G.mumty) G.mumty.visible = on("#v3roof") && on("#v3mumty");
@@ -968,10 +1006,10 @@
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     scene.add(ground);
-    const model = buildModel();
-    model.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    scene.add(model);
-    camera = new THREE.PerspectiveCamera(50, 1, 0.1, 2000);
+    modelRoot = buildModel();
+    modelRoot.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    scene.add(modelRoot);
+    camera = new THREE.PerspectiveCamera(50, 1, 0.1, 4000);
     const p = params();
     orbit.ty = (p.plinth + p.floors * p.fh) / 2;
     orbit.dist = 90; orbit.az = -0.9; orbit.el = 0.55; orbit.tx = 0; orbit.tz = 0;
@@ -979,8 +1017,17 @@
     const opInp = $("#v3op"); if (opInp) setOpacity(opInp.value / 100);
     resize(); loop();
   }
-  function rebuild() { if (open) { closeViewer(); openViewer(); } }
-  function closeViewer() { open = false; cancelAnimationFrame(raf); $("#view3d").classList.add("hidden"); }
+  // rebuild keeps the CAMERA where you left it — only the model is re-derived
+  function rebuild() {
+    if (!open || !scene) return;
+    clearSel();
+    if (modelRoot) scene.remove(modelRoot);
+    modelRoot = buildModel();
+    modelRoot.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    scene.add(modelRoot);
+    const opInp = $("#v3op"); if (opInp) setOpacity(opInp.value / 100);
+  }
+  function closeViewer() { clearSel(); open = false; cancelAnimationFrame(raf); $("#view3d").classList.add("hidden"); }
   function resize() {
     if (!renderer || !open) return;
     const holder = $("#view3d");
@@ -997,31 +1044,181 @@
     extMats.forEach(m => { m.opacity = v; m.transparent = true; m.needsUpdate = true; });
   }
 
+  /* ------------------------------------------- 3D EDIT: select + move */
+  const raycaster = new THREE.Raycaster();
+  function clearSel() {
+    if (selHelper && scene) scene.remove(selHelper);
+    selHelper = null; selObj = null;
+    const chip = $("#v3selname"); if (chip) chip.textContent = "";
+  }
+  function setSel(obj) {
+    clearSel();
+    selObj = obj;
+    selHelper = new THREE.BoxHelper(obj, 0x27e0a3);
+    scene.add(selHelper);
+    const ed = obj.userData.edit, r = ed.ref;
+    const chip = $("#v3selname");
+    if (chip) chip.textContent =
+      (r.tag || r.name || r.kind || r.system || ed.kind) + "  ·  drag = move, Del = delete";
+  }
+  // pick the closest EDITABLE thing under the cursor (skips hidden layers)
+  function pick(e) {
+    if (!modelRoot || !camera) return null;
+    const cv = $("#v3canvas"), rc = cv.getBoundingClientRect();
+    const nd = new THREE.Vector2(
+      ((e.clientX - rc.left) / rc.width) * 2 - 1,
+      -((e.clientY - rc.top) / rc.height) * 2 + 1);
+    raycaster.setFromCamera(nd, camera);
+    for (const hit of raycaster.intersectObjects(modelRoot.children, true)) {
+      let o = hit.object, vis = true, ed = null;
+      for (let a = hit.object; a; a = a.parent) {
+        if (a.visible === false) vis = false;
+        if (!ed && a.userData && a.userData.edit) { ed = a.userData.edit; o = a; }
+      }
+      if (!vis) continue;
+      if (ed) return { obj: o, pt: hit.point };
+      // a SOLID surface blocks the pick; an x-rayed (faded) one lets the
+      // click pass through to the concealed services behind it
+      const m = Array.isArray(hit.object.material) ? hit.object.material[0] : hit.object.material;
+      if (!m || !m.transparent || m.opacity >= 0.9) return null;
+    }
+    return null;
+  }
+  // move the ref by (dx, dy) in PLAN feet — every editable kind knows its shape
+  function applyMove(ed, dx, dy) {
+    const rnd = v => Math.round(v * 20) / 20, r = ed.ref;
+    dx = rnd(dx); dy = rnd(dy);
+    if (ed.kind === "pipe") (r.pts || []).forEach(pt => { pt[0] = rnd(pt[0] + dx); pt[1] = rnd(pt[1] + dy); });
+    else if (ed.kind === "beam") { r.x1 = rnd(r.x1 + dx); r.x2 = rnd(r.x2 + dx); r.y1 = rnd(r.y1 + dy); r.y2 = rnd(r.y2 + dy); }
+    else { r.x = rnd((+r.x || 0) + dx); r.y = rnd((+r.y || 0) + dy); }
+  }
+  function deleteSel() {
+    if (!selObj) return;
+    const ed = selObj.userData.edit;
+    const pool = { furn: "furniture", elec: "elec", plumb: "plumb", pipe: "pipes",
+      col: "columns", beam: "beams" }[ed.kind];
+    const arr = (ed.plan && ed.plan[pool]) || [];
+    const i = arr.indexOf(ed.ref); if (i < 0) return;
+    if (typeof pushUndo === "function") pushUndo();
+    arr.splice(i, 1);
+    clearSel();
+    if (typeof redraw === "function") redraw();   // 2D follows the 3D edit
+    rebuild();
+  }
+
   /* --------------------------------------------------- controls wiring */
   function wire() {
     const cv = $("#v3canvas"); if (!cv) return;
+    // modes: 1 = orbit (L-drag empty), 2 = pan (middle / right / shift),
+    // 3 = pinch, 4 = drag-move a selected object
     let mode = 0, lx = 0, ly = 0, pinch = 0;
+    let dragEd = null, dragPlane = null, dragStart = null, dragDelta = null, downXY = null;
     cv.addEventListener("contextmenu", e => e.preventDefault());
+    // the 3D point under the cursor — model surface first, ground otherwise
+    function cursorPoint(e) {
+      const rc = cv.getBoundingClientRect();
+      const nd = new THREE.Vector2(
+        ((e.clientX - rc.left) / rc.width) * 2 - 1,
+        -((e.clientY - rc.top) / rc.height) * 2 + 1);
+      raycaster.setFromCamera(nd, camera);
+      if (modelRoot) {
+        for (const h of raycaster.intersectObjects(modelRoot.children, true)) {
+          let vis = true;
+          for (let a = h.object; a; a = a.parent) if (a.visible === false) vis = false;
+          if (vis) return h.point;
+        }
+      }
+      const p = new THREE.Vector3();
+      return raycaster.ray.intersectPlane(
+        new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), p) ? p : null;
+    }
+    // re-pivot the orbit onto a world point WITHOUT the camera jumping:
+    // keep the camera where it is, recompute az/el/dist about the new target
+    function retarget(pt) {
+      if (!pt || !camera) return;
+      const d = camera.position.clone().sub(pt);
+      orbit.tx = pt.x; orbit.ty = pt.y; orbit.tz = pt.z;
+      orbit.dist = Math.max(1.5, d.length());
+      orbit.el = Math.asin(Math.min(1, Math.max(-1, d.y / orbit.dist)));
+      orbit.az = Math.atan2(d.z, d.x);
+    }
     cv.addEventListener("mousedown", e => {
-      mode = (e.button === 2 || e.shiftKey) ? 2 : 1; lx = e.clientX; ly = e.clientY;
+      lx = e.clientX; ly = e.clientY; downXY = [e.clientX, e.clientY];
+      if (e.button === 1 || e.button === 2 || e.shiftKey) {   // MIDDLE = pan too
+        mode = 2; e.preventDefault(); return;
+      }
+      const hit = pick(e);                       // L-down on a thing = grab it
+      if (hit) {
+        setSel(hit.obj);
+        dragEd = hit.obj.userData.edit;
+        dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -hit.pt.y);
+        dragStart = { pt: hit.pt.clone(), pos: hit.obj.position.clone() };
+        dragDelta = null;
+        mode = 4;
+      } else {
+        clearSel();
+        // orbit about the MODEL POINT under the cursor — the model turns in
+        // place in front of you, not the whole world about some far pivot
+        retarget(cursorPoint(e));
+        mode = 1;
+      }
     });
     addEventListener("mousemove", e => {
       if (!mode || !open) return;
       const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY;
-      if (mode === 1) {
-        orbit.az += dx * 0.008;
+      if (mode === 1) {                          // orbit FOLLOWS the mouse
+        orbit.az -= dx * 0.008;
         orbit.el = Math.min(1.55, Math.max(-0.2, orbit.el + dy * 0.006));
-      } else {
+      } else if (mode === 2) {
         const k = orbit.dist * 0.0016;
-        orbit.tx -= Math.cos(orbit.az + Math.PI / 2) * dx * k;
-        orbit.tz -= Math.sin(orbit.az + Math.PI / 2) * dx * k;
+        orbit.tx += Math.cos(orbit.az + Math.PI / 2) * dx * k;
+        orbit.tz += Math.sin(orbit.az + Math.PI / 2) * dx * k;
         orbit.ty += dy * k;
+      } else if (mode === 4 && dragEd) {         // slide along the floor plane
+        const cvr = cv.getBoundingClientRect();
+        const nd = new THREE.Vector2(
+          ((e.clientX - cvr.left) / cvr.width) * 2 - 1,
+          -((e.clientY - cvr.top) / cvr.height) * 2 + 1);
+        raycaster.setFromCamera(nd, camera);
+        const p = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(dragPlane, p)) {
+          dragDelta = { x: p.x - dragStart.pt.x, z: p.z - dragStart.pt.z };
+          selObj.position.set(dragStart.pos.x + dragDelta.x, dragStart.pos.y,
+            dragStart.pos.z + dragDelta.z);
+          if (selHelper) selHelper.update();
+        }
       }
     });
-    addEventListener("mouseup", () => mode = 0);
+    addEventListener("mouseup", e => {
+      if (mode === 4 && dragEd && dragDelta &&
+          (Math.abs(dragDelta.x) > 0.05 || Math.abs(dragDelta.z) > 0.05)) {
+        if (typeof pushUndo === "function") pushUndo();
+        applyMove(dragEd, dragDelta.x, -dragDelta.z);   // three z = −plan y
+        if (typeof redraw === "function") redraw();     // 2D follows
+        rebuild();
+      }
+      mode = 0; dragEd = null; dragDelta = null;
+    });
+    addEventListener("keydown", e => {
+      if (!open || !selObj) return;
+      const t = (document.activeElement || {}).tagName;
+      if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT") return;
+      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteSel(); }
+    });
     cv.addEventListener("wheel", e => {
       if (!open) return;
-      orbit.dist = Math.min(400, Math.max(8, orbit.dist * (e.deltaY > 0 ? 1.12 : 0.9)));
+      const f = e.deltaY > 0 ? 1.12 : 0.9;
+      // ZOOM TOWARD THE CURSOR: zooming in pulls the view onto whatever the
+      // mouse is over, so you land exactly where you were looking
+      if (f < 1) {
+        const hp = cursorPoint(e);
+        if (hp) {
+          orbit.tx += (hp.x - orbit.tx) * (1 - f);
+          orbit.ty += (hp.y - orbit.ty) * (1 - f);
+          orbit.tz += (hp.z - orbit.tz) * (1 - f);
+        }
+      }
+      orbit.dist = Math.min(1500, Math.max(1.5, orbit.dist * f));
       e.preventDefault();
     }, { passive: false });
     cv.addEventListener("touchstart", e => {
@@ -1037,12 +1234,12 @@
       if (mode === 1 && e.touches.length === 1) {
         const dx = e.touches[0].clientX - lx, dy = e.touches[0].clientY - ly;
         lx = e.touches[0].clientX; ly = e.touches[0].clientY;
-        orbit.az += dx * 0.008;
+        orbit.az -= dx * 0.008;
         orbit.el = Math.min(1.55, Math.max(-0.2, orbit.el + dy * 0.006));
       } else if (mode === 3 && e.touches.length === 2) {
         const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY);
-        orbit.dist = Math.min(400, Math.max(8, orbit.dist * (pinch / (d || 1))));
+        orbit.dist = Math.min(1500, Math.max(1.5, orbit.dist * (pinch / (d || 1))));
         pinch = d;
       }
       e.preventDefault();
@@ -1063,7 +1260,8 @@
     });
     const op = $("#v3op");
     if (op) op.oninput = () => setOpacity(op.value / 100);
-    ["#v3roof", "#v3mumty", "#v3furn", "#v3plumb", "#v3elec", "#v3floor"].forEach(id =>
+    ["#v3walls", "#v3struct", "#v3stairs", "#v3roof", "#v3mumty", "#v3furn",
+     "#v3plumb", "#v3elec", "#v3floor"].forEach(id =>
       on(id, syncLayers, "onchange"));
     on("#v3intop", syncLayers, "oninput");   // wall x-ray (electrical)
     on("#v3flop", syncLayers, "oninput");    // floor x-ray (plumbing)
