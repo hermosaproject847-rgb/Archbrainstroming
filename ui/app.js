@@ -1674,7 +1674,6 @@ const COLS = {
     ["x", "X", "num"], ["y", "Y", "num"], ["w", "W", "num"], ["h", "H", "num"],
     ["angle", "Angle°", "num"],
     ["facing", "Faces", ["N", "S", "E", "W"]],
-    ["chairs", "Chairs", "num"],     // dining: seat count (0 = kind's default)
     ["zone", "Zone", "text"],
   ],
   steps: [

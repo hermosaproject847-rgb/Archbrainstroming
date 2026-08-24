@@ -177,46 +177,12 @@ _SEATS = {"dining_2": 2, "dining_4": 4, "dining_6": 6, "dining_8": 8}
 
 
 def _dining(dl, f) -> None:
-    """EVERY seat drawn, abutting the table — the full set the table is named
-    for (a 4-seat shows 4), or exactly `f.chairs` when the user has set it.
-    Distribution is the way a dining set actually sits: the long sides carry
-    the pairs, the two ends take one each once the sides are full."""
-    c = F.ft(450)
-    gap = F.ft(30)
-    n = int(getattr(f, "chairs", 0) or 0) or _SEATS.get(f.kind, 4)
-    if n <= 0:
-        return
-    # split the seats: ends only from the 5th seat up (2/4 = side pairs only)
-    ends = 0 if n <= 4 else min(2, n - 4)
-    side_total = n - ends
-    nA = (side_total + 1) // 2                   # one long side
-    nB = side_total - nA                         # the other
-    along_x = _long_axis(f) == "x"
-
-    def row(count, side):
-        """`count` chairs evenly along one side: N/S/E/W of the table."""
-        for i in range(count):
-            t = (i + 0.5) / count
-            if side in ("N", "S"):
-                cx = f.x + f.w * t - c / 2
-                cy = (f.y + f.h + gap) if side == "N" else (f.y - c - gap)
-            else:
-                cy = f.y + f.h * t - c / 2
-                cx = (f.x + f.w + gap) if side == "E" else (f.x - c - gap)
-            dl.rect(cx, cy, c, c, layer=L)
-
-    if along_x:                                   # long sides = N + S
-        row(nA, "N"); row(nB, "S")
-        if ends >= 1:
-            row(1, "W")
-        if ends == 2:
-            row(1, "E")
-    else:                                         # long sides = E + W
-        row(nA, "E"); row(nB, "W")
-        if ends >= 1:
-            row(1, "N")
-        if ends == 2:
-            row(1, "S")
+    """The TABLE only — every chair is its own furniture piece (laid out with
+    the table, or added by hand), so each one can be clicked, moved, rotated or
+    deleted individually. The top gets a thin inset rim so it reads as a table."""
+    pad = F.ft(60)
+    if f.w > 2 * pad + 0.1 and f.h > 2 * pad + 0.1:
+        dl.rect(f.x + pad, f.y + pad, f.w - 2 * pad, f.h - 2 * pad, layer=L)
 
 
 # -------------------------------------------------------------- kitchen

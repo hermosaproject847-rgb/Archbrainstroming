@@ -687,6 +687,51 @@ def _dining_on_wall(plan, room, clear, bad, taken, kind, prefer):
     return None
 
 
+_DINE_SEATS = {"dining_2": 2, "dining_4": 4, "dining_6": 6, "dining_8": 8}
+
+
+def _chair_pieces(t, n: int = 0) -> list:
+    """The chairs for dining table `t`, each a REAL furniture piece the user
+    can click, move, rotate or delete on its own. Long sides carry the pairs,
+    the two ends take one each from the 5th seat up."""
+    c = F.ft(450)
+    gap = F.ft(30)
+    n = int(n or 0) or _DINE_SEATS.get(t.kind, 4)
+    if n <= 0:
+        return []
+    ends = 0 if n <= 4 else min(2, n - 4)
+    side_total = n - ends
+    nA = (side_total + 1) // 2
+    nB = side_total - nA
+    chairs = []
+
+    def row(count, side):
+        for i in range(count):
+            tt = (i + 0.5) / count
+            if side in ("N", "S"):
+                x = t.x + t.w * tt - c / 2
+                y = (t.y + t.h + gap) if side == "N" else (t.y - c - gap)
+            else:
+                y = t.y + t.h * tt - c / 2
+                x = (t.x + t.w + gap) if side == "E" else (t.x - c - gap)
+            chairs.append(Furniture(kind="chair", x=x, y=y, w=c, h=c,
+                                    room=t.room, facing=side, verdict="n/a"))
+
+    if t.w >= t.h:                          # long sides = N + S
+        row(nA, "N"); row(nB, "S")
+        if ends >= 1:
+            row(1, "W")
+        if ends == 2:
+            row(1, "E")
+    else:                                   # long sides = E + W
+        row(nA, "E"); row(nB, "W")
+        if ends >= 1:
+            row(1, "N")
+        if ends == 2:
+            row(1, "S")
+    return chairs
+
+
 def _dining(plan, room, clear, bad, taken, out, notes, anchor=None,
             sizes=("dining_6", "dining_4"), prefer_walls=None):
     """Place the dining table (largest that keeps a route round every open
@@ -702,6 +747,12 @@ def _dining(plan, room, clear, bad, taken, out, notes, anchor=None,
                                 prefer_walls)
             if t:
                 out.append(t)
+                # every chair is its own editable piece; one that would land in
+                # a wall (the flush side) is skipped automatically
+                for ch in _chair_pieces(t):
+                    if clear.buffer(0.05).contains(
+                            box(ch.x, ch.y, ch.x + ch.w, ch.y + ch.h)):
+                        out.append(ch)
                 taken.append(box(t.x - chair, t.y - chair,
                                  t.x + t.w + chair, t.y + t.h + chair))
                 return
@@ -726,6 +777,10 @@ def _dining(plan, room, clear, bad, taken, out, notes, anchor=None,
             notes.append(f"{room.name}: perimeter is between 600 and 750 — "
                          "kept at the hard minimum rather than reducing seats")
         out.append(t)
+        for ch in _chair_pieces(t):
+            if clear.buffer(0.05).contains(
+                    box(ch.x, ch.y, ch.x + ch.w, ch.y + ch.h)):
+                out.append(ch)
         taken.append(box(t.x - chair, t.y - chair,
                          t.x + t.w + chair, t.y + t.h + chair))
         return
@@ -1070,11 +1125,30 @@ def add_piece(plan_dict: dict, kind: str, room_name: str = "",
     piece.tag = f"F{n}"
     plan.furniture.append(piece)
 
+    # a dining table arrives WITH its chairs — each one its own piece the user
+    # can move or delete; one that would land in a wall is skipped
+    extra = 0
+    if kind in _DINE_SEATS:
+        for ch in _chair_pieces(piece):
+            if not clear.buffer(0.05).contains(
+                    box(ch.x, ch.y, ch.x + ch.w, ch.y + ch.h)):
+                continue
+            n += 1
+            while f"F{n}" in used:
+                n += 1
+            ch.tag = f"F{n}"
+            used.add(ch.tag)
+            plan.furniture.append(ch)
+            extra += 1
+
     out = dict(plan_dict)
     out["furniture"] = [asdict(f) for f in plan.furniture]
-    return out, (f"{piece.tag} {F.LABEL.get(kind, kind)} placed on the "
-                 f"{piece.facing} wall of {room.name} ({piece.zone}, "
-                 f"{piece.verdict.lower()})")
+    msg = (f"{piece.tag} {F.LABEL.get(kind, kind)} placed on the "
+           f"{piece.facing} wall of {room.name} ({piece.zone}, "
+           f"{piece.verdict.lower()})")
+    if extra:
+        msg += f" + {extra} chairs (each editable on its own)"
+    return out, msg
 
 
 # --------------------------------------------------------------- the run
@@ -1082,7 +1156,7 @@ def add_piece(plan_dict: dict, kind: str, room_name: str = "",
 _PRIORITY = {
     "bed_single": 0, "bed_double": 0, "bed_queen": 0, "bed_king": 0, "cot": 0,
     "wc": 0, "basin": 0, "shower": 0, "counter": 0, "sofa_3": 0, "sofa_2": 0,
-    "dining_2": 0, "dining_4": 0, "dining_6": 0, "dining_8": 0,
+    "dining_2": 0, "dining_4": 0, "dining_6": 0, "dining_8": 0, "chair": 0,
     "wardrobe": 1, "fridge": 1, "bedside": 1,
     "tv_unit": 2, "dresser": 2, "study_table": 2, "coffee_table": 2,
     "armchair": 2, "shoe_rack": 3, "stool": 3, "side_table": 3,
