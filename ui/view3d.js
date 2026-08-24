@@ -251,56 +251,215 @@
     }
   }
 
-  /* ------------------------------------------------ furniture 3D models */
-  const FURN3D = {
-    bed_single: [0x6f9fd8, 1.6], bed_double: [0x6f9fd8, 1.6],
-    bed_queen: [0x6f9fd8, 1.6], bed_king: [0x6f9fd8, 1.6],
-    bedside: [0x9fb7d8, 1.8], wardrobe: [0x8a6c48, 6.6],
-    dresser: [0xa5875f, 2.6], study_table: [0xa5875f, 2.5],
-    sideboard: [0xa5875f, 2.8], shoe_rack: [0x8a6c48, 3.0],
-    sofa_3: [0x4f9d7a, 2.3], sofa_2: [0x4f9d7a, 2.3], armchair: [0x4f9d7a, 2.3],
-    chair: [0x6fb08a, 1.5], stool: [0x6fb08a, 1.5],
-    coffee_table: [0xc2a15e, 1.4], dining_2: [0xc2a15e, 2.5],
-    dining_4: [0xc2a15e, 2.5], dining_6: [0xc2a15e, 2.5], dining_8: [0xc2a15e, 2.5],
-    tv_unit: [0x555b66, 1.8], fridge: [0xd0d4da, 5.6], washing_machine: [0xd0d4da, 2.9],
-    counter: [0x9aa3ad, 2.8], wc: [0xeceef2, 1.4], basin: [0xeceef2, 2.7],
-    shower: [0xbfe0f2, 6.8],
-  };
+  /* ------------------------- furniture: DETAILED little models, not boxes */
+  const lam = c => new THREE.MeshLambertMaterial({ color: c });
   function addFurniture(g, plan, z0) {
     for (const f of (plan.furniture || [])) {
-      const def = FURN3D[f.kind] || [0xb8a88f, 2.2];
-      const mat = new THREE.MeshLambertMaterial({
-        color: def[0],
-        transparent: f.kind === "shower", opacity: f.kind === "shower" ? 0.35 : 1
-      });
-      const m = box(+f.w || 1, +f.h || 1, def[1],
-        (+f.x || 0) + (+f.w || 1) / 2, (+f.y || 0) + (+f.h || 1) / 2,
-        z0 + def[1] / 2, mat);
-      if (+f.angle) m.rotation.y = (+f.angle) * Math.PI / 180;
-      g.add(m);
+      const w = +f.w || 1, h = +f.h || 1;
+      const cx = (+f.x || 0) + w / 2, cy = (+f.y || 0) + h / 2;
+      const grp = new THREE.Group();
+      // local frame: piece centred at origin, x = its w, y(plan) = its h.
+      // `bk` = which local side its BACK is on (facing = the wall side).
+      const bk = f.facing || "N";
+      const back = { N: [0, 1], S: [0, -1], E: [1, 0], W: [-1, 0] }[bk] || [0, 1];
+      const lb = (sx, sy, sz, ox, oy, oz, mat) => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sz, sy), mat);
+        m.position.set(ox, oz, -oy);
+        grp.add(m); return m;
+      };
+      const lc = (r, hz, ox, oy, oz, mat) => {
+        const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, hz, 14), mat);
+        m.position.set(ox, oz, -oy);
+        grp.add(m); return m;
+      };
+      const legs = (sw, sh, hz, mat) => {
+        for (const p of [[-1, -1], [1, -1], [-1, 1], [1, 1]])
+          lb(0.15, 0.15, hz, p[0] * (sw / 2 - 0.15), p[1] * (sh / 2 - 0.15), hz / 2, mat);
+      };
+      const k = f.kind || "";
+
+      if (k.startsWith("bed_")) {
+        const wood = lam(0x7a5c3e), matt = lam(0xdfe6ee), quilt = lam(0x6f9fd8),
+          pil = lam(0xf5f0e6);
+        lb(w, h, 1.1, 0, 0, 0.55, wood);                          // base
+        lb(w - 0.25, h - 0.25, 0.55, 0, 0, 1.35, matt);           // mattress
+        // quilt covers the FOOT two-thirds; pillows at the HEAD (back side)
+        lb(w - 0.35, h * 0.62, 0.18, -back[0] * w * 0.17, -back[1] * h * 0.17, 1.72, quilt);
+        const px = back[0], py = back[1];
+        const across = Math.abs(px) > 0 ? h : w;
+        for (const s of (across > 4 ? [-1, 1] : [0]))
+          lb(px ? 0.5 : 1.5, px ? 1.5 : 0.5, 0.28,
+            px * (w / 2 - 0.55) + (px ? 0 : s * 1.1),
+            py * (h / 2 - 0.55) + (py ? 0 : s * 1.1), 1.78, pil);
+        lb(px ? 0.18 : w, px ? h : 0.18, 2.9,                     // headboard
+          px * (w / 2 - 0.09), py * (h / 2 - 0.09), 1.45, wood);
+      } else if (k.startsWith("sofa") || k === "armchair") {
+        const body = lam(0x3f8f6d), cush = lam(0x59a583), wood = lam(0x5a4632);
+        lb(w, h, 1.05, 0, 0, 0.7, body);                          // seat base
+        const px = back[0], py = back[1];
+        lb(px ? 0.5 : w, px ? h : 0.5, 1.6,                       // back rest
+          px * (w / 2 - 0.25), py * (h / 2 - 0.25), 1.6, body);
+        const ax = py, ay = px;                                    // arms across
+        for (const s of [-1, 1])
+          lb(Math.abs(ax) ? 0.45 : w, Math.abs(ay) ? 0.45 : h, 0.75,
+            s * ax * (w / 2 - 0.22), s * ay * (h / 2 - 0.22), 1.6, body);
+        // seat cushions
+        const n = k === "sofa_3" ? 3 : (k === "sofa_2" ? 2 : 1);
+        const runW = Math.abs(px) ? h : w;
+        for (let i = 0; i < n; i++) {
+          const off = -runW / 2 + runW * (i + 0.5) / n;
+          lb(Math.abs(px) ? w * 0.55 : runW / n - 0.2,
+            Math.abs(px) ? runW / n - 0.2 : h * 0.55, 0.3,
+            Math.abs(px) ? -px * w * 0.12 + 0 : off,
+            Math.abs(px) ? off : -py * h * 0.12, 1.4, cush);
+        }
+        legs(w, h, 0.35, wood);
+      } else if (k === "chair" || k === "stool") {
+        const wood = lam(0x82603f);
+        lb(w * 0.85, h * 0.85, 0.18, 0, 0, 1.45, wood);
+        legs(w, h, 1.4, wood);
+        if (k === "chair")
+          lb(back[0] ? 0.15 : w * 0.85, back[0] ? h * 0.85 : 0.15, 1.5,
+            back[0] * (w / 2 - 0.1), back[1] * (h / 2 - 0.1), 2.2, wood);
+      } else if (k.startsWith("dining") || k === "coffee_table" ||
+                 k === "study_table" || k === "dresser") {
+        const wood = lam(k === "coffee_table" ? 0xa5824f : 0x8a6a42);
+        const top = k === "coffee_table" ? 1.35 : 2.45;
+        lb(w, h, 0.18, 0, 0, top, wood);
+        legs(w, h, top - 0.09, lam(0x6b4f30));
+        if (k === "dresser")                                       // mirror
+          lb(back[0] ? 0.1 : w * 0.7, back[0] ? h * 0.7 : 0.1, 2.2,
+            back[0] * (w / 2 - 0.06), back[1] * (h / 2 - 0.06), top + 1.2,
+            lam(0xb8d4e8));
+      } else if (k === "wardrobe" || k === "sideboard" || k === "shoe_rack") {
+        const hgt = k === "wardrobe" ? 6.6 : (k === "sideboard" ? 2.8 : 3.2);
+        const body = lam(0x77573a), panel = lam(0x8a6844);
+        lb(w, h, hgt, 0, 0, hgt / 2, body);
+        // door split + handles on the FRONT (opposite the back)
+        const fx = -back[0], fy = -back[1];
+        const runW = Math.abs(fx) ? h : w;
+        for (const s of [-1, 1])
+          lb(Math.abs(fx) ? 0.06 : runW / 2 - 0.15,
+            Math.abs(fx) ? runW / 2 - 0.15 : 0.06, hgt - 0.2,
+            fx * (w / 2 + 0.03) + (Math.abs(fx) ? 0 : s * runW / 4),
+            fy * (h / 2 + 0.03) + (Math.abs(fy) ? 0 : s * runW / 4),
+            hgt / 2, panel);
+        for (const s of [-1, 1])
+          lc(0.05, 0.8, fx * (w / 2 + 0.1) + (Math.abs(fx) ? 0 : s * 0.35),
+            fy * (h / 2 + 0.1) + (Math.abs(fy) ? 0 : s * 0.35),
+            hgt * 0.5, lam(0x2e2e2e));
+      } else if (k === "tv_unit") {
+        lb(w, h, 1.5, 0, 0, 0.75, lam(0x4a4f58));                 // cabinet
+        lb(back[0] ? 0.15 : w * 0.8, back[0] ? h * 0.8 : 0.15, 2.4, // screen
+          back[0] * (w / 2 - 0.2), back[1] * (h / 2 - 0.2), 2.8, lam(0x14161a));
+      } else if (k === "fridge") {
+        lb(w, h, 5.6, 0, 0, 2.8, lam(0xd6dade));
+        const fx = -back[0], fy = -back[1];
+        lb(Math.abs(fx) ? 0.06 : w, Math.abs(fx) ? h : 0.06, 0.06 + 0,
+          fx * (w / 2 + 0.03), fy * (h / 2 + 0.03), 3.7, lam(0xb9bec4));
+        lc(0.05, 1.4, fx * (w / 2 + 0.12), fy * (h / 2 + 0.12), 4.2, lam(0x7d838b));
+      } else if (k === "counter") {
+        lb(w, h, 2.7, 0, 0, 1.35, lam(0x9aa3ad));                 // carcass
+        lb(w, h, 0.15, 0, 0, 2.82, lam(0x3c4046));                // granite top
+        const alongX2 = w >= h;
+        const runW = alongX2 ? w : h;
+        if (runW > 4.5) {
+          const sinkAt = -runW / 2 + runW * 0.25, hobAt = -runW / 2 + runW * 0.7;
+          lb(alongX2 ? 1.6 : w * 0.6, alongX2 ? h * 0.6 : 1.6, 0.12,
+            alongX2 ? sinkAt : 0, alongX2 ? 0 : sinkAt, 2.92, lam(0xc9d2da));
+          for (const o of [[-0.45, -0.35], [0.45, -0.35], [-0.45, 0.35], [0.45, 0.35]])
+            lc(0.22, 0.08, (alongX2 ? hobAt : 0) + o[0],
+              (alongX2 ? 0 : hobAt) + o[1], 2.95, lam(0x1d1f24));
+        }
+      } else if (k === "wc") {
+        lb(back[0] ? 0.6 : w, back[0] ? h : 0.6, 1.9,             // cistern
+          back[0] * (w / 2 - 0.3), back[1] * (h / 2 - 0.3), 0.95, lam(0xf0f2f5));
+        const m2 = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.5, 1.3, 16),
+          lam(0xf0f2f5));
+        m2.scale.set(1, 1, 1.35);
+        m2.position.set(-back[0] * (w / 4), 0.65, back[1] * (h / 4));
+        grp.add(m2);
+      } else if (k === "basin") {
+        lc(0.16, 2.2, 0, 0, 1.1, lam(0xe6e9ed));                  // pedestal
+        const bowl = lc(0.75, 0.4, 0, 0, 2.5, lam(0xf3f5f8));
+        bowl.scale.set(Math.max(0.6, w / 1.6), 1, Math.max(0.6, h / 1.6));
+      } else if (k === "shower") {
+        const glass = new THREE.MeshLambertMaterial({
+          color: 0xbfe0f2, transparent: true, opacity: 0.3 });
+        lb(w, 0.06, 6.6, 0, -h / 2 + 0.03, 3.3, glass);
+        lb(w, 0.06, 6.6, 0, h / 2 - 0.03, 3.3, glass);
+        lb(0.06, h, 6.6, -w / 2 + 0.03, 0, 3.3, glass);
+        lb(0.06, h, 6.6, w / 2 - 0.03, 0, 3.3, glass);
+        lb(w, h, 0.12, 0, 0, 0.06, lam(0xcdd6dd));                // tray
+        lc(0.06, 1.1, back[0] * (w / 2 - 0.3), back[1] * (h / 2 - 0.3), 6.0,
+          lam(0x8f979f));
+        lc(0.3, 0.08, back[0] * (w / 2 - 0.3) - back[0] * 0.4,
+          back[1] * (h / 2 - 0.3) - back[1] * 0.4, 6.5, lam(0xaab2ba)); // rose
+      } else if (k === "bedside") {
+        lb(w, h, 1.7, 0, 0, 0.85, lam(0x846444));
+        lc(0.14, 0.5, 0, 0, 2.05, lam(0xd9c27a));                 // little lamp
+        lc(0.32, 0.4, 0, 0, 2.45, lam(0xf2e3b2));
+      } else {
+        lb(w, h, 2.2, 0, 0, 1.1, lam(0xb8a88f));
+      }
+
+      if (+f.angle) grp.rotation.y = (+f.angle) * Math.PI / 180;
+      grp.position.set(cx, z0, -cy);
+      g.add(grp);
     }
   }
 
   /* ---------------------------------------------- plumbing pipes in 3D */
   const PIPE3D = { CW: 0x0d47a1, HW: 0xd32f2f, SOIL: 0xe8590c, WASTE: 0x2e9e2e,
     VENT: 0x1b8a3a, STORM: 0x00acc1, ACD: 0xad1457 };
+  const STACK3D = { SS: 0xe8590c, WS: 0x2e9e2e, VP: 0x1b8a3a, RWP: 0x00acc1,
+    CWD: 0x0d47a1, HWD: 0xd32f2f };
   function addPipes(g, plan, z0, fh) {
     for (const r of (plan.pipes || [])) {
       const P = r.pts || []; if (P.length < 2) continue;
       const col = PIPE3D[r.system] || 0x888888;
       const mat = new THREE.MeshLambertMaterial({ color: col });
       const rad = Math.max(0.08, ((+r.dia_mm || 50) * MM) / 2);
+      const supply = (r.system === "CW" || r.system === "HW" || r.system === "ACD");
       // supply runs at the ceiling (as the WS layout notes), drainage at floor
-      const z = (r.system === "CW" || r.system === "HW" || r.system === "ACD")
-        ? z0 + fh - 0.8 : z0 + 0.35;
+      const z = supply ? z0 + fh - 0.8 : z0 + 0.35;
       for (let i = 0; i < P.length - 1; i++) {
         const c = cylBetween(P[i][0], P[i][1], z, P[i + 1][0], P[i + 1][1], z, rad, mat);
         if (c) g.add(c);
       }
+      // a smooth JOINT ball at every bend so elbows read as fittings
+      for (let i = 1; i < P.length - 1; i++) {
+        const j = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.25, 10, 10), mat);
+        j.position.set(P[i][0], z, -P[i][1]);
+        g.add(j);
+      }
+      // PIPE DROPS: a supply run drops from the ceiling down to fixture level
+      // at both ends (exactly the 'PIPE DROP' the WS layout marks)
+      if (supply) {
+        for (const e of [P[0], P[P.length - 1]]) {
+          const d = cylBetween(e[0], e[1], z, e[0], e[1], z0 + 2.6, rad * 0.9, mat);
+          if (d) g.add(d);
+          const cap = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.1, 10, 10), mat);
+          cap.position.set(e[0], z0 + 2.6, -e[1]);
+          g.add(cap);
+        }
+      }
     }
-    for (const p of (plan.plumb || [])) {          // traps / chambers markers
-      const mat = new THREE.MeshLambertMaterial({ color: 0x6d4c41 });
-      g.add(box(0.8, 0.8, 0.35, p.x, p.y, z0 + 0.17, mat));
+    // vertical STACKS / downtakes rise the full storey in their system colour
+    for (const p of (plan.plumb || [])) {
+      const sc = STACK3D[p.code];
+      if (sc != null) {
+        const mat = new THREE.MeshLambertMaterial({ color: sc });
+        const st = cylBetween(p.x, p.y, z0, p.x, p.y, z0 + fh + 0.6, 0.19, mat);
+        if (st) g.add(st);
+        const clamp = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.05, 8, 14), mat);
+        clamp.rotation.x = Math.PI / 2;
+        clamp.position.set(p.x, z0 + fh / 2, -p.y);
+        g.add(clamp);
+      } else {                                     // traps / chambers markers
+        g.add(box(0.8, 0.8, 0.35, p.x, p.y, z0 + 0.17,
+          new THREE.MeshLambertMaterial({ color: 0x6d4c41 })));
+      }
     }
   }
 
@@ -506,15 +665,32 @@
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
       renderer.setPixelRatio(window.devicePixelRatio || 1);
     }
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1c2230);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 0.8);
-    sun.position.set(60, 90, 40); scene.add(sun);
-    const sun2 = new THREE.DirectionalLight(0xffffff, 0.25);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    const hemi = new THREE.HemisphereLight(0xbcd2ff, 0x3a3126, 0.35);
+    scene.add(hemi);
+    const sun = new THREE.DirectionalLight(0xfff2dd, 0.85);
+    sun.position.set(60, 90, 40);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -60; sun.shadow.camera.right = 60;
+    sun.shadow.camera.top = 60; sun.shadow.camera.bottom = -60;
+    scene.add(sun);
+    const sun2 = new THREE.DirectionalLight(0xdde6ff, 0.22);
     sun2.position.set(-50, 40, -60); scene.add(sun2);
     scene.add(new THREE.GridHelper(200, 40, 0x37415a, 0x2a3248));
-    scene.add(buildModel());
+    // soft ground shadow catcher
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(300, 300),
+      new THREE.ShadowMaterial({ opacity: 0.28 }));
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+    const model = buildModel();
+    model.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    scene.add(model);
     camera = new THREE.PerspectiveCamera(50, 1, 0.1, 2000);
     const p = params();
     orbit.ty = (p.plinth + p.floors * p.fh) / 2;
