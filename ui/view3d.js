@@ -493,6 +493,11 @@
     // code gradients (same 1:N the 2D writes on every run) — the pipes are
     // actually PLACED on that fall, dropping continuously toward the outfall
     const SLOPE3D = { SOIL: 40, WASTE: 40, STORM: 100, ACD: 50 };
+    // each drainage SYSTEM owns its own LEVEL BAND — the deep soil main at
+    // the bottom, waste above it, storm above that — so two crossing runs
+    // NEVER pass through each other; branches step DOWN into the main via
+    // the connector, exactly how the levels work on site
+    const SYS_DZ = { SOIL: -0.38, WASTE: 0, STORM: 0.14 };
     const drains = [];             // drawn drainage runs, for the joins pass
     for (const r of (plan.pipes || [])) {
       const P = r.pts || []; if (P.length < 2) continue;
@@ -546,9 +551,12 @@
       }
       const zs = [];                           // per-vertex levels (for joins)
       let prevZ = null;
+      // within a system the SMALLER branch rides slightly higher than the
+      // bigger main, so same-colour crossings clear each other too
+      const sysDz = (SYS_DZ[r.system] || 0) + (0.18 - Math.min(0.18, rad)) * 1.4;
       for (let i = 0; i < P.length - 1; i++) {
         const midx = (P[i][0] + P[i + 1][0]) / 2, midy = (P[i][1] + P[i + 1][1]) / 2;
-        const b = baseAt(midx, midy);
+        const b = baseAt(midx, midy) + sysDz;
         const zA = b - cum[i] * fall, zB = b - cum[i + 1] * fall;
         if (i === 0) zs[0] = zA;
         zs[i + 1] = zB;
@@ -634,7 +642,7 @@
       sg.userData.edit = { kind: "plumb", ref: p, plan };
       if (sc != null) {
         const mat = new THREE.MeshLambertMaterial({ color: sc });
-        const st = cylBetween(p.x, p.y, z0 - 0.25, p.x, p.y, -0.2, 0.19, mat);
+        const st = cylBetween(p.x, p.y, z0 - 0.25, p.x, p.y, -0.6, 0.19, mat);
         if (st) sg.add(st);
         const clamp = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.05, 8, 14), mat);
         clamp.rotation.x = Math.PI / 2;
