@@ -11,7 +11,7 @@
 
   const MM = 1 / 304.8;
   let renderer = null, scene = null, camera = null, raf = 0, open = false;
-  let extMats = [], intMats = [];
+  let extMats = [], intMats = [], floorMats = [];
   let G = {};                                // named groups (toggle layers)
   const orbit = { az: -0.9, el: 0.55, dist: 90, tx: 0, ty: 6, tz: 0 };
   const $ = s => document.querySelector(s);
@@ -106,7 +106,7 @@
       ext,
       int_,
       conc: new THREE.MeshLambertMaterial({ color: 0x99a0a8 }),
-      slab: new THREE.MeshLambertMaterial({ color: 0xc7cbd1 }),
+      slab: new THREE.MeshLambertMaterial({ color: 0xc7cbd1, transparent: true, opacity: 1 }),
       glass: new THREE.MeshLambertMaterial({ color: 0x9ec8e8, transparent: true, opacity: 0.45 }),
       step: new THREE.MeshLambertMaterial({ color: 0xb9b2a4 }),
       door: new THREE.MeshLambertMaterial({ color: 0x8a5a34 }),
@@ -457,9 +457,9 @@
   const STACK3D = { SS: 0xe8590c, WS: 0x2e9e2e, VP: 0x1b8a3a, RWP: 0x00acc1,
     CWD: 0x0d47a1, HWD: 0xd32f2f };
   function addPipes(g, plan, z0, fh) {
-    // wet rooms (toilet / bath) — supply there runs LOW, concealed in the
-    // wall band at fixture level; nothing rises to the ceiling off a WC,
-    // shower or wash-basin. Ceiling running + drops are for the DRY areas.
+    // ALL piping is UNDERFLOOR — wet rooms in the sunk, dry runs just below
+    // FFL; nothing rises to the ceiling anywhere. The floor x-ray control
+    // fades the floor/plinth so these concealed runs stay readable.
     const wet = (plan.rooms || []).filter(r =>
       /toilet|bath|w\.?c|wash/i.test(r.name || ""));
     const inWet = (x, y) => wet.some(r =>
@@ -470,19 +470,13 @@
       const col = PIPE3D[r.system] || 0x888888;
       const mat = new THREE.MeshLambertMaterial({ color: col });
       const rad = Math.max(0.08, ((+r.dia_mm || 50) * MM) / 2);
-      const supply = (r.system === "CW" || r.system === "HW" || r.system === "ACD");
-      const allWet = supply && P.every(p => inWet(p[0], p[1]));
-      // MEP levels: wet-room DRAINAGE lives INSIDE THE SUNK — below the
-      // finished floor, it ends there and never shows above; outside the wet
-      // zone it runs at ground level to the chambers. Wet-room supply is the
-      // low concealed band; dry-area supply is at the ceiling with drops.
-      // EVERY pipe inside a wet room — supply or drainage — lies in the SUNK,
-      // below the finished floor; nothing shows above the flooring there.
-      // Dry-area supply runs at the ceiling; dry drainage at ground level.
+      // MEP levels: EVERY pipe lies BELOW THE FINISHED FLOOR — wet rooms in
+      // the SUNK (deeper), dry areas just under the FFL screed on the way to
+      // the chambers / manifold. Nothing ever runs at the ceiling and nothing
+      // ever shows above the flooring. The floor x-ray slider makes them read.
       const segZ = (a, b) => {
         const midx = (a[0] + b[0]) / 2, midy = (a[1] + b[1]) / 2;
-        if (inWet(midx, midy)) return z0 - 0.25;
-        return supply ? z0 + fh - 0.8 : z0 + 0.2;
+        return inWet(midx, midy) ? z0 - 0.25 : z0 - 0.12;
       };
       let prevZ = null;
       for (let i = 0; i < P.length - 1; i++) {
@@ -501,29 +495,18 @@
         }
         prevZ = z;
       }
-      // PIPE DROPS: only where a CEILING-run supply arrives at a wet/fixture
-      // point does it drop down — never a pipe rising out of a fixture
-      if (supply && !allWet) {
-        // where a ceiling run reaches the wet zone it DROPS straight down into
-        // the sunk (below FFL) — never left hanging above the flooring
-        const zTop = z0 + fh - 0.8;
-        for (const e of [P[0], P[P.length - 1]]) {
-          if (!inWet(e[0], e[1])) continue;          // the source end stays up
-          const d = cylBetween(e[0], e[1], zTop, e[0], e[1], z0 - 0.25, rad * 0.9, mat);
-          if (d) g.add(d);
-        }
-      }
     }
-    // vertical STACKS / downtakes rise the full storey in their system colour
+    // vertical STACKS / downtakes: DOWN from the sunk to ground drainage —
+    // a stack never rises above the floor it serves in this view
     for (const p of (plan.plumb || [])) {
       const sc = STACK3D[p.code];
       if (sc != null) {
         const mat = new THREE.MeshLambertMaterial({ color: sc });
-        const st = cylBetween(p.x, p.y, z0, p.x, p.y, z0 + fh + 0.6, 0.19, mat);
+        const st = cylBetween(p.x, p.y, z0 - 0.25, p.x, p.y, 0.05, 0.19, mat);
         if (st) g.add(st);
         const clamp = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.05, 8, 14), mat);
         clamp.rotation.x = Math.PI / 2;
-        clamp.position.set(p.x, z0 + fh / 2, -p.y);
+        clamp.position.set(p.x, Math.max(0.3, (z0 - 0.25) / 2), -p.y);
         g.add(clamp);
       } else {                                     // traps / chambers markers
         g.add(box(0.8, 0.8, 0.35, p.x, p.y, z0 + 0.17,
@@ -650,7 +633,8 @@
       const tileFt = spec && spec.tile_w ? Math.max(0.8, spec.tile_w * MM)
         : (material === "wood" ? 3.94 : 2.0);
       t.repeat.set(Math.max(1, r.w / tileFt), Math.max(1, r.h / tileFt));
-      const mat = new THREE.MeshLambertMaterial({ map: t });
+      const mat = new THREE.MeshLambertMaterial({ map: t, transparent: true, opacity: 1 });
+      floorMats.push(mat);
       g.add(box(r.w - 0.2, r.h - 0.2, 0.07, r.x + r.w / 2, r.y + r.h / 2,
         z0 + 0.045, mat));
       // SKIRTING: a darker strip round the room, 75 mm high — BROKEN at every
@@ -799,8 +783,9 @@
 
   /* --------------------------------------------------------- the model */
   function buildModel() {
-    extMats = []; intMats = [];
+    extMats = []; intMats = []; floorMats = [];
     const M = mats();
+    floorMats.push(M.slab);
     const P = params();
     const root = new THREE.Group();
     const base = S.plan; if (!base) return root;
@@ -817,8 +802,12 @@
     if (x1 <= x0) return root;
     const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
 
+    // the plinth gets its OWN material so the floor x-ray can see through it
+    // to the underfloor piping without fading every column in the model
+    const plinthM = new THREE.MeshLambertMaterial({ color: 0x99a0a8, transparent: true, opacity: 1 });
+    floorMats.push(plinthM);
     G.struct.add(box(x1 - x0 + 1, y1 - y0 + 1, Math.max(P.plinth, 0.1),
-      cx, cy, Math.max(P.plinth, 0.1) / 2, M.conc));
+      cx, cy, Math.max(P.plinth, 0.1) / 2, plinthM));
 
     let topZ = P.plinth;
     for (let f = 0; f < P.floors; f++) {
@@ -923,12 +912,18 @@
     G.top.visible = on("#v3roof");
     if (G.mumty) G.mumty.visible = on("#v3roof") && on("#v3mumty");
     G.furn.visible = on("#v3furn");
-    G.plumb.visible = on("#v3plumb");
+    const plumbOn = on("#v3plumb");
+    G.plumb.visible = plumbOn;
+    // piping is UNDERFLOOR — with the plumbing layer on, the floor/plinth
+    // fades (floor x-ray slider) so the concealed runs read below the FFL
+    const fOp = plumbOn ? (+((($("#v3flop") || {}).value)) || 0.35) : 1;
+    floorMats.forEach(m => { m.opacity = fOp; m.needsUpdate = true; });
     const elecOn = on("#v3elec");
     G.elec.visible = elecOn;
     // conduits are CONCEALED in the walls — turning the electrical layer on
-    // fades the internal walls so the runs read INSIDE them, never outside
-    intMats.forEach(m => { m.opacity = elecOn ? 0.3 : 1; m.needsUpdate = true; });
+    // fades the internal walls (wall x-ray slider) so the runs read INSIDE
+    const wOp = elecOn ? (+((($("#v3intop") || {}).value)) || 0.3) : 1;
+    intMats.forEach(m => { m.opacity = wOp; m.needsUpdate = true; });
     G.floor.visible = on("#v3floor");
   }
 
@@ -1070,6 +1065,8 @@
     if (op) op.oninput = () => setOpacity(op.value / 100);
     ["#v3roof", "#v3mumty", "#v3furn", "#v3plumb", "#v3elec", "#v3floor"].forEach(id =>
       on(id, syncLayers, "onchange"));
+    on("#v3intop", syncLayers, "oninput");   // wall x-ray (electrical)
+    on("#v3flop", syncLayers, "oninput");    // floor x-ray (plumbing)
     on("#v3para", rebuild, "onchange");
   }
 

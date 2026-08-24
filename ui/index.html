@@ -472,7 +472,13 @@
     <label class="v3-chk"><input id="v3floor" type="checkbox" checked> Flooring</label>
     <label class="v3-chk"><input id="v3furn" type="checkbox" checked> Furniture</label>
     <label class="v3-chk"><input id="v3plumb" type="checkbox"> Plumbing</label>
+    <label class="v3-op" title="Plumbing on hone par floor/plinth kitna transparent ho — pipes FFL ke NICHE concealed hain, isse aar-paar dikhte hain">Floor x-ray
+      <input id="v3flop" type="range" min="0.05" max="1" step="0.05" value="0.35">
+    </label>
     <label class="v3-chk"><input id="v3elec" type="checkbox"> Electrical</label>
+    <label class="v3-op" title="Electrical on hone par internal walls kitni transparent ho — conduit wall ke ANDAR concealed hai">Wall x-ray
+      <input id="v3intop" type="range" min="0.05" max="1" step="0.05" value="0.3">
+    </label>
     <label class="v3-chk">Top:
       <select id="v3para">
         <option value="parapet" selected>Parapet wall</option>
@@ -492,6 +498,6 @@
 
 <script src="app.js"></script>
 <script src="vendor/three.min.js"></script>
-<script src="view3d.js?v=11"></script>
+<script src="view3d.js?v=12"></script>
 </body>
 </html>
