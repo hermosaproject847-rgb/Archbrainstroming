@@ -1040,8 +1040,23 @@
     renderer.setSize(w, h, false);
     camera.aspect = w / h; camera.updateProjectionMatrix();
   }
+  /* -------- game-style FLY keys: W/S ahead-back, A/D strafe, Q/E down-up */
+  const flyKeys = {};
+  function flyStep() {
+    const sp = Math.max(0.15, orbit.dist * 0.014);
+    const fnx = -Math.cos(orbit.az), fnz = -Math.sin(orbit.az);  // level forward
+    let dx = 0, dy = 0, dz = 0;
+    if (flyKeys.w) { dx += fnx * sp; dz += fnz * sp; }
+    if (flyKeys.s) { dx -= fnx * sp; dz -= fnz * sp; }
+    if (flyKeys.d) { dx += -fnz * sp; dz += fnx * sp; }
+    if (flyKeys.a) { dx -= -fnz * sp; dz -= fnx * sp; }
+    if (flyKeys.e) dy += sp;
+    if (flyKeys.q) dy -= sp;
+    if (dx || dy || dz) { orbit.tx += dx; orbit.ty += dy; orbit.tz += dz; }
+  }
   function loop() {
     if (!open) return;
+    flyStep();
     applyCam(); renderer.render(scene, camera);
     raf = requestAnimationFrame(loop);
   }
@@ -1253,11 +1268,14 @@
       mode = 0; dragEd = null; dragDelta = null;
     });
     addEventListener("keydown", e => {
-      if (!open || !selObj) return;
+      if (!open) return;
       const t = (document.activeElement || {}).tagName;
       if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT") return;
-      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteSel(); }
+      const k = (e.key || "").toLowerCase();
+      if ("wasdqe".includes(k) && k.length === 1) { flyKeys[k] = true; e.preventDefault(); return; }
+      if (selObj && (e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); deleteSel(); }
     });
+    addEventListener("keyup", e => { flyKeys[(e.key || "").toLowerCase()] = false; });
     cv.addEventListener("wheel", e => {
       if (!open) return;
       const f = e.deltaY > 0 ? 1.12 : 0.9;
