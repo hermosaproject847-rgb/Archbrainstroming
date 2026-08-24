@@ -1,6 +1,6 @@
-/* 3D MODEL — the whole house in 3D from the live plan, like a real 3D
+﻿/* 3D MODEL â€” the whole house in 3D from the live plan, like a real 3D
    package: orbit / zoom / pan, an x-ray slider for the outer shell, a TOP-2D
-   mode (roof off, looking straight down), and toggleable SERVICE layers —
+   mode (roof off, looking straight down), and toggleable SERVICE layers â€”
    furniture models, plumbing pipes in their system colours, electrical
    conduiting from each board to its fittings, textured flooring + skirting
    (wood / tile / marble / granite), and a parapet that can turn into a
@@ -18,7 +18,7 @@
   let homeCenter = null;                     // model bbox centre = orbit pivot
   let topMode = false, orthoH = 60;          // EXACT-2D top view (orthographic)
   let sunL = null, ambL = null, hemiL = null;   // lights (sun-glare slider)
-  // LAYER LOCKS — a locked layer's things cannot be selected / moved / edited
+  // LAYER LOCKS â€” a locked layer's things cannot be selected / moved / edited
   const locks = { struct: false, furn: false, plumb: false, elec: false };
   const LOCKOF = { furn: "furn", elec: "elec", plumb: "plumb", pipe: "plumb",
     col: "struct", beam: "struct" };
@@ -255,7 +255,7 @@
         // EXACTLY the plan's arrangement: flight 1 in the TOP band, both
         // landings stacked at the FAR (landing) end, the U3's middle flight
         // running DOWN the landing column between them, the return flight in
-        // the BOTTOM band — and an OPEN WELL in the middle, never solid.
+        // the BOTTOM band â€” and an OPEN WELL in the middle, never solid.
         const land = Math.min(Math.max(+s.landing_size || 3, 2.5), W * 0.45);
         const runLen = W - land;
         const n1 = +s.steps_f1 || 8, n2 = +s.steps_f2 || n1;
@@ -267,10 +267,10 @@
         const vTop = B - fw2, vBot = 0;
         const uNear = dirUp > 0 ? 0 : W;
         const uFarL = dirUp > 0 ? runLen : 0;        // landing column start (u)
-        // flight 1 — top band, near → far
+        // flight 1 â€” top band, near â†’ far
         flight(uNear, runLen, dirUp, vTop, fw2, z0, z1, n1);
         rail(uNear, dirUp > 0 ? runLen : land, vTop + 0.08, z0, z1);
-        // landing 1 — far end, TOP corner
+        // landing 1 â€” far end, TOP corner
         landing(uFarL, land, vTop, fw2, z1);
         if (nm > 0) {
           // middle flight: DOWN the landing column from the top landing to the
@@ -284,9 +284,9 @@
           rail(dirUp > 0 ? W - 0.15 : 0.15, dirUp > 0 ? W - 0.15 : 0.15,
             vTop, z1, z2);
         }
-        // landing 2 — far end, BOTTOM corner
+        // landing 2 â€” far end, BOTTOM corner
         landing(uFarL, land, vBot, fw2, z2);
-        // return flight — bottom band, far → near
+        // return flight â€” bottom band, far â†’ near
         flight(dirUp > 0 ? runLen : land, runLen, -dirUp, vBot, fw2, z2, z0 + rise, n2);
         rail(dirUp > 0 ? runLen : land, uNear, fw2 - 0.08, z2, z0 + rise);
       } else {
@@ -380,11 +380,11 @@
         const hgt = k === "wardrobe" ? 6.6 : (k === "sideboard" ? 2.8 : 3.2);
         const body = lam(0x77573a), panel = lam(0x8a6844);
         lb(w, h, hgt, 0, 0, hgt / 2, body);
-        // SHUTTERS at the standard 450–500 mm module: an 8'-6" wardrobe gets
-        // 5–6 doors, never just 2. Handles pair up at the meeting stiles.
+        // SHUTTERS at the standard 450â€“500 mm module: an 8'-6" wardrobe gets
+        // 5â€“6 doors, never just 2. Handles pair up at the meeting stiles.
         const fx = -back[0], fy = -back[1];
         const runW = Math.abs(fx) ? h : w;
-        const nSh = Math.max(2, Math.round(runW / 1.55));   // ≈ 475 mm module
+        const nSh = Math.max(2, Math.round(runW / 1.55));   // â‰ˆ 475 mm module
         const shW = runW / nSh;
         for (let i2 = 0; i2 < nSh; i2++) {
           const off = -runW / 2 + shW * (i2 + 0.5);
@@ -479,7 +479,7 @@
     const inRoom = (x, y) => rooms.some(r => !r.void &&
       x >= r.x - 0.1 && x <= r.x + r.w + 0.1 &&
       y >= r.y - 0.1 && y <= r.y + r.h + 0.1);
-    // MEP levels — DRAINAGE: wet rooms in the SUNK, dry rooms just under the
+    // MEP levels â€” DRAINAGE: wet rooms in the SUNK, dry rooms just under the
     // FFL screed, and OUTSIDE the footprint UNDERGROUND to the chambers.
     // WATER SUPPLY is the opposite: it runs HIGH at ceiling / lintel level,
     // concealed, and only DROPS DOWN THE WALL at the tap points.
@@ -490,11 +490,11 @@
     const inTap = (x, y) => tapRooms.some(r =>
       x >= r.x - 0.6 && x <= r.x + r.w + 0.6 &&
       y >= r.y - 0.6 && y <= r.y + r.h + 0.6);
-    // code gradients (same 1:N the 2D writes on every run) — the pipes are
+    // code gradients (same 1:N the 2D writes on every run) â€” the pipes are
     // actually PLACED on that fall, dropping continuously toward the outfall
     const SLOPE3D = { SOIL: 40, WASTE: 40, STORM: 100, ACD: 50 };
-    // each drainage SYSTEM owns its own LEVEL BAND — the deep soil main at
-    // the bottom, waste above it, storm above that — so two crossing runs
+    // each drainage SYSTEM owns its own LEVEL BAND â€” the deep soil main at
+    // the bottom, waste above it, storm above that â€” so two crossing runs
     // NEVER pass through each other; branches step DOWN into the main via
     // the connector, exactly how the levels work on site
     const SYS_DZ = { SOIL: -0.38, WASTE: 0, STORM: 0.14 };
@@ -519,14 +519,19 @@
         // HIGH-LEVEL runs: supply + vent at ceiling / lintel height; the AC
         // CONDENSATE line also runs along the ceiling from the unit, on a
         // continuous 1:50 fall, and only drops down OUTSIDE to the drain
-        const zBase = isACD ? z0 + 7.1 : z0 + fh - 0.8;
+        // each high-level system gets its OWN band: cold lowest, hot above
+        // it, vent above that â€” parallel runs never merge into one another
+        const zBase = isACD ? z0 + 7.1
+          : r.system === "HW" ? z0 + fh - 0.62
+          : r.system === "VENT" ? z0 + fh - 0.45
+          : z0 + fh - 0.8;
         const fHi = isACD ? 1 / 50 : 0;
         for (let i = 0; i < P.length - 1; i++) {
           const zA = zBase - cum[i] * fHi, zB = zBase - cum[i + 1] * fHi;
           const c = cylBetween(P[i][0], P[i][1], zA, P[i + 1][0], P[i + 1][1], zB, rad, mat);
           if (c) rg.add(c);
           if (i > 0) {
-            const j = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.25, 10, 10), mat);
+            const j = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.1, 10, 10), mat);
             j.position.set(P[i][0], zA, -P[i][1]);
             rg.add(j);
           }
@@ -557,7 +562,9 @@
       for (let i = 0; i < P.length - 1; i++) {
         const midx = (P[i][0] + P[i + 1][0]) / 2, midy = (P[i][1] + P[i + 1][1]) / 2;
         const b = baseAt(midx, midy) + sysDz;
-        const zA = b - cum[i] * fall, zB = b - cum[i + 1] * fall;
+        // never deeper than just under the ground â€” long falls are capped
+        const zA = Math.max(-0.5, b - cum[i] * fall);
+        const zB = Math.max(-0.5, b - cum[i + 1] * fall);
         if (i === 0) zs[0] = zA;
         zs[i + 1] = zB;
         const c = cylBetween(P[i][0], P[i][1], zA, P[i + 1][0], P[i + 1][1], zB, rad, mat);
@@ -568,7 +575,7 @@
         }
         // joint ball at this segment's start vertex
         if (i > 0) {
-          const j = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.25, 10, 10), mat);
+          const j = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.1, 10, 10), mat);
           j.position.set(P[i][0], zA, -P[i][1]);
           rg.add(j);
         }
@@ -578,7 +585,7 @@
       drains.push({ P, zs, dia, rad, mat, sys: r.system });
     }
     // ------- DRAINAGE CONNECTIVITY: every smaller pipe TIES INTO the bigger
-    // main (or the stack) with a proper TEE connector — no floating ends
+    // main (or the stack) with a proper TEE connector â€” no floating ends
     const closestOnSeg = (p, a, b) => {
       const vx = b[0] - a[0], vy = b[1] - a[1];
       const L2 = vx * vx + vy * vy || 1e-9;
@@ -586,12 +593,13 @@
       t = Math.max(0, Math.min(1, t));
       return [a[0] + vx * t, a[1] + vy * t, t];
     };
-    const stacksXY = (plan.plumb || []).filter(p => STACK3D[p.code] != null);
+    const stacksXY = (plan.plumb || []).filter(p =>
+      p.code === "SS" || p.code === "WS" || p.code === "RWP");
     for (const a of drains) {
       const endIdx = [0, a.P.length - 1];
       for (const ei of endIdx) {
         const e = a.P[ei], ez = a.zs[ei];
-        // nearest STACK first — a branch always prefers its stack
+        // nearest STACK first â€” a branch always prefers its stack
         let best = null;
         for (const s of stacksXY) {
           const d = Math.hypot(s.x - e[0], s.y - e[1]);
@@ -616,7 +624,7 @@
         const c = cylBetween(e[0], e[1], ez, best.x, best.y, best.z, a.rad, a.mat);
         if (c) g.add(c);
         // connector fittings: a socket on the branch, a TEE boss on the main
-        const s1 = new THREE.Mesh(new THREE.SphereGeometry(a.rad * 1.5, 10, 10), a.mat);
+        const s1 = new THREE.Mesh(new THREE.SphereGeometry(a.rad * 1.25, 10, 10), a.mat);
         s1.position.set(e[0], ez, -e[1]);
         g.add(s1);
         if (best.stack) {
@@ -628,13 +636,13 @@
           const bb = best.b, k = best.k;
           const ux = bb.P[k + 1][0] - bb.P[k][0], uy = bb.P[k + 1][1] - bb.P[k][1];
           const L = Math.hypot(ux, uy) || 1;
-          const tee = cylBetween(best.x - ux / L * 0.3, best.y - uy / L * 0.3, best.z,
-            best.x + ux / L * 0.3, best.y + uy / L * 0.3, best.z, bb.rad * 1.35, bb.mat);
+          const tee = cylBetween(best.x - ux / L * 0.25, best.y - uy / L * 0.25, best.z,
+            best.x + ux / L * 0.25, best.y + uy / L * 0.25, best.z, bb.rad * 1.18, bb.mat);
           if (tee) g.add(tee);
         }
       }
     }
-    // vertical STACKS / downtakes: DOWN from the sunk to ground drainage —
+    // vertical STACKS / downtakes: DOWN from the sunk to ground drainage â€”
     // a stack never rises above the floor it serves in this view
     for (const p of (plan.plumb || [])) {
       const sc = STACK3D[p.code];
@@ -642,15 +650,23 @@
       sg.userData.edit = { kind: "plumb", ref: p, plan };
       if (sc != null) {
         const mat = new THREE.MeshLambertMaterial({ color: sc });
-        const st = cylBetween(p.x, p.y, z0 - 0.25, p.x, p.y, -0.6, 0.19, mat);
+        // each stack runs its OWN storey band: supply downtakes come from the
+        // tank DOWN to the ceiling distribution; the vent rises above roof;
+        // soil / waste / rain go from the sunk down to the drain â€” a water
+        // pipe never dives into the drainage zone
+        let zt, zb;
+        if (p.code === "CWD" || p.code === "HWD") { zt = z0 + fh + 0.6; zb = z0 + fh - 0.9; }
+        else if (p.code === "VP") { zt = z0 + fh + 1.0; zb = z0 - 0.25; }
+        else { zt = z0 - 0.25; zb = -0.45; }
+        const st = cylBetween(p.x, p.y, zt, p.x, p.y, zb, 0.19, mat);
         if (st) sg.add(st);
         const clamp = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.05, 8, 14), mat);
         clamp.rotation.x = Math.PI / 2;
-        clamp.position.set(p.x, Math.max(0.3, (z0 - 0.25) / 2), -p.y);
+        clamp.position.set(p.x, (zt + zb) / 2, -p.y);
         sg.add(clamp);
       } else {
         // traps / chambers are FLUSH COVERS at floor (inside) or ground
-        // (outside) level — never a raised box sitting in a doorway
+        // (outside) level â€” never a raised box sitting in a doorway
         const mzTop = inRoom(p.x, p.y) ? z0 + 0.02 : 0.02;
         sg.add(box(0.9, 0.9, 0.08, p.x, p.y, mzTop,
           new THREE.MeshLambertMaterial({ color: 0x6d4c41 })));
@@ -665,7 +681,7 @@
   function addElec(g, plan, z0, fh) {
     const ceil = z0 + fh - 0.15;
     const conduit = new THREE.MeshLambertMaterial({ color: 0xff8c1a });
-    // a conduit can never drop THROUGH a window — if the vertical run at (x,y)
+    // a conduit can never drop THROUGH a window â€” if the vertical run at (x,y)
     // would cross a window on that wall, shift the drop beside the window
     // (0.5 ft clear of the jamb) and connect horizontally at the fitting level
     const windowDodge = (x, y, zLowAbs) => {
@@ -682,7 +698,7 @@
           if (t < a - 0.3 || t > b + 0.3) continue;
           const sill = z0 + ((+o.sill_mm || 900) * MM);
           const head = sill + ((+o.height_mm || 1200) * MM);
-          if (zLowAbs >= head) continue;        // run starts above the head — clear
+          if (zLowAbs >= head) continue;        // run starts above the head â€” clear
           const tSide = (t - a < b - t) ? a - 0.5 : b + 0.5;
           const ts = Math.max(0.15, Math.min(L - 0.15, tSide));
           return { x: w.x1 + ux * ts, y: w.y1 + uy * ts };
@@ -706,7 +722,7 @@
         const plate = box(0.8, 0.25, 0.5, p.x, p.y, z0 + hz, new THREE.MeshLambertMaterial({ color: 0xf5f2ea }));
         plate.userData.edit = { kind: "elec", ref: p, plan };
         g.add(plate);
-        // conduit: board → up to ceiling → along ceiling to each controlled
+        // conduit: board â†’ up to ceiling â†’ along ceiling to each controlled
         // fitting. If a window sits above the board, the riser side-steps it.
         const dg = windowDodge(p.x, p.y, z0 + hz);
         const rx = dg ? dg.x : p.x, ry = dg ? dg.y : p.y;
@@ -717,9 +733,9 @@
         const up = cylBetween(rx, ry, z0 + hz, rx, ry, ceil, 0.05, conduit);
         if (up) g.add(up);
         // LOOPING exactly like the 2D drawing: one wire CHAINS through the
-        // fittings nearest-first, as a smooth curve — no random criss-cross.
+        // fittings nearest-first, as a smooth curve â€” no random criss-cross.
         // A board with NO controls list still loops its OWN ROOM's lighting,
-        // and the DB feeds every switchboard — nothing is left unwired.
+        // and the DB feeds every switchboard â€” nothing is left unwired.
         let rem = (p.controls || []).map(tg => byTag[tg]).filter(Boolean);
         if (!rem.length) {
           if (code === "DB") {
@@ -754,7 +770,7 @@
             new THREE.TubeGeometry(curve, Math.max(24, cps.length * 10), 0.05, 8, false),
             conduit));
         }
-      } else if (code === "CF") {                    // ceiling fan — one solid unit
+      } else if (code === "CF") {                    // ceiling fan â€” one solid unit
         const fan = new THREE.Group();
         const grey = new THREE.MeshLambertMaterial({ color: 0x8a919c });
         const dark = new THREE.MeshLambertMaterial({ color: 0x6b727d });
@@ -827,7 +843,7 @@
       floorMats.push(mat);
       g.add(box(r.w - 0.2, r.h - 0.2, 0.07, r.x + r.w / 2, r.y + r.h / 2,
         z0 + 0.045, mat));
-      // SKIRTING: a darker strip round the room, 75 mm high — BROKEN at every
+      // SKIRTING: a darker strip round the room, 75 mm high â€” BROKEN at every
       // door (skirting never runs across an opening) and carried AROUND every
       // column standing in the room
       const skC = { wood: 0x6e4a2c, marble: 0xb9b5ae, granite: 0x3c3f45, tile: 0x9a958d }[material] || 0x9a958d;
@@ -860,9 +876,9 @@
           }
         };
         const cutDoors = (a0, a1, horiz, edgeC) => {
-          // skirting exists ONLY where an actual wall stands on this edge —
+          // skirting exists ONLY where an actual wall stands on this edge â€”
           // an open boundary (no wall: a stair mouth, an open-plan side) gets
-          // no skirting at all — and then breaks at every door on it
+          // no skirting at all â€” and then breaks at every door on it
           let spans = [];
           for (const w2 of (plan.walls || [])) {
             if (w2.railing) continue;
@@ -899,7 +915,7 @@
           return spans;
         };
         // WET rooms get full wall TILE DADO up to 7 ft (doors cut out) instead
-        // of a skirting strip — exactly how a toilet is actually finished
+        // of a skirting strip â€” exactly how a toilet is actually finished
         const isWetRoom = /toilet|bath|w\.?c|wash/i.test(r.name || "");
         const dadoH = 2100 * MM;
         const dado = (spans, horiz, edgeC, off) => {
@@ -1020,7 +1036,7 @@
         m.userData.edit = { kind: "beam", ref: b, plan };
         G.struct.add(m);
       });
-      // the slab is CUT OUT over every staircase (the stair well) — a slab
+      // the slab is CUT OUT over every staircase (the stair well) â€” a slab
       // poured straight over the stair is exactly the amateur-model look
       const slabG = (f === P.floors - 1 ? G.roof : G.struct);
       let rects = [[x0 - 0.4, y0 - 0.4, x1 + 0.4, y1 + 0.4]];
@@ -1042,7 +1058,7 @@
         slabG.add(box(r[2] - r[0], r[3] - r[1], P.slab,
           (r[0] + r[2]) / 2, (r[1] + r[3]) / 2, z0 + H + P.slab / 2, M.slab));
       }
-      // MUMTY over the top-floor staircase: its own little room on the roof —
+      // MUMTY over the top-floor staircase: its own little room on the roof â€”
       // walls round the stair well, a door gap where the flight arrives, and
       // its own flat slab. This is how the stair actually comes out on top.
       if (f === P.floors - 1) {
@@ -1110,13 +1126,13 @@
     G.furn.visible = on("#v3furn");
     const plumbOn = on("#v3plumb");
     G.plumb.visible = plumbOn;
-    // piping is UNDERFLOOR — with the plumbing layer on, the floor/plinth
+    // piping is UNDERFLOOR â€” with the plumbing layer on, the floor/plinth
     // fades (floor x-ray slider) so the concealed runs read below the FFL
     const fOp = plumbOn ? (+((($("#v3flop") || {}).value)) || 0.35) : 1;
     floorMats.forEach(m => { m.opacity = fOp; m.needsUpdate = true; });
     const elecOn = on("#v3elec");
     G.elec.visible = elecOn;
-    // conduits are CONCEALED in the walls — turning the electrical layer on
+    // conduits are CONCEALED in the walls â€” turning the electrical layer on
     // fades the internal walls (wall x-ray slider) so the runs read INSIDE
     const wOp = elecOn ? (+((($("#v3intop") || {}).value)) || 0.3) : 1;
     intMats.forEach(m => { m.opacity = wOp; m.needsUpdate = true; });
@@ -1140,7 +1156,7 @@
     camera.lookAt(tx, ty, tz);
   }
   // ENTER the exact-2D top view: a real ORTHOGRAPHIC camera looking straight
-  // down — zero perspective, walls dead-flat, exactly the 2D plan
+  // down â€” zero perspective, walls dead-flat, exactly the 2D plan
   function enterTop() {
     const holder = $("#view3d");
     const w = holder.clientWidth, h = holder.clientHeight - 44, asp = w / Math.max(1, h);
@@ -1217,7 +1233,7 @@
     const opInp = $("#v3op"); if (opInp) setOpacity(opInp.value / 100);
     resize(); loop();
   }
-  // rebuild keeps the CAMERA where you left it — only the model is re-derived
+  // rebuild keeps the CAMERA where you left it â€” only the model is re-derived
   function rebuild() {
     if (!open || !scene) return;
     clearSel();
@@ -1261,7 +1277,7 @@
   function setOpacity(v) {
     extMats.forEach(m => { m.opacity = v; m.transparent = true; m.needsUpdate = true; });
   }
-  // SUN / brightness — one slider tames the glare instead of washing the
+  // SUN / brightness â€” one slider tames the glare instead of washing the
   // model out: it scales the sun, the ambient and the sky fill together
   function applySun() {
     const v = +((($("#v3sun") || {}).value)) || 0.6;
@@ -1296,7 +1312,7 @@
     const ed = obj.userData.edit, r = ed.ref;
     const chip = $("#v3selname");
     if (chip) chip.textContent =
-      (r.tag || r.name || r.kind || r.system || ed.kind) + "  ·  drag = move, Del = delete";
+      (r.tag || r.name || r.kind || r.system || ed.kind) + "  Â·  drag = move, Del = delete";
     // REVIT-style: with a selection, the orbit pivots around the SELECTION
     const bc = new THREE.Box3().setFromObject(obj).getCenter(new THREE.Vector3());
     retarget(bc);
@@ -1305,9 +1321,9 @@
   /* ---------- PROPERTIES panel: click a product, edit its specification */
   const PROP_FIELDS = {
     furn:  [["Tag", "tag", "t"], ["X (ft)", "x", 0.25], ["Y (ft)", "y", 0.25],
-            ["Width (ft)", "w", 0.25], ["Depth (ft)", "h", 0.25], ["Angle °", "angle", 15]],
+            ["Width (ft)", "w", 0.25], ["Depth (ft)", "h", 0.25], ["Angle Â°", "angle", 15]],
     elec:  [["Tag", "tag", "t"], ["X (ft)", "x", 0.25], ["Y (ft)", "y", 0.25],
-            ["Height (mm)", "height_mm", 25], ["Fan sweep (ft)", "size", 0.2], ["Angle °", "angle", 15]],
+            ["Height (mm)", "height_mm", 25], ["Fan sweep (ft)", "size", 0.2], ["Angle Â°", "angle", 15]],
     plumb: [["Code", "code", "t"], ["X (ft)", "x", 0.25], ["Y (ft)", "y", 0.25]],
     pipe:  [["Dia (mm)", "dia_mm", 5]],
     col:   [["X (ft)", "x", 0.25], ["Y (ft)", "y", 0.25],
@@ -1315,9 +1331,9 @@
     beam:  [["Length (ft)", "__len", 0.25], ["Width (mm)", "width_mm", 10],
             ["Depth (mm)", "depth_mm", 25]],
   };
-  const PROP_TITLE = { furn: "🛋 FURNITURE", elec: "⚡ ELECTRICAL",
-    plumb: "🚿 PLUMBING", pipe: "🚰 PIPE RUN",
-    col: "🏗 COLUMN", beam: "🏗 BEAM" };
+  const PROP_TITLE = { furn: "ðŸ›‹ FURNITURE", elec: "âš¡ ELECTRICAL",
+    plumb: "ðŸš¿ PLUMBING", pipe: "ðŸš° PIPE RUN",
+    col: "ðŸ— COLUMN", beam: "ðŸ— BEAM" };
   function showProps(obj) {
     const el = $("#v3props"); if (!el) return;
     el.innerHTML = "";
@@ -1326,8 +1342,8 @@
     const head = document.createElement("div");
     head.className = "v3p-head";
     head.textContent = (PROP_TITLE[ed.kind] || ed.kind.toUpperCase()) +
-      (r.tag || r.name ? "  ·  " + (r.tag || r.name) : "") +
-      (r.kind ? "  ·  " + r.kind : "") + (r.system ? "  ·  " + r.system : "");
+      (r.tag || r.name ? "  Â·  " + (r.tag || r.name) : "") +
+      (r.kind ? "  Â·  " + r.kind : "") + (r.system ? "  Â·  " + r.system : "");
     el.appendChild(head);
     for (const [label, key, step] of (PROP_FIELDS[ed.kind] || [])) {
       if (r[key] === undefined && step !== "t" &&
@@ -1337,7 +1353,7 @@
       const sp = document.createElement("span"); sp.textContent = label;
       const inp = document.createElement("input");
       if (step === "t") { inp.type = "text"; inp.value = r[key] || ""; }
-      else if (key === "__len") {        // beam LENGTH — derived, edits both ends
+      else if (key === "__len") {        // beam LENGTH â€” derived, edits both ends
         inp.type = "number"; inp.step = step;
         inp.value = +Math.hypot(r.x2 - r.x1, r.y2 - r.y1).toFixed(2);
       }
@@ -1364,11 +1380,11 @@
       el.appendChild(row);
     }
     const del = document.createElement("button");
-    del.className = "v3btn v3x"; del.textContent = "🗑 Delete";
+    del.className = "v3btn v3x"; del.textContent = "ðŸ—‘ Delete";
     del.onclick = deleteSel;
     el.appendChild(del);
   }
-  // after a rebuild the meshes are new — find the one for the same plan ref
+  // after a rebuild the meshes are new â€” find the one for the same plan ref
   function reselectRef(ref) {
     if (!modelRoot) return;
     let f = null;
@@ -1401,7 +1417,7 @@
     }
     return null;
   }
-  // move the ref by (dx, dy) in PLAN feet — every editable kind knows its shape
+  // move the ref by (dx, dy) in PLAN feet â€” every editable kind knows its shape
   function applyMove(ed, dx, dy) {
     const rnd = v => Math.round(v * 20) / 20, r = ed.ref;
     dx = rnd(dx); dy = rnd(dy);
@@ -1431,7 +1447,7 @@
     let mode = 0, lx = 0, ly = 0, pinch = 0;
     let dragEd = null, dragPlane = null, dragStart = null, dragDelta = null, downXY = null;
     cv.addEventListener("contextmenu", e => e.preventDefault());
-    // the model-surface point under the cursor (ground plane as fallback) —
+    // the model-surface point under the cursor (ground plane as fallback) â€”
     // SketchUp pivots its orbit and its zoom on exactly this point
     function surfPoint(e) {
       const rc = cv.getBoundingClientRect();
@@ -1513,7 +1529,7 @@
       if (mode === 4 && dragEd && dragDelta &&
           (Math.abs(dragDelta.x) > 0.05 || Math.abs(dragDelta.z) > 0.05)) {
         if (typeof pushUndo === "function") pushUndo();
-        applyMove(dragEd, dragDelta.x, -dragDelta.z);   // three z = −plan y
+        applyMove(dragEd, dragDelta.x, -dragDelta.z);   // three z = âˆ’plan y
         if (typeof redraw === "function") redraw();     // 2D follows
         const ref = dragEd.ref;
         rebuild();
@@ -1530,7 +1546,7 @@
       if (selObj && (e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); deleteSel(); }
     });
     addEventListener("keyup", e => { flyKeys[(e.key || "").toLowerCase()] = false; });
-    // Ctrl+Z / Ctrl+Y / Ctrl+S work INSIDE the 3D view too — app.js already
+    // Ctrl+Z / Ctrl+Y / Ctrl+S work INSIDE the 3D view too â€” app.js already
     // performs the undo/redo/save on the plan; here the model re-derives so
     // the 3D (and through redraw, every drawing) follows the same history
     addEventListener("keydown", e => {
@@ -1541,7 +1557,7 @@
     });
     cv.addEventListener("wheel", e => {
       if (!open) return;
-      // no zoom while a drag (pan / move) is in progress — one thing at a time
+      // no zoom while a drag (pan / move) is in progress â€” one thing at a time
       if (mode) { e.preventDefault(); return; }
       const f = e.deltaY > 0 ? 1.12 : 0.9;
       const rc = cv.getBoundingClientRect();
@@ -1558,7 +1574,7 @@
         e.preventDefault(); return;
       }
       // SKETCHUP zoom: dolly straight along the ray to the point the cursor
-      // is ON (model surface, else the ground) — you fly INTO what you point
+      // is ON (model surface, else the ground) â€” you fly INTO what you point
       const hp = surfPoint(e);
       if (hp) {
         const cp = camera.position, k = 1 - f;      // camera slides toward hp,
@@ -1604,7 +1620,7 @@
       if (homeCenter) { orbit.tx = homeCenter.x; orbit.ty = homeCenter.y; orbit.tz = homeCenter.z; }
       orbit.az = -Math.PI / 4; orbit.el = Math.atan(1 / Math.sqrt(2));
     });
-    // TOP-2D: true ORTHOGRAPHIC straight-down view, roof off — the EXACT
+    // TOP-2D: true ORTHOGRAPHIC straight-down view, roof off â€” the EXACT
     // 2D plan, no perspective lean on the walls
     on("#v3top", () => {
       const r = $("#v3roof"); if (r) r.checked = false;
@@ -1620,13 +1636,13 @@
     on("#v3flop", syncLayers, "oninput");    // floor x-ray (plumbing)
     on("#v3sun", applySun, "oninput");       // sun / glare control
     on("#v3para", rebuild, "onchange");
-    // LAYER LOCK buttons — lock a layer and nothing in it can be edited
+    // LAYER LOCK buttons â€” lock a layer and nothing in it can be edited
     document.querySelectorAll(".v3lock").forEach(b => {
       b.onclick = e => {
         e.preventDefault(); e.stopPropagation();
         const k = b.dataset.lock;
         locks[k] = !locks[k];
-        b.textContent = locks[k] ? "🔒" : "🔓";
+        b.textContent = locks[k] ? "ðŸ”’" : "ðŸ”“";
         b.classList.toggle("locked", locks[k]);
         if (locks[k] && selObj && LOCKOF[selObj.userData.edit.kind] === k) clearSel();
       };
