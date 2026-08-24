@@ -222,6 +222,23 @@
       };
       const landing = (u0, len, v0, bw, zlv) =>
         stepBox(u0, v0, len, bw, zlv, 0.5);
+      // HANDRAIL along the well side of a flight: posts + a sloped top rail
+      const rail = (uA, uB, vEdge, zA, zB) => {
+        const railH = 3.0;
+        const P1 = alongX ? [s.x + uA, s.y + vEdge] : [s.x + vEdge, s.y + uA];
+        const P2 = alongX ? [s.x + uB, s.y + vEdge] : [s.x + vEdge, s.y + uB];
+        const top = cylBetween(P1[0], P1[1], zA + railH, P2[0], P2[1], zB + railH,
+          0.07, M.rail || M.step);
+        if (top) g.add(top);
+        const nP = Math.max(2, Math.round(Math.hypot(uB - uA, 0) / 2.5) + 1);
+        for (let i = 0; i < nP; i++) {
+          const t2 = i / (nP - 1);
+          const px = P1[0] + (P2[0] - P1[0]) * t2, py = P1[1] + (P2[1] - P1[1]) * t2;
+          const pz = zA + (zB - zA) * t2;
+          const p = cylBetween(px, py, pz, px, py, pz + railH, 0.045, M.rail || M.step);
+          if (p) g.add(p);
+        }
+      };
 
       if (typ === "U" || typ === "U3" || typ === "L") {
         const land = Math.min(Math.max(+s.landing_size || 3, 2.5), W * 0.45);
@@ -234,6 +251,9 @@
         const z2 = z0 + rise * (n1 + nm) / tot;
         const vA = half, vB = 0;
         flight(dirUp > 0 ? 0 : W, runLen, dirUp, vA, half, z0, z1, n1);
+        // handrails on the WELL edge of each flight (offset a touch apart)
+        rail(dirUp > 0 ? 0 : W, dirUp > 0 ? runLen : land, half + 0.08, z0, z1);
+        rail(dirUp > 0 ? runLen : land, dirUp > 0 ? 0 : W, half - 0.08, z2, z0 + rise);
         landing(dirUp > 0 ? runLen : 0, land, vA, half, z1);
         if (nm > 0) {
           for (let i = 0; i < nm; i++) {
@@ -415,14 +435,24 @@
   const STACK3D = { SS: 0xe8590c, WS: 0x2e9e2e, VP: 0x1b8a3a, RWP: 0x00acc1,
     CWD: 0x0d47a1, HWD: 0xd32f2f };
   function addPipes(g, plan, z0, fh) {
+    // wet rooms (toilet / bath) — supply there runs LOW, concealed in the
+    // wall band at fixture level; nothing rises to the ceiling off a WC,
+    // shower or wash-basin. Ceiling running + drops are for the DRY areas.
+    const wet = (plan.rooms || []).filter(r =>
+      /toilet|bath|w\.?c|wash/i.test(r.name || ""));
+    const inWet = (x, y) => wet.some(r =>
+      x >= r.x - 0.6 && x <= r.x + r.w + 0.6 &&
+      y >= r.y - 0.6 && y <= r.y + r.h + 0.6);
     for (const r of (plan.pipes || [])) {
       const P = r.pts || []; if (P.length < 2) continue;
       const col = PIPE3D[r.system] || 0x888888;
       const mat = new THREE.MeshLambertMaterial({ color: col });
       const rad = Math.max(0.08, ((+r.dia_mm || 50) * MM) / 2);
       const supply = (r.system === "CW" || r.system === "HW" || r.system === "ACD");
-      // supply runs at the ceiling (as the WS layout notes), drainage at floor
-      const z = supply ? z0 + fh - 0.8 : z0 + 0.35;
+      const allWet = supply && P.every(p => inWet(p[0], p[1]));
+      // wet-room supply: low concealed band; dry-area supply: at the ceiling
+      // (as the WS layout notes); drainage: at the floor
+      const z = !supply ? z0 + 0.35 : (allWet ? z0 + 1.5 : z0 + fh - 0.8);
       for (let i = 0; i < P.length - 1; i++) {
         const c = cylBetween(P[i][0], P[i][1], z, P[i + 1][0], P[i + 1][1], z, rad, mat);
         if (c) g.add(c);
@@ -433,14 +463,15 @@
         j.position.set(P[i][0], z, -P[i][1]);
         g.add(j);
       }
-      // PIPE DROPS: a supply run drops from the ceiling down to fixture level
-      // at both ends (exactly the 'PIPE DROP' the WS layout marks)
-      if (supply) {
+      // PIPE DROPS: only where a CEILING-run supply arrives at a wet/fixture
+      // point does it drop down — never a pipe rising out of a fixture
+      if (supply && !allWet) {
         for (const e of [P[0], P[P.length - 1]]) {
-          const d = cylBetween(e[0], e[1], z, e[0], e[1], z0 + 2.6, rad * 0.9, mat);
+          if (!inWet(e[0], e[1])) continue;          // the source end stays up
+          const d = cylBetween(e[0], e[1], z, e[0], e[1], z0 + 1.5, rad * 0.9, mat);
           if (d) g.add(d);
           const cap = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.1, 10, 10), mat);
-          cap.position.set(e[0], z0 + 2.6, -e[1]);
+          cap.position.set(e[0], z0 + 1.5, -e[1]);
           g.add(cap);
         }
       }
@@ -615,11 +646,67 @@
         m.rotation.y = Math.atan2(-(b.y2 - b.y1), (b.x2 - b.x1));
         G.struct.add(m);
       });
-      // every slab except the top one stays with the structure; the ROOF slab
-      // goes to its own group so 2D/top view can lift it off
-      const slabMesh = box(x1 - x0 + 0.8, y1 - y0 + 0.8, P.slab, cx, cy,
-        z0 + H + P.slab / 2, M.slab);
-      (f === P.floors - 1 ? G.roof : G.struct).add(slabMesh);
+      // the slab is CUT OUT over every staircase (the stair well) — a slab
+      // poured straight over the stair is exactly the amateur-model look
+      const slabG = (f === P.floors - 1 ? G.roof : G.struct);
+      let rects = [[x0 - 0.4, y0 - 0.4, x1 + 0.4, y1 + 0.4]];
+      for (const st of (plan.stairs || [])) {
+        const hole = [st.x, st.y, st.x + st.w, st.y + st.h];
+        const nr = [];
+        for (const r of rects) {
+          if (hole[2] <= r[0] || hole[0] >= r[2] || hole[3] <= r[1] || hole[1] >= r[3]) { nr.push(r); continue; }
+          if (hole[0] > r[0]) nr.push([r[0], r[1], hole[0], r[3]]);
+          if (hole[2] < r[2]) nr.push([hole[2], r[1], r[2], r[3]]);
+          const ix0 = Math.max(r[0], hole[0]), ix1 = Math.min(r[2], hole[2]);
+          if (hole[1] > r[1]) nr.push([ix0, r[1], ix1, hole[1]]);
+          if (hole[3] < r[3]) nr.push([ix0, hole[3], ix1, r[3]]);
+        }
+        rects = nr;
+      }
+      for (const r of rects) {
+        if (r[2] - r[0] < 0.1 || r[3] - r[1] < 0.1) continue;
+        slabG.add(box(r[2] - r[0], r[3] - r[1], P.slab,
+          (r[0] + r[2]) / 2, (r[1] + r[3]) / 2, z0 + H + P.slab / 2, M.slab));
+      }
+      // MUMTY over the top-floor staircase: its own little room on the roof —
+      // walls round the stair well, a door gap where the flight arrives, and
+      // its own flat slab. This is how the stair actually comes out on top.
+      if (f === P.floors - 1) {
+        for (const st of (plan.stairs || [])) {
+          const mz = z0 + H + P.slab, mh = 2450 * MM, mt = 0.4;
+          const alongX = (st.run_axis || "x") === "x";
+          const dirUp = (st.up_from === "left" || st.up_from === "bottom") ? 1 : -1;
+          const wallStrip = (wx0, wy0, wx1, wy1) => {
+            const Lw = Math.hypot(wx1 - wx0, wy1 - wy0); if (Lw < 0.2) return;
+            const m = box(Lw, mt, mh, (wx0 + wx1) / 2, (wy0 + wy1) / 2, mz + mh / 2, M.ext);
+            m.rotation.y = Math.atan2(-(wy1 - wy0), (wx1 - wx0));
+            G.roof.add(m);
+          };
+          // arrival side = where the return flight lands: the NEAR end, on the
+          // half nearer the origin — leave a 3 ft door gap there
+          const sx0 = st.x, sy0 = st.y, sx1 = st.x + st.w, sy1 = st.y + st.h;
+          const doorW = 3;
+          if (alongX) {
+            const du = dirUp > 0 ? sx0 : sx1;         // near end x
+            wallStrip(sx0, sy1, sx1, sy1);            // both long walls solid
+            wallStrip(sx0, sy0, sx1, sy0);
+            wallStrip(du, sy0, du, sy0 + (sy1 - sy0) / 2 - doorW / 2);
+            wallStrip(du, sy0 + (sy1 - sy0) / 2 + doorW / 2, du, sy1);
+            const far = dirUp > 0 ? sx1 : sx0;
+            wallStrip(far, sy0, far, sy1);
+          } else {
+            const du = dirUp > 0 ? sy0 : sy1;
+            wallStrip(sx0, sy0, sx0, sy1);
+            wallStrip(sx1, sy0, sx1, sy1);
+            wallStrip(sx0, du, sx0 + (sx1 - sx0) / 2 - doorW / 2, du);
+            wallStrip(sx0 + (sx1 - sx0) / 2 + doorW / 2, du, sx1, du);
+            const far = dirUp > 0 ? sy1 : sy0;
+            wallStrip(sx0, far, sx1, far);
+          }
+          G.roof.add(box(st.w + 1.2, st.h + 1.2, P.slab,
+            (sx0 + sx1) / 2, (sy0 + sy1) / 2, mz + mh + P.slab / 2, M.slab));
+        }
+      }
       addStairs(G.stairs, plan, z0, H, M);
       addFlooring(G.floor, plan, z0);
       addFurniture(G.furn, plan, z0);
