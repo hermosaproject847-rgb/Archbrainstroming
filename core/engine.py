@@ -900,13 +900,33 @@ def draw_elec_loops(plan: Plan, dl: DrawList) -> None:
     from . import electrical as E
     from . import looping
 
-    for s in looping.switches(plan):
+    def _loop_arc(ax, ay, bx, by, bow):
+        """One wiring leg as a CURVED arc (a shallow bow), the way looping is
+        drawn on an electrical sheet — straight legs pile onto each other in a
+        lit row and become unreadable; the bows keep every chain traceable."""
+        L = math.hypot(bx - ax, by - ay)
+        if L < 0.3:
+            dl.line(ax, ay, bx, by, layer="ELEC-LOOP")
+            return
+        sag = max(0.18, min(0.9, L * 0.16)) * bow
+        px, py = -(by - ay) / L, (bx - ax) / L        # unit perpendicular
+        mx_, my_ = (ax + bx) / 2 + px * sag, (ay + by) / 2 + py * sag
+        pts = []
+        for i in range(9):                            # quadratic bezier, 8 legs
+            t = i / 8.0
+            u = 1 - t
+            pts.append((u * u * ax + 2 * u * t * mx_ + t * t * bx,
+                        u * u * ay + 2 * u * t * my_ + t * t * by))
+        dl.poly(pts, layer="ELEC-LOOP", closed=False)
+
+    for k, s in enumerate(looping.switches(plan)):
         if not s.seq:
             continue
+        bow = 1 if k % 2 == 0 else -1            # alternate chains bow apart
         pts = ([(s.board.x, s.board.y)] if s.board is not None else []) \
             + [(p.x, p.y) for p in s.seq]
         for (ax, ay), (bx, by) in zip(pts, pts[1:]):
-            dl.line(ax, ay, bx, by, layer="ELEC-LOOP")
+            _loop_arc(ax, ay, bx, by, bow)
         # the switch number, set on its first leg so each chain is traceable
         if len(pts) >= 2:
             (ax, ay), (bx, by) = pts[0], pts[1]
@@ -931,8 +951,8 @@ def draw_elec_loops(plan: Plan, dl: DrawList) -> None:
         if fans and bedside:
             bb = max(bedside, key=lambda p: p.y)
             for f in fans:
-                dl.line(bb.x, bb.y + (0.18 if bb.y < f.y else -0.18),
-                        f.x, f.y, layer="ELEC-LOOP")
+                _loop_arc(bb.x, bb.y + (0.18 if bb.y < f.y else -0.18),
+                          f.x, f.y, -1)
 
 
 def draw_flooring(plan: Plan, dl: DrawList) -> None:

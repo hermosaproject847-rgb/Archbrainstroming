@@ -596,8 +596,23 @@ if ($("#gizDup")) $("#gizDup").onclick = () => {
     let n = (S.plan.furniture || []).length + 1;
     while (used.has("F" + n)) n++;
     cp.tag = "F" + n;
-  } else if (cp.tag) cp.tag = String(cp.tag) + "-C";
-  else if (cp.id) cp.id = String(cp.id) + "C";
+  } else if (cp.tag) {
+    // increment the tag's trailing number: PAS-L-09 → PAS-L-10 (next free in
+    // that series, zero-padding kept) — never a letter suffix
+    const used = new Set((S.plan[key] || []).map(o => o.tag));
+    const m = String(cp.tag).match(/^(.*?)(\d+)$/);
+    if (m) {
+      const pre = m[1], width = m[2].length;
+      let n = parseInt(m[2], 10) + 1;
+      let t = pre + String(n).padStart(width, "0");
+      while (used.has(t)) { n++; t = pre + String(n).padStart(width, "0"); }
+      cp.tag = t;
+    } else {
+      let n = 2, t = cp.tag + "-" + n;
+      while (used.has(t)) { n++; t = cp.tag + "-" + n; }
+      cp.tag = t;
+    }
+  } else if (cp.id) cp.id = String(cp.id) + "C";
   (S.plan[key] || (S.plan[key] = [])).push(cp);
   markDirty(); buildTables(); redraw();
   selectItem(key, S.plan[key].length - 1);
