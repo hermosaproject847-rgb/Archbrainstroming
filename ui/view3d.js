@@ -467,9 +467,9 @@
   const STACK3D = { SS: 0xe8590c, WS: 0x2e9e2e, VP: 0x1b8a3a, RWP: 0x00acc1,
     CWD: 0x0d47a1, HWD: 0xd32f2f };
   function addPipes(g, plan, z0, fh) {
-    // ALL piping is UNDERFLOOR — wet rooms in the sunk, dry runs just below
-    // FFL; nothing rises to the ceiling anywhere. The floor x-ray control
-    // fades the floor/plinth so these concealed runs stay readable.
+    // MEP: DRAINAGE is UNDERFLOOR (sunk / screed / underground, on its code
+    // fall); WATER SUPPLY runs HIGH at ceiling level, concealed, dropping
+    // down the wall only at tap points. X-ray sliders make both readable.
     const rooms = plan.rooms || [];
     const wet = rooms.filter(r =>
       /toilet|bath|w\.?c|wash/i.test(r.name || ""));
@@ -479,11 +479,17 @@
     const inRoom = (x, y) => rooms.some(r => !r.void &&
       x >= r.x - 0.1 && x <= r.x + r.w + 0.1 &&
       y >= r.y - 0.1 && y <= r.y + r.h + 0.1);
-    // MEP levels: wet rooms in the SUNK, dry rooms just under the FFL screed,
-    // and OUTSIDE the footprint the run is UNDERGROUND to the chambers —
-    // a drain never floats over the plinth face in the open
+    // MEP levels — DRAINAGE: wet rooms in the SUNK, dry rooms just under the
+    // FFL screed, and OUTSIDE the footprint UNDERGROUND to the chambers.
+    // WATER SUPPLY is the opposite: it runs HIGH at ceiling / lintel level,
+    // concealed, and only DROPS DOWN THE WALL at the tap points.
     const baseAt = (x, y) =>
       inWet(x, y) ? z0 - 0.25 : (inRoom(x, y) ? z0 - 0.12 : -0.2);
+    const tapRooms = rooms.filter(r =>
+      /toilet|bath|w\.?c|wash|kitchen/i.test(r.name || ""));
+    const inTap = (x, y) => tapRooms.some(r =>
+      x >= r.x - 0.6 && x <= r.x + r.w + 0.6 &&
+      y >= r.y - 0.6 && y <= r.y + r.h + 0.6);
     // code gradients (same 1:N the 2D writes on every run) — the pipes are
     // actually PLACED on that fall, dropping continuously toward the outfall
     const SLOPE3D = { SOIL: 40, WASTE: 40, STORM: 100, ACD: 50 };
@@ -501,6 +507,30 @@
         cum[i] = cum[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]);
       const rg = new THREE.Group();            // whole run = ONE editable thing
       rg.userData.edit = { kind: "pipe", ref: r, plan };
+      const supply = (r.system === "CW" || r.system === "HW");
+      if (supply || r.system === "VENT") {   // vent runs high too, no tap drop
+        // SUPPLY: level run at ceiling / lintel height, concealed — then a
+        // wall DROP down to tap level at every end inside a tap room
+        const zc = z0 + fh - 0.8;
+        for (let i = 0; i < P.length - 1; i++) {
+          const c = cylBetween(P[i][0], P[i][1], zc, P[i + 1][0], P[i + 1][1], zc, rad, mat);
+          if (c) rg.add(c);
+          if (i > 0) {
+            const j = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.25, 10, 10), mat);
+            j.position.set(P[i][0], zc, -P[i][1]);
+            rg.add(j);
+          }
+        }
+        if (supply) {
+          const ends = [P[0], P[P.length - 1]].filter(e => inTap(e[0], e[1]));
+          for (const e of (ends.length ? ends : [P[P.length - 1]])) {
+            const d = cylBetween(e[0], e[1], zc, e[0], e[1], z0 + 1.5, rad * 0.9, mat);
+            if (d) rg.add(d);                  // down the wall chase to the tap
+          }
+        }
+        g.add(rg);
+        continue;
+      }
       let prevZ = null;
       for (let i = 0; i < P.length - 1; i++) {
         const midx = (P[i][0] + P[i + 1][0]) / 2, midy = (P[i][1] + P[i + 1][1]) / 2;
@@ -1394,6 +1424,15 @@
       if (selObj && (e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); deleteSel(); }
     });
     addEventListener("keyup", e => { flyKeys[(e.key || "").toLowerCase()] = false; });
+    // Ctrl+Z / Ctrl+Y / Ctrl+S work INSIDE the 3D view too — app.js already
+    // performs the undo/redo/save on the plan; here the model re-derives so
+    // the 3D (and through redraw, every drawing) follows the same history
+    addEventListener("keydown", e => {
+      if (!open || !(e.ctrlKey || e.metaKey)) return;
+      const k = (e.key || "").toLowerCase();
+      if (k === "z" || k === "y")
+        setTimeout(() => { clearSel(); rebuild(); }, 60);
+    });
     cv.addEventListener("wheel", e => {
       if (!open) return;
       // no zoom while a drag (pan / move) is in progress — one thing at a time
