@@ -16,6 +16,7 @@
   let modelRoot = null;                      // the built house (for rebuilds)
   let selObj = null, selHelper = null;       // 3D EDIT: current selection
   let homeCenter = null;                     // model bbox centre = orbit pivot
+  let topMode = false, orthoH = 60;          // EXACT-2D top view (orthographic)
   const orbit = { az: -0.9, el: 0.55, dist: 90, tx: 0, ty: 6, tz: 0 };
   const $ = s => document.querySelector(s);
 
@@ -464,42 +465,55 @@
     // ALL piping is UNDERFLOOR — wet rooms in the sunk, dry runs just below
     // FFL; nothing rises to the ceiling anywhere. The floor x-ray control
     // fades the floor/plinth so these concealed runs stay readable.
-    const wet = (plan.rooms || []).filter(r =>
+    const rooms = plan.rooms || [];
+    const wet = rooms.filter(r =>
       /toilet|bath|w\.?c|wash/i.test(r.name || ""));
     const inWet = (x, y) => wet.some(r =>
       x >= r.x - 0.6 && x <= r.x + r.w + 0.6 &&
       y >= r.y - 0.6 && y <= r.y + r.h + 0.6);
+    const inRoom = (x, y) => rooms.some(r => !r.void &&
+      x >= r.x - 0.1 && x <= r.x + r.w + 0.1 &&
+      y >= r.y - 0.1 && y <= r.y + r.h + 0.1);
+    // MEP levels: wet rooms in the SUNK, dry rooms just under the FFL screed,
+    // and OUTSIDE the footprint the run is UNDERGROUND to the chambers —
+    // a drain never floats over the plinth face in the open
+    const baseAt = (x, y) =>
+      inWet(x, y) ? z0 - 0.25 : (inRoom(x, y) ? z0 - 0.12 : -0.2);
+    // code gradients (same 1:N the 2D writes on every run) — the pipes are
+    // actually PLACED on that fall, dropping continuously toward the outfall
+    const SLOPE3D = { SOIL: 40, WASTE: 40, STORM: 100, ACD: 50 };
     for (const r of (plan.pipes || [])) {
       const P = r.pts || []; if (P.length < 2) continue;
       const col = PIPE3D[r.system] || 0x888888;
       const mat = new THREE.MeshLambertMaterial({ color: col });
-      const rad = Math.max(0.08, ((+r.dia_mm || 50) * MM) / 2);
-      // MEP levels: EVERY pipe lies BELOW THE FINISHED FLOOR — wet rooms in
-      // the SUNK (deeper), dry areas just under the FFL screed on the way to
-      // the chambers / manifold. Nothing ever runs at the ceiling and nothing
-      // ever shows above the flooring. The floor x-ray slider makes them read.
-      const segZ = (a, b) => {
-        const midx = (a[0] + b[0]) / 2, midy = (a[1] + b[1]) / 2;
-        return inWet(midx, midy) ? z0 - 0.25 : z0 - 0.12;
-      };
+      const dia = +r.dia_mm || 50;
+      const rad = Math.max(0.08, (dia * MM) / 2);
+      let sN = SLOPE3D[r.system] || 0;
+      if (r.system === "WASTE" && dia < 75) sN = 30;
+      const fall = sN ? 1 / sN : 0;            // supply runs stay level
+      const cum = [0];
+      for (let i = 1; i < P.length; i++)
+        cum[i] = cum[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]);
       const rg = new THREE.Group();            // whole run = ONE editable thing
       rg.userData.edit = { kind: "pipe", ref: r, plan };
       let prevZ = null;
       for (let i = 0; i < P.length - 1; i++) {
-        const z = segZ(P[i], P[i + 1]);
-        const c = cylBetween(P[i][0], P[i][1], z, P[i + 1][0], P[i + 1][1], z, rad, mat);
+        const midx = (P[i][0] + P[i + 1][0]) / 2, midy = (P[i][1] + P[i + 1][1]) / 2;
+        const b = baseAt(midx, midy);
+        const zA = b - cum[i] * fall, zB = b - cum[i + 1] * fall;
+        const c = cylBetween(P[i][0], P[i][1], zA, P[i + 1][0], P[i + 1][1], zB, rad, mat);
         if (c) rg.add(c);
-        if (prevZ !== null && Math.abs(prevZ - z) > 0.02) {
-          const v = cylBetween(P[i][0], P[i][1], prevZ, P[i][0], P[i][1], z, rad, mat);
-          if (v) rg.add(v);                    // level change through the sunk edge
+        if (prevZ !== null && Math.abs(prevZ - zA) > 0.02) {
+          const v = cylBetween(P[i][0], P[i][1], prevZ, P[i][0], P[i][1], zA, rad, mat);
+          if (v) rg.add(v);                    // level change at the zone edge
         }
         // joint ball at this segment's start vertex
         if (i > 0) {
           const j = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.25, 10, 10), mat);
-          j.position.set(P[i][0], z, -P[i][1]);
+          j.position.set(P[i][0], zA, -P[i][1]);
           rg.add(j);
         }
-        prevZ = z;
+        prevZ = zB;
       }
       g.add(rg);
     }
@@ -511,15 +525,20 @@
       sg.userData.edit = { kind: "plumb", ref: p, plan };
       if (sc != null) {
         const mat = new THREE.MeshLambertMaterial({ color: sc });
-        const st = cylBetween(p.x, p.y, z0 - 0.25, p.x, p.y, 0.05, 0.19, mat);
+        const st = cylBetween(p.x, p.y, z0 - 0.25, p.x, p.y, -0.2, 0.19, mat);
         if (st) sg.add(st);
         const clamp = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.05, 8, 14), mat);
         clamp.rotation.x = Math.PI / 2;
         clamp.position.set(p.x, Math.max(0.3, (z0 - 0.25) / 2), -p.y);
         sg.add(clamp);
-      } else {                                     // traps / chambers markers
-        sg.add(box(0.8, 0.8, 0.35, p.x, p.y, z0 + 0.17,
+      } else {
+        // traps / chambers are FLUSH COVERS at floor (inside) or ground
+        // (outside) level — never a raised box sitting in a doorway
+        const mzTop = inRoom(p.x, p.y) ? z0 + 0.02 : 0.02;
+        sg.add(box(0.9, 0.9, 0.08, p.x, p.y, mzTop,
           new THREE.MeshLambertMaterial({ color: 0x6d4c41 })));
+        sg.add(box(0.62, 0.62, 0.03, p.x, p.y, mzTop + 0.05,
+          new THREE.MeshLambertMaterial({ color: 0x4e372f })));
       }
       g.add(sg);
     }
@@ -556,6 +575,12 @@
     };
     const byTag = {};
     (plan.elec || []).forEach(p => { if (p.tag) byTag[p.tag] = p; });
+    // tags already wired through some board's controls list + tags a
+    // room-fallback chain has claimed, so no fitting is looped twice
+    const CTRL = new Set();
+    (plan.elec || []).forEach(p =>
+      (p.controls || []).forEach(t => CTRL.add(t)));
+    const claimed = new Set();
     for (const p of (plan.elec || [])) {
       if (p.visible === false) continue;
       const code = p.code || "SL";
@@ -575,8 +600,23 @@
         const up = cylBetween(rx, ry, z0 + hz, rx, ry, ceil, 0.05, conduit);
         if (up) g.add(up);
         // LOOPING exactly like the 2D drawing: one wire CHAINS through the
-        // fittings nearest-first, as a smooth curve — no random criss-cross
-        const rem = (p.controls || []).map(tg => byTag[tg]).filter(Boolean);
+        // fittings nearest-first, as a smooth curve — no random criss-cross.
+        // A board with NO controls list still loops its OWN ROOM's lighting,
+        // and the DB feeds every switchboard — nothing is left unwired.
+        let rem = (p.controls || []).map(tg => byTag[tg]).filter(Boolean);
+        if (!rem.length) {
+          if (code === "DB") {
+            rem = (plan.elec || []).filter(q =>
+              q !== p && q.code === "SB" && q.visible !== false);
+          } else {
+            rem = (plan.elec || []).filter(q =>
+              q !== p && q.visible !== false && q.tag &&
+              !CTRL.has(q.tag) && !claimed.has(q.tag) &&
+              q.code !== "SB" && q.code !== "DB" && q.code !== "AC" &&
+              (q.room || "") && (q.room || "") === (p.room || ""));
+            rem.forEach(q => claimed.add(q.tag));
+          }
+        }
         let cur = { x: rx, y: ry };
         const cps = [new THREE.Vector3(rx, ceil, -ry)];
         while (rem.length) {
@@ -968,12 +1008,48 @@
 
   /* ------------------------------------------------------------- viewer */
   function applyCam() {
+    if (topMode) {                     // EXACT 2D: straight-down orthographic
+      camera.position.set(orbit.tx, 300, orbit.tz);
+      camera.up.set(0, 0, -1);
+      camera.lookAt(orbit.tx, 0, orbit.tz);
+      return;
+    }
     const { az, el, dist, tx, ty, tz } = orbit;
     camera.position.set(
       tx + dist * Math.cos(el) * Math.cos(az),
       ty + dist * Math.sin(el),
       tz + dist * Math.cos(el) * Math.sin(az));
+    camera.up.set(0, 1, 0);
     camera.lookAt(tx, ty, tz);
+  }
+  // ENTER the exact-2D top view: a real ORTHOGRAPHIC camera looking straight
+  // down — zero perspective, walls dead-flat, exactly the 2D plan
+  function enterTop() {
+    const holder = $("#view3d");
+    const w = holder.clientWidth, h = holder.clientHeight - 44, asp = w / Math.max(1, h);
+    if (modelRoot) {
+      const bb = new THREE.Box3().setFromObject(modelRoot);
+      const sz = bb.getSize(new THREE.Vector3());
+      const c = bb.getCenter(new THREE.Vector3());
+      orthoH = Math.max(sz.z * 0.62, sz.x * 0.62 / asp, 10);
+      orbit.tx = c.x; orbit.tz = c.z;
+    }
+    camera = new THREE.OrthographicCamera(-orthoH * asp, orthoH * asp,
+      orthoH, -orthoH, 0.1, 1000);
+    topMode = true;
+  }
+  function exitTop() {
+    if (!topMode) return;
+    topMode = false;
+    camera = new THREE.PerspectiveCamera(50, 1, 0.1, 4000);
+    resize();
+  }
+  function orthoFrustum() {
+    const holder = $("#view3d");
+    const w = holder.clientWidth, h = holder.clientHeight - 44, asp = w / Math.max(1, h);
+    camera.left = -orthoH * asp; camera.right = orthoH * asp;
+    camera.top = orthoH; camera.bottom = -orthoH;
+    camera.updateProjectionMatrix();
   }
 
   function openViewer() {
@@ -1011,6 +1087,7 @@
     modelRoot.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     scene.add(modelRoot);
     camera = new THREE.PerspectiveCamera(50, 1, 0.1, 4000);
+    topMode = false;
     // the orbit HOME pivot = the model's bounding-box centre (Revit-style)
     homeCenter = new THREE.Box3().setFromObject(modelRoot)
       .getCenter(new THREE.Vector3());
@@ -1038,6 +1115,7 @@
     const holder = $("#view3d");
     const w = holder.clientWidth, h = holder.clientHeight - 44;
     renderer.setSize(w, h, false);
+    if (camera.isOrthographicCamera) { orthoFrustum(); return; }
     camera.aspect = w / h; camera.updateProjectionMatrix();
   }
   /* -------- game-style FLY keys: W/S ahead-back, A/D strafe, Q/E down-up */
@@ -1223,8 +1301,8 @@
         mode = 4;
       } else {
         clearSel();
-        // REVIT-style orbit: the pivot is the MODEL CENTRE (or the selection
-        // when one exists) — never some arbitrary far point
+        if (topMode) { mode = 2; return; }   // in exact-2D, L-drag pans
+        // look-around keeps a sensible pivot distance for pan/fly speeds
         if (homeCenter) retarget(homeCenter);
         mode = 1;
       }
@@ -1232,14 +1310,25 @@
     addEventListener("mousemove", e => {
       if (!mode || !open) return;
       const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY;
-      if (mode === 1) {                          // orbit FOLLOWS the mouse
-        orbit.az -= dx * 0.008;
-        orbit.el = Math.min(1.55, Math.max(-0.2, orbit.el + dy * 0.006));
+      if (mode === 1) {                // LOOK-AROUND: the camera stays LOCKED
+        // where it is and only the view direction turns (walkthrough look)
+        const cp = camera.position.clone();
+        orbit.az -= dx * 0.005;
+        orbit.el = Math.min(1.55, Math.max(-1.5, orbit.el + dy * 0.004));
+        orbit.tx = cp.x - orbit.dist * Math.cos(orbit.el) * Math.cos(orbit.az);
+        orbit.ty = cp.y - orbit.dist * Math.sin(orbit.el);
+        orbit.tz = cp.z - orbit.dist * Math.cos(orbit.el) * Math.sin(orbit.az);
       } else if (mode === 2) {
-        const k = orbit.dist * 0.0016;
-        orbit.tx += Math.cos(orbit.az + Math.PI / 2) * dx * k;
-        orbit.tz += Math.sin(orbit.az + Math.PI / 2) * dx * k;
-        orbit.ty += dy * k;
+        if (topMode) {                       // exact-2D pan, pixel-true
+          const rc = cv.getBoundingClientRect();
+          const k2 = (orthoH * 2) / Math.max(1, rc.height);
+          orbit.tx -= dx * k2; orbit.tz -= dy * k2;
+        } else {
+          const k = orbit.dist * 0.0016;
+          orbit.tx += Math.cos(orbit.az + Math.PI / 2) * dx * k;
+          orbit.tz += Math.sin(orbit.az + Math.PI / 2) * dx * k;
+          orbit.ty += dy * k;
+        }
       } else if (mode === 4 && dragEd) {         // slide along the floor plane
         const cvr = cv.getBoundingClientRect();
         const nd = new THREE.Vector2(
@@ -1278,7 +1367,14 @@
     addEventListener("keyup", e => { flyKeys[(e.key || "").toLowerCase()] = false; });
     cv.addEventListener("wheel", e => {
       if (!open) return;
+      // no zoom while a drag (pan / move) is in progress — one thing at a time
+      if (mode) { e.preventDefault(); return; }
       const f = e.deltaY > 0 ? 1.12 : 0.9;
+      if (topMode) {                         // exact-2D zoom = frustum scale
+        orthoH = Math.min(2000, Math.max(2, orthoH * f));
+        orthoFrustum();
+        e.preventDefault(); return;
+      }
       // REVIT-style zoom: dolly toward / away from the cursor, but the target
       // slides on the HORIZONTAL plane at its own height — the horizon stays
       // level, no diving onto whatever surface the mouse happens to cross
@@ -1326,12 +1422,17 @@
     on("#btn3D", openViewer);
     on("#v3close", closeViewer);
     on("#v3rebuild", rebuild);
-    on("#v3iso", () => { orbit.az = -Math.PI / 4; orbit.el = Math.atan(1 / Math.sqrt(2)); });
-    // TOP-2D: straight down, roof off — the working 2D view inside the model
+    on("#v3iso", () => {
+      exitTop();
+      if (homeCenter) { orbit.tx = homeCenter.x; orbit.ty = homeCenter.y; orbit.tz = homeCenter.z; }
+      orbit.az = -Math.PI / 4; orbit.el = Math.atan(1 / Math.sqrt(2));
+    });
+    // TOP-2D: true ORTHOGRAPHIC straight-down view, roof off — the EXACT
+    // 2D plan, no perspective lean on the walls
     on("#v3top", () => {
       const r = $("#v3roof"); if (r) r.checked = false;
       syncLayers();
-      orbit.az = -Math.PI / 2; orbit.el = 1.55;
+      enterTop();
     });
     const op = $("#v3op");
     if (op) op.oninput = () => setOpacity(op.value / 100);
