@@ -493,6 +493,7 @@
     // code gradients (same 1:N the 2D writes on every run) — the pipes are
     // actually PLACED on that fall, dropping continuously toward the outfall
     const SLOPE3D = { SOIL: 40, WASTE: 40, STORM: 100, ACD: 50 };
+    const drains = [];             // drawn drainage runs, for the joins pass
     for (const r of (plan.pipes || [])) {
       const P = r.pts || []; if (P.length < 2) continue;
       const col = PIPE3D[r.system] || 0x888888;
@@ -508,34 +509,49 @@
       const rg = new THREE.Group();            // whole run = ONE editable thing
       rg.userData.edit = { kind: "pipe", ref: r, plan };
       const supply = (r.system === "CW" || r.system === "HW");
-      if (supply || r.system === "VENT") {   // vent runs high too, no tap drop
-        // SUPPLY: level run at ceiling / lintel height, concealed — then a
-        // wall DROP down to tap level at every end inside a tap room
-        const zc = z0 + fh - 0.8;
+      const isACD = r.system === "ACD";
+      if (supply || r.system === "VENT" || isACD) {
+        // HIGH-LEVEL runs: supply + vent at ceiling / lintel height; the AC
+        // CONDENSATE line also runs along the ceiling from the unit, on a
+        // continuous 1:50 fall, and only drops down OUTSIDE to the drain
+        const zBase = isACD ? z0 + 7.1 : z0 + fh - 0.8;
+        const fHi = isACD ? 1 / 50 : 0;
         for (let i = 0; i < P.length - 1; i++) {
-          const c = cylBetween(P[i][0], P[i][1], zc, P[i + 1][0], P[i + 1][1], zc, rad, mat);
+          const zA = zBase - cum[i] * fHi, zB = zBase - cum[i + 1] * fHi;
+          const c = cylBetween(P[i][0], P[i][1], zA, P[i + 1][0], P[i + 1][1], zB, rad, mat);
           if (c) rg.add(c);
           if (i > 0) {
             const j = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.25, 10, 10), mat);
-            j.position.set(P[i][0], zc, -P[i][1]);
+            j.position.set(P[i][0], zA, -P[i][1]);
             rg.add(j);
           }
         }
         if (supply) {
           const ends = [P[0], P[P.length - 1]].filter(e => inTap(e[0], e[1]));
           for (const e of (ends.length ? ends : [P[P.length - 1]])) {
-            const d = cylBetween(e[0], e[1], zc, e[0], e[1], z0 + 1.5, rad * 0.9, mat);
+            const d = cylBetween(e[0], e[1], zBase, e[0], e[1], z0 + 1.5, rad * 0.9, mat);
             if (d) rg.add(d);                  // down the wall chase to the tap
+          }
+        }
+        if (isACD) {
+          const e = P[P.length - 1];
+          const ze = zBase - cum[P.length - 1] * fHi;
+          if (!inRoom(e[0], e[1])) {           // outfall: down the outer face
+            const d = cylBetween(e[0], e[1], ze, e[0], e[1], 0.05, rad * 0.9, mat);
+            if (d) rg.add(d);
           }
         }
         g.add(rg);
         continue;
       }
+      const zs = [];                           // per-vertex levels (for joins)
       let prevZ = null;
       for (let i = 0; i < P.length - 1; i++) {
         const midx = (P[i][0] + P[i + 1][0]) / 2, midy = (P[i][1] + P[i + 1][1]) / 2;
         const b = baseAt(midx, midy);
         const zA = b - cum[i] * fall, zB = b - cum[i + 1] * fall;
+        if (i === 0) zs[0] = zA;
+        zs[i + 1] = zB;
         const c = cylBetween(P[i][0], P[i][1], zA, P[i + 1][0], P[i + 1][1], zB, rad, mat);
         if (c) rg.add(c);
         if (prevZ !== null && Math.abs(prevZ - zA) > 0.02) {
@@ -551,6 +567,64 @@
         prevZ = zB;
       }
       g.add(rg);
+      drains.push({ P, zs, dia, rad, mat, sys: r.system });
+    }
+    // ------- DRAINAGE CONNECTIVITY: every smaller pipe TIES INTO the bigger
+    // main (or the stack) with a proper TEE connector — no floating ends
+    const closestOnSeg = (p, a, b) => {
+      const vx = b[0] - a[0], vy = b[1] - a[1];
+      const L2 = vx * vx + vy * vy || 1e-9;
+      let t = ((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / L2;
+      t = Math.max(0, Math.min(1, t));
+      return [a[0] + vx * t, a[1] + vy * t, t];
+    };
+    const stacksXY = (plan.plumb || []).filter(p => STACK3D[p.code] != null);
+    for (const a of drains) {
+      const endIdx = [0, a.P.length - 1];
+      for (const ei of endIdx) {
+        const e = a.P[ei], ez = a.zs[ei];
+        // nearest STACK first — a branch always prefers its stack
+        let best = null;
+        for (const s of stacksXY) {
+          const d = Math.hypot(s.x - e[0], s.y - e[1]);
+          if (d > 0.25 && d < 2.2 && (!best || d < best.d))
+            best = { d, x: s.x, y: s.y, z: ez, stack: true };
+        }
+        if (!best) {
+          // else the nearest BIGGER (or equal) main line
+          for (const b of drains) {
+            if (b === a || b.dia < a.dia) continue;
+            for (let k = 0; k < b.P.length - 1; k++) {
+              const cp = closestOnSeg(e, b.P[k], b.P[k + 1]);
+              const d = Math.hypot(cp[0] - e[0], cp[1] - e[1]);
+              if (d < 0.25 || d > 3.5) continue;
+              const z = b.zs[k] + (b.zs[k + 1] - b.zs[k]) * cp[2];
+              if (!best || d < best.d)
+                best = { d, x: cp[0], y: cp[1], z, b, k };
+            }
+          }
+        }
+        if (!best) continue;
+        const c = cylBetween(e[0], e[1], ez, best.x, best.y, best.z, a.rad, a.mat);
+        if (c) g.add(c);
+        // connector fittings: a socket on the branch, a TEE boss on the main
+        const s1 = new THREE.Mesh(new THREE.SphereGeometry(a.rad * 1.5, 10, 10), a.mat);
+        s1.position.set(e[0], ez, -e[1]);
+        g.add(s1);
+        if (best.stack) {
+          const ring = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.06, 8, 14), a.mat);
+          ring.rotation.x = Math.PI / 2;
+          ring.position.set(best.x, best.z, -best.y);
+          g.add(ring);
+        } else {
+          const bb = best.b, k = best.k;
+          const ux = bb.P[k + 1][0] - bb.P[k][0], uy = bb.P[k + 1][1] - bb.P[k][1];
+          const L = Math.hypot(ux, uy) || 1;
+          const tee = cylBetween(best.x - ux / L * 0.3, best.y - uy / L * 0.3, best.z,
+            best.x + ux / L * 0.3, best.y + uy / L * 0.3, best.z, bb.rad * 1.35, bb.mat);
+          if (tee) g.add(tee);
+        }
+      }
     }
     // vertical STACKS / downtakes: DOWN from the sunk to ground drainage —
     // a stack never rises above the floor it serves in this view
