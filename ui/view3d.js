@@ -15,6 +15,7 @@
   let G = {};                                // named groups (toggle layers)
   let modelRoot = null;                      // the built house (for rebuilds)
   let selObj = null, selHelper = null;       // 3D EDIT: current selection
+  let homeCenter = null;                     // model bbox centre = orbit pivot
   const orbit = { az: -0.9, el: 0.55, dist: 90, tx: 0, ty: 6, tz: 0 };
   const $ = s => document.querySelector(s);
 
@@ -1010,9 +1011,11 @@
     modelRoot.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     scene.add(modelRoot);
     camera = new THREE.PerspectiveCamera(50, 1, 0.1, 4000);
-    const p = params();
-    orbit.ty = (p.plinth + p.floors * p.fh) / 2;
-    orbit.dist = 90; orbit.az = -0.9; orbit.el = 0.55; orbit.tx = 0; orbit.tz = 0;
+    // the orbit HOME pivot = the model's bounding-box centre (Revit-style)
+    homeCenter = new THREE.Box3().setFromObject(modelRoot)
+      .getCenter(new THREE.Vector3());
+    orbit.tx = homeCenter.x; orbit.ty = homeCenter.y; orbit.tz = homeCenter.z;
+    orbit.dist = 90; orbit.az = -0.9; orbit.el = 0.55;
     open = true;
     const opInp = $("#v3op"); if (opInp) setOpacity(opInp.value / 100);
     resize(); loop();
@@ -1025,6 +1028,8 @@
     modelRoot = buildModel();
     modelRoot.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     scene.add(modelRoot);
+    homeCenter = new THREE.Box3().setFromObject(modelRoot)
+      .getCenter(new THREE.Vector3());
     const opInp = $("#v3op"); if (opInp) setOpacity(opInp.value / 100);
   }
   function closeViewer() { clearSel(); open = false; cancelAnimationFrame(raf); $("#view3d").classList.add("hidden"); }
@@ -1046,10 +1051,21 @@
 
   /* ------------------------------------------- 3D EDIT: select + move */
   const raycaster = new THREE.Raycaster();
+  // re-pivot the orbit onto a world point WITHOUT the camera jumping:
+  // keep the camera where it is, recompute az/el/dist about the new target
+  function retarget(pt) {
+    if (!pt || !camera) return;
+    const d = camera.position.clone().sub(pt);
+    orbit.tx = pt.x; orbit.ty = pt.y; orbit.tz = pt.z;
+    orbit.dist = Math.max(1.5, d.length());
+    orbit.el = Math.asin(Math.min(1, Math.max(-1, d.y / orbit.dist)));
+    orbit.az = Math.atan2(d.z, d.x);
+  }
   function clearSel() {
     if (selHelper && scene) scene.remove(selHelper);
     selHelper = null; selObj = null;
     const chip = $("#v3selname"); if (chip) chip.textContent = "";
+    showProps(null);
   }
   function setSel(obj) {
     clearSel();
@@ -1060,6 +1076,69 @@
     const chip = $("#v3selname");
     if (chip) chip.textContent =
       (r.tag || r.name || r.kind || r.system || ed.kind) + "  ·  drag = move, Del = delete";
+    // REVIT-style: with a selection, the orbit pivots around the SELECTION
+    const bc = new THREE.Box3().setFromObject(obj).getCenter(new THREE.Vector3());
+    retarget(bc);
+    showProps(obj);
+  }
+  /* ---------- PROPERTIES panel: click a product, edit its specification */
+  const PROP_FIELDS = {
+    furn:  [["Tag", "tag", "t"], ["X (ft)", "x", 0.25], ["Y (ft)", "y", 0.25],
+            ["Width (ft)", "w", 0.25], ["Depth (ft)", "h", 0.25], ["Angle °", "angle", 15]],
+    elec:  [["Tag", "tag", "t"], ["X (ft)", "x", 0.25], ["Y (ft)", "y", 0.25],
+            ["Height (mm)", "height_mm", 25], ["Fan sweep (ft)", "size", 0.2], ["Angle °", "angle", 15]],
+    plumb: [["Code", "code", "t"], ["X (ft)", "x", 0.25], ["Y (ft)", "y", 0.25]],
+    pipe:  [["Dia (mm)", "dia_mm", 5]],
+    col:   [["X (ft)", "x", 0.25], ["Y (ft)", "y", 0.25],
+            ["Width (ft)", "w", 0.05], ["Depth (ft)", "h", 0.05]],
+    beam:  [["Width (mm)", "width_mm", 10], ["Depth (mm)", "depth_mm", 25]],
+  };
+  const PROP_TITLE = { furn: "🛋 FURNITURE", elec: "⚡ ELECTRICAL",
+    plumb: "🚿 PLUMBING", pipe: "🚰 PIPE RUN",
+    col: "🏗 COLUMN", beam: "🏗 BEAM" };
+  function showProps(obj) {
+    const el = $("#v3props"); if (!el) return;
+    el.innerHTML = "";
+    if (!obj) return;
+    const ed = obj.userData.edit, r = ed.ref;
+    const head = document.createElement("div");
+    head.className = "v3p-head";
+    head.textContent = (PROP_TITLE[ed.kind] || ed.kind.toUpperCase()) +
+      (r.tag || r.name ? "  ·  " + (r.tag || r.name) : "") +
+      (r.kind ? "  ·  " + r.kind : "") + (r.system ? "  ·  " + r.system : "");
+    el.appendChild(head);
+    for (const [label, key, step] of (PROP_FIELDS[ed.kind] || [])) {
+      if (r[key] === undefined && step !== "t" &&
+          !(key === "x" || key === "y")) continue;   // only fields the item has
+      const row = document.createElement("label");
+      row.className = "v3p-row";
+      const sp = document.createElement("span"); sp.textContent = label;
+      const inp = document.createElement("input");
+      if (step === "t") { inp.type = "text"; inp.value = r[key] || ""; }
+      else { inp.type = "number"; inp.step = step; inp.value = +(+r[key] || 0).toFixed(2); }
+      inp.onchange = () => {
+        if (typeof pushUndo === "function") pushUndo();
+        r[key] = step === "t" ? inp.value : (+inp.value || 0);
+        if (typeof redraw === "function") redraw();  // 2D follows the spec edit
+        rebuild();
+        reselectRef(r);
+      };
+      row.appendChild(sp); row.appendChild(inp);
+      el.appendChild(row);
+    }
+    const del = document.createElement("button");
+    del.className = "v3btn v3x"; del.textContent = "🗑 Delete";
+    del.onclick = deleteSel;
+    el.appendChild(del);
+  }
+  // after a rebuild the meshes are new — find the one for the same plan ref
+  function reselectRef(ref) {
+    if (!modelRoot) return;
+    let f = null;
+    modelRoot.traverse(o => {
+      if (!f && o.userData && o.userData.edit && o.userData.edit.ref === ref) f = o;
+    });
+    if (f) setSel(f);
   }
   // pick the closest EDITABLE thing under the cursor (skips hidden layers)
   function pick(e) {
@@ -1114,34 +1193,6 @@
     let mode = 0, lx = 0, ly = 0, pinch = 0;
     let dragEd = null, dragPlane = null, dragStart = null, dragDelta = null, downXY = null;
     cv.addEventListener("contextmenu", e => e.preventDefault());
-    // the 3D point under the cursor — model surface first, ground otherwise
-    function cursorPoint(e) {
-      const rc = cv.getBoundingClientRect();
-      const nd = new THREE.Vector2(
-        ((e.clientX - rc.left) / rc.width) * 2 - 1,
-        -((e.clientY - rc.top) / rc.height) * 2 + 1);
-      raycaster.setFromCamera(nd, camera);
-      if (modelRoot) {
-        for (const h of raycaster.intersectObjects(modelRoot.children, true)) {
-          let vis = true;
-          for (let a = h.object; a; a = a.parent) if (a.visible === false) vis = false;
-          if (vis) return h.point;
-        }
-      }
-      const p = new THREE.Vector3();
-      return raycaster.ray.intersectPlane(
-        new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), p) ? p : null;
-    }
-    // re-pivot the orbit onto a world point WITHOUT the camera jumping:
-    // keep the camera where it is, recompute az/el/dist about the new target
-    function retarget(pt) {
-      if (!pt || !camera) return;
-      const d = camera.position.clone().sub(pt);
-      orbit.tx = pt.x; orbit.ty = pt.y; orbit.tz = pt.z;
-      orbit.dist = Math.max(1.5, d.length());
-      orbit.el = Math.asin(Math.min(1, Math.max(-1, d.y / orbit.dist)));
-      orbit.az = Math.atan2(d.z, d.x);
-    }
     cv.addEventListener("mousedown", e => {
       lx = e.clientX; ly = e.clientY; downXY = [e.clientX, e.clientY];
       if (e.button === 1 || e.button === 2 || e.shiftKey) {   // MIDDLE = pan too
@@ -1157,9 +1208,9 @@
         mode = 4;
       } else {
         clearSel();
-        // orbit about the MODEL POINT under the cursor — the model turns in
-        // place in front of you, not the whole world about some far pivot
-        retarget(cursorPoint(e));
+        // REVIT-style orbit: the pivot is the MODEL CENTRE (or the selection
+        // when one exists) — never some arbitrary far point
+        if (homeCenter) retarget(homeCenter);
         mode = 1;
       }
     });
@@ -1195,7 +1246,9 @@
         if (typeof pushUndo === "function") pushUndo();
         applyMove(dragEd, dragDelta.x, -dragDelta.z);   // three z = −plan y
         if (typeof redraw === "function") redraw();     // 2D follows
+        const ref = dragEd.ref;
         rebuild();
+        reselectRef(ref);          // keep the piece selected, props refreshed
       }
       mode = 0; dragEd = null; dragDelta = null;
     });
@@ -1208,15 +1261,19 @@
     cv.addEventListener("wheel", e => {
       if (!open) return;
       const f = e.deltaY > 0 ? 1.12 : 0.9;
-      // ZOOM TOWARD THE CURSOR: zooming in pulls the view onto whatever the
-      // mouse is over, so you land exactly where you were looking
-      if (f < 1) {
-        const hp = cursorPoint(e);
-        if (hp) {
-          orbit.tx += (hp.x - orbit.tx) * (1 - f);
-          orbit.ty += (hp.y - orbit.ty) * (1 - f);
-          orbit.tz += (hp.z - orbit.tz) * (1 - f);
-        }
+      // REVIT-style zoom: dolly toward / away from the cursor, but the target
+      // slides on the HORIZONTAL plane at its own height — the horizon stays
+      // level, no diving onto whatever surface the mouse happens to cross
+      const rc = cv.getBoundingClientRect();
+      const nd = new THREE.Vector2(
+        ((e.clientX - rc.left) / rc.width) * 2 - 1,
+        -((e.clientY - rc.top) / rc.height) * 2 + 1);
+      raycaster.setFromCamera(nd, camera);
+      const hp = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(
+            new THREE.Plane(new THREE.Vector3(0, 1, 0), -orbit.ty), hp)) {
+        orbit.tx += (hp.x - orbit.tx) * (1 - f);
+        orbit.tz += (hp.z - orbit.tz) * (1 - f);
       }
       orbit.dist = Math.min(1500, Math.max(1.5, orbit.dist * f));
       e.preventDefault();
