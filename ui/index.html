@@ -467,7 +467,21 @@
     <label class="v3-op">External walls
       <input id="v3op" type="range" min="8" max="100" value="100">
     </label>
+    <label class="v3-chk"><input id="v3roof" type="checkbox" checked> Roof</label>
+    <label class="v3-chk"><input id="v3floor" type="checkbox" checked> Flooring</label>
+    <label class="v3-chk"><input id="v3furn" type="checkbox" checked> Furniture</label>
+    <label class="v3-chk"><input id="v3plumb" type="checkbox"> Plumbing</label>
+    <label class="v3-chk"><input id="v3elec" type="checkbox"> Electrical</label>
+    <label class="v3-chk">Top:
+      <select id="v3para">
+        <option value="parapet" selected>Parapet wall</option>
+        <option value="rail-front">Railing (front)</option>
+        <option value="rail-all">Railing (all 4)</option>
+        <option value="none">None</option>
+      </select>
+    </label>
     <button id="v3iso" class="btn ghost">Isometric</button>
+    <button id="v3top" class="btn ghost" title="upar se 2D view — roof hat jata hai, andar sab dikhta hai">2D Top</button>
     <button id="v3rebuild" class="btn ghost" title="plan badla ho to model dobara banao">↻ Rebuild</button>
     <span class="v3-hint">drag = rotate · wheel = zoom · right-drag = pan</span>
     <button id="v3close" class="btn">✕ Close</button>
@@ -477,6 +491,6 @@
 
 <script src="app.js"></script>
 <script src="vendor/three.min.js"></script>
-<script src="view3d.js?v=2"></script>
+<script src="view3d.js?v=3"></script>
 </body>
 </html>

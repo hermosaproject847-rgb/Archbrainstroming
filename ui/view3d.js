@@ -1,20 +1,21 @@
-/* 3D MODEL — builds the whole house in 3D from the live plan (walls with the
-   doors/windows cut out, columns, beams, floor slabs, parapet, plinth, stairs)
-   and shows it in an orbit viewer: drag = rotate, wheel = zoom, right-drag =
-   pan, exactly like a normal 3D package. The "External walls" slider fades the
-   outer shell so the internal structure reads through. */
+/* 3D MODEL — the whole house in 3D from the live plan, like a real 3D
+   package: orbit / zoom / pan, an x-ray slider for the outer shell, a TOP-2D
+   mode (roof off, looking straight down), and toggleable SERVICE layers —
+   furniture models, plumbing pipes in their system colours, electrical
+   conduiting from each board to its fittings, textured flooring + skirting
+   (wood / tile / marble / granite), and a parapet that can turn into a
+   railing on the front or on all four sides. */
 (function () {
   "use strict";
   if (typeof THREE === "undefined") return;
 
   const MM = 1 / 304.8;
   let renderer = null, scene = null, camera = null, raf = 0, open = false;
-  let extMats = [];                       // exterior shell materials (slider)
+  let extMats = [];
+  let G = {};                                // named groups (toggle layers)
   const orbit = { az: -0.9, el: 0.55, dist: 90, tx: 0, ty: 6, tz: 0 };
-
   const $ = s => document.querySelector(s);
 
-  /* ---------------- parameters (from the section questionnaire if stored) */
   function params() {
     const p = (S.plan && (S.plan.section_params || {})) || {};
     const mm = v => (+v || 0) * MM;
@@ -24,17 +25,76 @@
       fh: mm(p.floor_height_mm) || mm(3000),
       slab: mm(p.slab_thk_mm) || mm(125),
       para: p.parapet_mm != null ? mm(p.parapet_mm) : mm(900),
-      beamD: mm(300),
       sill: mm(900), lintel: mm(2100), doorH: mm(2100),
       floors
     };
   }
 
-  /* model (x, y[plan], z[up]) → three (x, y=up, z=-planY) */
   function box(sx, sy, sz, cx, cy, cz, mat) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sz, sy), mat);
     m.position.set(cx, cz, -cy);
     return m;
+  }
+  function cylBetween(ax, ay, az2, bx, by, bz, r, mat) {
+    const a = new THREE.Vector3(ax, az2, -ay), b = new THREE.Vector3(bx, bz, -by);
+    const d = b.clone().sub(a), L = d.length(); if (L < 0.02) return null;
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, L, 10), mat);
+    m.position.copy(a.clone().add(b).multiplyScalar(0.5));
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+    return m;
+  }
+
+  /* ---------------- procedural TEXTURES (no external files) ------------- */
+  function texOf(drawFn) {
+    const c = document.createElement("canvas"); c.width = c.height = 256;
+    drawFn(c.getContext("2d"));
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    return t;
+  }
+  const TEX = {};
+  function floorTex(material) {
+    if (TEX[material]) return TEX[material];
+    let t;
+    if (material === "wood") t = texOf(g => {
+      g.fillStyle = "#9a6b45"; g.fillRect(0, 0, 256, 256);
+      for (let r = 0; r < 4; r++) {
+        const sh = ["#8a5d3a", "#a4754d", "#916342", "#9d6f48"][r];
+        g.fillStyle = sh; g.fillRect(0, r * 64, 256, 62);
+        g.fillStyle = "rgba(60,35,18,.55)"; g.fillRect(0, r * 64 + 62, 256, 2);
+        g.fillRect(((r * 97) % 256), r * 64, 2, 62);   // staggered end joints
+        g.strokeStyle = "rgba(120,80,50,.35)";
+        for (let k = 0; k < 5; k++) { g.beginPath(); g.moveTo(0, r * 64 + 8 + k * 11); g.lineTo(256, r * 64 + 6 + k * 12); g.stroke(); }
+      }
+    });
+    else if (material === "marble") t = texOf(g => {
+      g.fillStyle = "#e9e7e2"; g.fillRect(0, 0, 256, 256);
+      g.strokeStyle = "rgba(150,150,160,.5)"; g.lineWidth = 2;
+      for (let i = 0; i < 6; i++) {
+        g.beginPath(); g.moveTo(0, 20 + i * 40);
+        g.bezierCurveTo(80, i * 40, 150, 70 + i * 35, 256, 30 + i * 42); g.stroke();
+      }
+      g.strokeStyle = "rgba(90,90,100,.7)"; g.lineWidth = 3;
+      g.strokeRect(1, 1, 254, 254);                    // slab joint
+    });
+    else if (material === "granite") t = texOf(g => {
+      g.fillStyle = "#5c5f66"; g.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 900; i++) {
+        g.fillStyle = ["#7c7f88", "#3f4149", "#8f939c", "#2f3138"][i % 4];
+        g.fillRect(Math.random() * 256, Math.random() * 256, 2.2, 2.2);
+      }
+      g.strokeStyle = "rgba(25,26,30,.8)"; g.lineWidth = 3;
+      g.strokeRect(1, 1, 254, 254);
+    });
+    else t = texOf(g => {                              // vitrified TILE
+      g.fillStyle = "#ddd9d2"; g.fillRect(0, 0, 256, 256);
+      g.fillStyle = "rgba(255,255,255,.35)";
+      for (let i = 0; i < 40; i++) g.fillRect(Math.random() * 256, Math.random() * 256, 8, 3);
+      g.strokeStyle = "#a9a49c"; g.lineWidth = 4;
+      g.strokeRect(1, 1, 254, 254);                    // grout square
+    });
+    TEX[material] = t;
+    return t;
   }
 
   function mats() {
@@ -50,20 +110,18 @@
       door: new THREE.MeshLambertMaterial({ color: 0x8a5a34 }),
       frame: new THREE.MeshLambertMaterial({ color: 0x5f4630 }),
       chajja: new THREE.MeshLambertMaterial({ color: 0xb9bec6 }),
+      rail: new THREE.MeshLambertMaterial({ color: 0x3d434d }),
     };
   }
 
-  /* one wall, its doors/windows CUT OUT, each opening fully detailed: frame,
-     mullions + transom, glass, an outside CHAJJA (sunshade) at the lintel and
-     a small projecting sill — the way the real elevation reads. */
+  /* ---- one wall with detailed openings (frame, mullions, glass, chajja) */
   function addWall(g, plan, w, z0, H, P, M, cxAll, cyAll) {
     const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
     const L = Math.hypot(dx, dy); if (L < 0.05) return;
     const ux = dx / L, uy = dy / L;
     const t = ((+w.thickness_in || 5) / 12);
     const mat = w.exterior ? M.ext : M.int_;
-    const ang = Math.atan2(-uy, ux);          // three-space yaw (z = -y)
-    // outward plan normal (away from the building centre) for chajja / sill
+    const ang = Math.atan2(-uy, ux);
     let nx = -uy, ny = ux;
     const mxw = (w.x1 + w.x2) / 2, myw = (w.y1 + w.y2) / 2;
     if ((mxw + nx - cxAll) ** 2 + (myw + ny - cyAll) ** 2 <
@@ -84,17 +142,14 @@
       .filter(o => o.b - o.a > 0.05)
       .sort((p1, p2) => p1.a - p2.a);
 
-    // an axis-aligned-in-wall box: `a..b` along the wall, cross-thickness ct
-    // centred `off` outward of the wall centre-line, zz0..zz1 up
     const wob = (a, b, zz0, zz1, ct, off, m) => {
-      if (b - a < 0.015 || zz1 - zz0 < 0.015) return null;
+      if (b - a < 0.015 || zz1 - zz0 < 0.015) return;
       const mid = (a + b) / 2;
       const mesh = box(b - a, ct, zz1 - zz0,
         w.x1 + ux * mid + nx * off, w.y1 + uy * mid + ny * off,
         z0 + (zz0 + zz1) / 2, m);
       mesh.rotation.y = ang;
       g.add(mesh);
-      return mesh;
     };
     const put = (a, b, zz0, zz1, m) => wob(a, b, zz0, zz1, t, 0, m);
 
@@ -104,17 +159,13 @@
       const head = Math.min(o.head, H);
       if (o.sill > 0.05) put(o.a, o.b, 0, Math.min(o.sill, H), mat);
       if (head < H - 0.05) put(o.a, o.b, head, H, mat);
-
-      const fw = 0.16, ft2 = t * 0.55;          // frame member size / depth
+      const fw = 0.16, ft2 = t * 0.55;
       if (o.win) {
-        // FRAME: head + sill members and both jambs
         wob(o.a, o.b, o.sill, o.sill + fw, ft2, 0, M.frame);
         wob(o.a, o.b, head - fw, head, ft2, 0, M.frame);
         wob(o.a, o.a + fw, o.sill, head, ft2, 0, M.frame);
         wob(o.b - fw, o.b, o.sill, head, ft2, 0, M.frame);
-        // GLASS inside the frame
         wob(o.a + fw, o.b - fw, o.sill + fw, head - fw, t * 0.18, 0, M.glass);
-        // MULLIONS every ~2.5 ft + a transom above mid-height
         const wSpan = o.b - o.a - 2 * fw;
         const nMul = Math.max(0, Math.round(wSpan / 2.5) - 1);
         for (let k = 1; k <= nMul; k++) {
@@ -124,18 +175,14 @@
         if (head - o.sill > 3.2)
           wob(o.a + fw, o.b - fw, (o.sill + head) / 2 - 0.05,
               (o.sill + head) / 2 + 0.05, ft2 * 0.8, 0, M.frame);
-        // projecting SILL ledge outside
         if (w.exterior)
-          wob(o.a - 0.2, o.b + 0.2, o.sill - 0.2, o.sill, 0.25,
-              t / 2 + 0.125, M.chajja);
+          wob(o.a - 0.2, o.b + 0.2, o.sill - 0.2, o.sill, 0.25, t / 2 + 0.125, M.chajja);
       } else {
-        // DOOR: frame + a solid leaf
         wob(o.a, o.a + fw, 0, head, ft2, 0, M.frame);
         wob(o.b - fw, o.b, 0, head, ft2, 0, M.frame);
         wob(o.a, o.b, head - fw, head, ft2, 0, M.frame);
         wob(o.a + fw, o.b - fw, 0.02, head - fw, t * 0.3, 0, M.door);
       }
-      // CHAJJA — RCC sunshade projecting OUTSIDE over every exterior opening
       if (w.exterior) {
         const proj = 1.5, thk = 0.3;
         const mid = (o.a + o.b) / 2;
@@ -151,105 +198,244 @@
     put(cur, L, 0, H, mat);
   }
 
+  /* ----------------------------------------------- staircase (true U/U3) */
   function addStairs(g, plan, z0, rise, M) {
-    // u = distance ALONG the run axis, v = across it; both from the stair's
-    // (x, y) corner. One helper maps (u, v, sizes) back to world so every
-    // flight/landing reads the same whichever way the stair runs.
     for (const s of (plan.stairs || [])) {
       const alongX = (s.run_axis || "x") === "x";
-      const W = alongX ? s.w : s.h;              // along the run
-      const B = alongX ? s.h : s.w;              // across (breadth)
-      const put = (u, v, du, dvv, zc, hz) => {
-        const cx = alongX ? s.x + u + du / 2 : s.x + v + dvv / 2;
-        const cy = alongX ? s.y + v + dvv / 2 : s.y + u + du / 2;
-        g.add(box(alongX ? du : dvv, alongX ? dvv : du, hz, cx, cy, zc, M.step));
-      };
+      const W = alongX ? s.w : s.h;
+      const B = alongX ? s.h : s.w;
       const typ = s.type || "straight";
       const dirUp = (s.up_from === "left" || s.up_from === "bottom") ? 1 : -1;
-
-      // one stepped flight along u: from u0 (level zlo) to u0+len·sign (zhi)
+      const stepBox = (u, v, du, dv, zTop, hZ) => {
+        const cx = alongX ? s.x + u + du / 2 : s.x + v + dv / 2;
+        const cy = alongX ? s.y + v + dv / 2 : s.y + u + du / 2;
+        g.add(box(alongX ? du : dv, alongX ? dv : du, hZ, cx, cy, zTop - hZ / 2, M.step));
+      };
       const flight = (u0, len, sign, v0, bw, zlo, zhi, n) => {
         n = Math.max(2, n | 0);
         const tr = len / n, rs = (zhi - zlo) / n;
         for (let i = 0; i < n; i++) {
-          // solid step block: from its tread level down ~2 risers
           const zTop = zlo + (i + 1) * rs;
-          const blockH = Math.min(zTop - z0 + 0.01, rs * 2.2);
           const uu = sign > 0 ? u0 + i * tr : u0 - (i + 1) * tr;
-          const cxu = alongX ? s.x + uu + tr / 2 : s.x + v0 + bw / 2;
-          const cyu = alongX ? s.y + v0 + bw / 2 : s.y + uu + tr / 2;
-          g.add(box(alongX ? tr : bw, alongX ? bw : tr, blockH,
-            cxu, cyu, zTop - blockH / 2, M.step));
+          stepBox(uu, v0, tr, bw, zTop, Math.min(zTop - z0 + 0.01, rs * 2.2));
         }
       };
-      const landing = (u0, len, v0, bw, zlv) => {
-        const th = 0.5;
-        const cxu = alongX ? s.x + u0 + len / 2 : s.x + v0 + bw / 2;
-        const cyu = alongX ? s.y + v0 + bw / 2 : s.y + u0 + len / 2;
-        g.add(box(alongX ? len : bw, alongX ? bw : len, th, cxu, cyu,
-          zlv - th / 2, M.step));
-      };
+      const landing = (u0, len, v0, bw, zlv) =>
+        stepBox(u0, v0, len, bw, zlv, 0.5);
 
       if (typ === "U" || typ === "U3" || typ === "L") {
-        // TWO flights side by side (each half the breadth), landings at the
-        // far end, the U3's short middle flight crossing between the halves —
-        // the same arrangement the plan draws.
         const land = Math.min(Math.max(+s.landing_size || 3, 2.5), W * 0.45);
         const runLen = W - land;
         const half = B / 2;
-        const n1 = +s.steps_f1 || 8;
-        const n2 = +s.steps_f2 || n1;
+        const n1 = +s.steps_f1 || 8, n2 = +s.steps_f2 || n1;
         const nm = typ === "U3" ? Math.max(1, +s.steps_f3 || 2) : 0;
         const tot = Math.max(1, n1 + n2 + nm);
-        const z1 = z0 + rise * n1 / tot;              // after flight 1
-        const z2 = z0 + rise * (n1 + nm) / tot;       // after the mid flight
-        const vA = half, vB = 0;                       // flight1 top half, return bottom
-        const uNear = dirUp > 0 ? 0 : W;
-        const uFar = dirUp > 0 ? runLen : land;        // landing zone start
-        // flight 1: near → far on half A
+        const z1 = z0 + rise * n1 / tot;
+        const z2 = z0 + rise * (n1 + nm) / tot;
+        const vA = half, vB = 0;
         flight(dirUp > 0 ? 0 : W, runLen, dirUp, vA, half, z0, z1, n1);
         landing(dirUp > 0 ? runLen : 0, land, vA, half, z1);
-        if (nm > 0) {                                  // U3 mid flight, across
-          const trm = half * 2 / (nm + 1);
+        if (nm > 0) {
           for (let i = 0; i < nm; i++) {
             const zTop = z1 + (z2 - z1) * (i + 1) / nm;
-            const v0 = vA - (i + 1) * (half / nm);
-            const cxu = alongX ? s.x + (dirUp > 0 ? runLen : 0) + land / 2
-              : s.x + v0 + (half / nm) / 2;
-            const cyu = alongX ? s.y + v0 + (half / nm) / 2
-              : s.y + (dirUp > 0 ? runLen : 0) + land / 2;
-            g.add(box(alongX ? land : half / nm, alongX ? half / nm : land,
-              0.45, cxu, cyu, zTop - 0.22, M.step));
+            stepBox(dirUp > 0 ? runLen : 0, vA - (i + 1) * (half / nm),
+              land, half / nm, zTop, 0.45);
           }
         }
         landing(dirUp > 0 ? runLen : 0, land, vB, half, z2);
-        // return flight: far → near on half B, climbing the rest
-        flight(dirUp > 0 ? runLen : land, runLen, -dirUp, vB, half,
-          z2, z0 + rise, n2);
-      } else {                                         // straight
-        const n = Math.max(8, +s.steps_f1 || 15);
-        flight(dirUp > 0 ? 0 : W, W, dirUp, 0, B, z0, z0 + rise, n);
+        flight(dirUp > 0 ? runLen : land, runLen, -dirUp, vB, half, z2, z0 + rise, n2);
+      } else {
+        flight(dirUp > 0 ? 0 : W, W, dirUp, 0, B, z0, z0 + rise,
+          Math.max(8, +s.steps_f1 || 15));
       }
     }
   }
 
+  /* ------------------------------------------------ furniture 3D models */
+  const FURN3D = {
+    bed_single: [0x6f9fd8, 1.6], bed_double: [0x6f9fd8, 1.6],
+    bed_queen: [0x6f9fd8, 1.6], bed_king: [0x6f9fd8, 1.6],
+    bedside: [0x9fb7d8, 1.8], wardrobe: [0x8a6c48, 6.6],
+    dresser: [0xa5875f, 2.6], study_table: [0xa5875f, 2.5],
+    sideboard: [0xa5875f, 2.8], shoe_rack: [0x8a6c48, 3.0],
+    sofa_3: [0x4f9d7a, 2.3], sofa_2: [0x4f9d7a, 2.3], armchair: [0x4f9d7a, 2.3],
+    chair: [0x6fb08a, 1.5], stool: [0x6fb08a, 1.5],
+    coffee_table: [0xc2a15e, 1.4], dining_2: [0xc2a15e, 2.5],
+    dining_4: [0xc2a15e, 2.5], dining_6: [0xc2a15e, 2.5], dining_8: [0xc2a15e, 2.5],
+    tv_unit: [0x555b66, 1.8], fridge: [0xd0d4da, 5.6], washing_machine: [0xd0d4da, 2.9],
+    counter: [0x9aa3ad, 2.8], wc: [0xeceef2, 1.4], basin: [0xeceef2, 2.7],
+    shower: [0xbfe0f2, 6.8],
+  };
+  function addFurniture(g, plan, z0) {
+    for (const f of (plan.furniture || [])) {
+      const def = FURN3D[f.kind] || [0xb8a88f, 2.2];
+      const mat = new THREE.MeshLambertMaterial({
+        color: def[0],
+        transparent: f.kind === "shower", opacity: f.kind === "shower" ? 0.35 : 1
+      });
+      const m = box(+f.w || 1, +f.h || 1, def[1],
+        (+f.x || 0) + (+f.w || 1) / 2, (+f.y || 0) + (+f.h || 1) / 2,
+        z0 + def[1] / 2, mat);
+      if (+f.angle) m.rotation.y = (+f.angle) * Math.PI / 180;
+      g.add(m);
+    }
+  }
+
+  /* ---------------------------------------------- plumbing pipes in 3D */
+  const PIPE3D = { CW: 0x0d47a1, HW: 0xd32f2f, SOIL: 0xe8590c, WASTE: 0x2e9e2e,
+    VENT: 0x1b8a3a, STORM: 0x00acc1, ACD: 0xad1457 };
+  function addPipes(g, plan, z0, fh) {
+    for (const r of (plan.pipes || [])) {
+      const P = r.pts || []; if (P.length < 2) continue;
+      const col = PIPE3D[r.system] || 0x888888;
+      const mat = new THREE.MeshLambertMaterial({ color: col });
+      const rad = Math.max(0.08, ((+r.dia_mm || 50) * MM) / 2);
+      // supply runs at the ceiling (as the WS layout notes), drainage at floor
+      const z = (r.system === "CW" || r.system === "HW" || r.system === "ACD")
+        ? z0 + fh - 0.8 : z0 + 0.35;
+      for (let i = 0; i < P.length - 1; i++) {
+        const c = cylBetween(P[i][0], P[i][1], z, P[i + 1][0], P[i + 1][1], z, rad, mat);
+        if (c) g.add(c);
+      }
+    }
+    for (const p of (plan.plumb || [])) {          // traps / chambers markers
+      const mat = new THREE.MeshLambertMaterial({ color: 0x6d4c41 });
+      g.add(box(0.8, 0.8, 0.35, p.x, p.y, z0 + 0.17, mat));
+    }
+  }
+
+  /* ------------------------------------- electrical points + conduiting */
+  function addElec(g, plan, z0, fh) {
+    const ceil = z0 + fh - 0.15;
+    const conduit = new THREE.MeshLambertMaterial({ color: 0xff8c1a });
+    const byTag = {};
+    (plan.elec || []).forEach(p => { if (p.tag) byTag[p.tag] = p; });
+    for (const p of (plan.elec || [])) {
+      if (p.visible === false) continue;
+      const code = p.code || "SL";
+      if (code === "SB" || code === "DB") {          // board plate at its height
+        const hz = ((+p.height_mm || 1200) * MM);
+        g.add(box(0.8, 0.25, 0.5, p.x, p.y, z0 + hz, new THREE.MeshLambertMaterial({ color: 0xf5f2ea })));
+        // conduit: board → up to ceiling → along ceiling to each controlled fitting
+        const up = cylBetween(p.x, p.y, z0 + hz, p.x, p.y, ceil, 0.05, conduit);
+        if (up) g.add(up);
+        (p.controls || []).forEach(tg => {
+          const q = byTag[tg]; if (!q) return;
+          const run = cylBetween(p.x, p.y, ceil, q.x, q.y, ceil, 0.05, conduit);
+          if (run) g.add(run);
+        });
+      } else if (code === "CF") {                    // ceiling fan: rod + blades
+        const rod = cylBetween(p.x, p.y, ceil, p.x, p.y, ceil - 1.0, 0.06,
+          new THREE.MeshLambertMaterial({ color: 0x777d88 }));
+        if (rod) g.add(rod);
+        for (let k = 0; k < 3; k++) {
+          const a = k * 2.094;
+          const bl = box(1.8, 0.35, 0.06, p.x + Math.cos(a) * 0.95,
+            p.y + Math.sin(a) * 0.95, ceil - 1.0,
+            new THREE.MeshLambertMaterial({ color: 0x8a919c }));
+          bl.rotation.y = -a;
+          g.add(bl);
+        }
+      } else if (code === "AC") {                    // wall unit
+        const m = box(3.2, 0.7, 0.9, p.x, p.y, z0 + ((+p.height_mm || 2175) * MM),
+          new THREE.MeshLambertMaterial({ color: 0xf2f4f7 }));
+        if (+p.angle) m.rotation.y = (+p.angle) * Math.PI / 180;
+        g.add(m);
+      } else {                                       // any light: warm disc
+        const d = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.1, 14),
+          new THREE.MeshLambertMaterial({ color: 0xffd76a }));
+        d.position.set(p.x, ceil, -p.y);
+        g.add(d);
+      }
+    }
+  }
+
+  /* ---------------------------------- flooring with REAL-looking texture */
+  function addFlooring(g, plan, z0) {
+    const rooms = plan.rooms || [];
+    for (const r of rooms) {
+      if (r.void) continue;
+      const spec = (plan.flooring || []).find(f =>
+        (f.room || "").trim().toLowerCase() === (r.name || "").trim().toLowerCase());
+      const material = spec ? (spec.material || "tile") : "tile";
+      const t = floorTex(material).clone();
+      t.needsUpdate = true;
+      const tileFt = spec && spec.tile_w ? Math.max(0.8, spec.tile_w * MM)
+        : (material === "wood" ? 3.94 : 2.0);
+      t.repeat.set(Math.max(1, r.w / tileFt), Math.max(1, r.h / tileFt));
+      const mat = new THREE.MeshLambertMaterial({ map: t });
+      g.add(box(r.w - 0.2, r.h - 0.2, 0.07, r.x + r.w / 2, r.y + r.h / 2,
+        z0 + 0.045, mat));
+      // SKIRTING: a darker strip round the room, 75 mm high
+      const skC = { wood: 0x6e4a2c, marble: 0xb9b5ae, granite: 0x3c3f45, tile: 0x9a958d }[material] || 0x9a958d;
+      const sk = new THREE.MeshLambertMaterial({ color: skC });
+      const hSk = (spec && spec.skirting_mm ? spec.skirting_mm : 75) * MM;
+      if (hSk > 0.01) {
+        g.add(box(r.w - 0.3, 0.08, hSk, r.x + r.w / 2, r.y + 0.2, z0 + hSk / 2, sk));
+        g.add(box(r.w - 0.3, 0.08, hSk, r.x + r.w / 2, r.y + r.h - 0.2, z0 + hSk / 2, sk));
+        g.add(box(0.08, r.h - 0.3, hSk, r.x + 0.2, r.y + r.h / 2, z0 + hSk / 2, sk));
+        g.add(box(0.08, r.h - 0.3, hSk, r.x + r.w - 0.2, r.y + r.h / 2, z0 + hSk / 2, sk));
+      }
+    }
+  }
+
+  /* ------------------------------------------- parapet OR railing on top */
+  function addTop(g, base, topZ, P, M, mode) {
+    if (mode === "none") return;
+    let y0 = 1e9;
+    (base.walls || []).forEach(w => { y0 = Math.min(y0, w.y1, w.y2); });
+    const isFront = w => Math.min(w.y1, w.y2) < y0 + 0.8 &&
+      Math.abs(w.y1 - w.y2) < 0.5;                   // the lowest horizontal run
+    (base.walls || []).forEach(w => {
+      if (!w.exterior || w.railing) return;
+      const L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1); if (L < 0.05) return;
+      const rail = mode === "rail-all" || (mode === "rail-front" && isFront(w));
+      const ang = Math.atan2(-(w.y2 - w.y1), (w.x2 - w.x1));
+      if (!rail) {                                    // solid parapet wall
+        const t = ((+w.thickness_in || 9) / 12) * 0.6;
+        const m = box(L, t, P.para, (w.x1 + w.x2) / 2, (w.y1 + w.y2) / 2,
+          topZ + P.para / 2, M.ext);
+        m.rotation.y = ang;
+        g.add(m);
+      } else {                                        // RAILING: posts + 2 rails
+        const h = Math.max(P.para, 3.0);
+        const ux = (w.x2 - w.x1) / L, uy = (w.y2 - w.y1) / L;
+        const nPost = Math.max(2, Math.round(L / 3.5) + 1);
+        for (let i = 0; i < nPost; i++) {
+          const d = L * i / (nPost - 1);
+          const p = cylBetween(w.x1 + ux * d, w.y1 + uy * d, topZ,
+            w.x1 + ux * d, w.y1 + uy * d, topZ + h, 0.07, M.rail);
+          if (p) g.add(p);
+        }
+        for (const frac of [1.0, 0.55]) {
+          const r2 = cylBetween(w.x1, w.y1, topZ + h * frac,
+            w.x2, w.y2, topZ + h * frac, frac === 1 ? 0.09 : 0.05, M.rail);
+          if (r2) g.add(r2);
+        }
+      }
+    });
+  }
+
+  /* --------------------------------------------------------- the model */
   function buildModel() {
     extMats = [];
     const M = mats();
     const P = params();
-    const g = new THREE.Group();
-    const base = S.plan; if (!base) return g;
+    const root = new THREE.Group();
+    const base = S.plan; if (!base) return root;
+    G = { walls: new THREE.Group(), roof: new THREE.Group(), struct: new THREE.Group(),
+      stairs: new THREE.Group(), floor: new THREE.Group(), furn: new THREE.Group(),
+      plumb: new THREE.Group(), elec: new THREE.Group(), top: new THREE.Group() };
 
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
     (base.walls || []).forEach(w => {
       x0 = Math.min(x0, w.x1, w.x2); y0 = Math.min(y0, w.y1, w.y2);
       x1 = Math.max(x1, w.x1, w.x2); y1 = Math.max(y1, w.y1, w.y2);
     });
-    if (x1 <= x0) return g;
+    if (x1 <= x0) return root;
     const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
 
-    // plinth base
-    g.add(box(x1 - x0 + 1, y1 - y0 + 1, Math.max(P.plinth, 0.1),
+    G.struct.add(box(x1 - x0 + 1, y1 - y0 + 1, Math.max(P.plinth, 0.1),
       cx, cy, Math.max(P.plinth, 0.1) / 2, M.conc));
 
     let topZ = P.plinth;
@@ -257,42 +443,49 @@
       const plan = ((S.floors || [])[f] && S.floors[f].plan) || base;
       const z0 = P.plinth + f * P.fh;
       const H = P.fh;
-      (plan.walls || []).forEach(w => { if (!w.railing) addWall(g, plan, w, z0, H, P, M, cx, cy); });
-      // columns run floor to floor
+      (plan.walls || []).forEach(w => { if (!w.railing) addWall(G.walls, plan, w, z0, H, P, M, cx, cy); });
       (plan.columns || []).forEach(c => {
-        g.add(box(Math.max(+c.w || 0.8, 0.3), Math.max(+c.h || 0.8, 0.3), H,
+        G.struct.add(box(Math.max(+c.w || 0.8, 0.3), Math.max(+c.h || 0.8, 0.3), H,
           c.x, c.y, z0 + H / 2, M.conc));
       });
-      // beams under the slab
       (plan.beams || []).forEach(b => {
         const L = Math.hypot(b.x2 - b.x1, b.y2 - b.y1); if (L < 0.1) return;
         const bw = ((+b.width_mm || 230) * MM), bd = ((+b.depth_mm || 300) * MM);
         const m = box(L, bw, bd, (b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2,
           z0 + H - bd / 2, M.conc);
         m.rotation.y = Math.atan2(-(b.y2 - b.y1), (b.x2 - b.x1));
-        g.add(m);
+        G.struct.add(m);
       });
-      // floor / roof slab
-      g.add(box(x1 - x0 + 0.8, y1 - y0 + 0.8, P.slab, cx, cy, z0 + H + P.slab / 2, M.slab));
-      addStairs(g, plan, z0, H, M);
+      // every slab except the top one stays with the structure; the ROOF slab
+      // goes to its own group so 2D/top view can lift it off
+      const slabMesh = box(x1 - x0 + 0.8, y1 - y0 + 0.8, P.slab, cx, cy,
+        z0 + H + P.slab / 2, M.slab);
+      (f === P.floors - 1 ? G.roof : G.struct).add(slabMesh);
+      addStairs(G.stairs, plan, z0, H, M);
+      addFlooring(G.floor, plan, z0);
+      addFurniture(G.furn, plan, z0);
+      addPipes(G.plumb, plan, z0, H);
+      addElec(G.elec, plan, z0, H);
       topZ = z0 + H + P.slab;
     }
+    addTop(G.top, base, topZ, P, M, ($("#v3para") || {}).value || "parapet");
 
-    // parapet on the exterior walls, above the roof slab
-    if (P.para > 0.05) {
-      (base.walls || []).forEach(w => {
-        if (!w.exterior || w.railing) return;
-        const L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1); if (L < 0.05) return;
-        const t = ((+w.thickness_in || 9) / 12) * 0.6;
-        const m = box(L, t, P.para, (w.x1 + w.x2) / 2, (w.y1 + w.y2) / 2,
-          topZ + P.para / 2, M.ext);
-        m.rotation.y = Math.atan2(-(w.y2 - w.y1), (w.x2 - w.x1));
-        g.add(m);
-      });
-    }
+    Object.values(G).forEach(gr => root.add(gr));
+    root.position.set(-cx, 0, cy);
+    // apply the current layer checkboxes
+    syncLayers();
+    return root;
+  }
 
-    g.position.set(-cx, 0, cy);            // centre the house on the origin
-    return g;
+  function syncLayers() {
+    const on = id => { const e = $(id); return !e || e.checked; };
+    if (!G.walls) return;
+    G.roof.visible = on("#v3roof");
+    G.top.visible = on("#v3roof");
+    G.furn.visible = on("#v3furn");
+    G.plumb.visible = on("#v3plumb");
+    G.elec.visible = on("#v3elec");
+    G.floor.visible = on("#v3floor");
   }
 
   /* ------------------------------------------------------------- viewer */
@@ -307,7 +500,7 @@
 
   function openViewer() {
     if (!S.plan) { status("Pehle plan generate/khol karein"); return; }
-    const holder = $("#view3d"); holder.classList.remove("hidden");
+    $("#view3d").classList.remove("hidden");
     const canvas = $("#v3canvas");
     if (!renderer) {
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -315,15 +508,13 @@
     }
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1c2230);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-    const sun = new THREE.DirectionalLight(0xffffff, 0.85);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const sun = new THREE.DirectionalLight(0xffffff, 0.8);
     sun.position.set(60, 90, 40); scene.add(sun);
     const sun2 = new THREE.DirectionalLight(0xffffff, 0.25);
     sun2.position.set(-50, 40, -60); scene.add(sun2);
-    const grid = new THREE.GridHelper(200, 40, 0x37415a, 0x2a3248);
-    scene.add(grid);
+    scene.add(new THREE.GridHelper(200, 40, 0x37415a, 0x2a3248));
     scene.add(buildModel());
-
     camera = new THREE.PerspectiveCamera(50, 1, 0.1, 2000);
     const p = params();
     orbit.ty = (p.plinth + p.floors * p.fh) / 2;
@@ -332,12 +523,8 @@
     const opInp = $("#v3op"); if (opInp) setOpacity(opInp.value / 100);
     resize(); loop();
   }
-
-  function closeViewer() {
-    open = false; cancelAnimationFrame(raf);
-    $("#view3d").classList.add("hidden");
-  }
-
+  function rebuild() { if (open) { closeViewer(); openViewer(); } }
+  function closeViewer() { open = false; cancelAnimationFrame(raf); $("#view3d").classList.add("hidden"); }
   function resize() {
     if (!renderer || !open) return;
     const holder = $("#view3d");
@@ -345,19 +532,16 @@
     renderer.setSize(w, h, false);
     camera.aspect = w / h; camera.updateProjectionMatrix();
   }
-
   function loop() {
     if (!open) return;
-    applyCam();
-    renderer.render(scene, camera);
+    applyCam(); renderer.render(scene, camera);
     raf = requestAnimationFrame(loop);
   }
-
   function setOpacity(v) {
     extMats.forEach(m => { m.opacity = v; m.transparent = true; m.needsUpdate = true; });
   }
 
-  /* ------------------------------------------------ mouse / touch orbit */
+  /* --------------------------------------------------- controls wiring */
   function wire() {
     const cv = $("#v3canvas"); if (!cv) return;
     let mode = 0, lx = 0, ly = 0, pinch = 0;
@@ -370,18 +554,18 @@
       const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY;
       if (mode === 1) {
         orbit.az += dx * 0.008;
-        orbit.el = Math.min(1.5, Math.max(-0.2, orbit.el + dy * 0.006));
+        orbit.el = Math.min(1.55, Math.max(-0.2, orbit.el + dy * 0.006));
       } else {
         const k = orbit.dist * 0.0016;
-        orbit.tx -= (Math.cos(orbit.az + Math.PI / 2)) * dx * k;
-        orbit.tz -= (Math.sin(orbit.az + Math.PI / 2)) * dx * k;
+        orbit.tx -= Math.cos(orbit.az + Math.PI / 2) * dx * k;
+        orbit.tz -= Math.sin(orbit.az + Math.PI / 2) * dx * k;
         orbit.ty += dy * k;
       }
     });
     addEventListener("mouseup", () => mode = 0);
     cv.addEventListener("wheel", e => {
       if (!open) return;
-      orbit.dist = Math.min(400, Math.max(10, orbit.dist * (e.deltaY > 0 ? 1.12 : 0.9)));
+      orbit.dist = Math.min(400, Math.max(8, orbit.dist * (e.deltaY > 0 ? 1.12 : 0.9)));
       e.preventDefault();
     }, { passive: false });
     cv.addEventListener("touchstart", e => {
@@ -398,11 +582,11 @@
         const dx = e.touches[0].clientX - lx, dy = e.touches[0].clientY - ly;
         lx = e.touches[0].clientX; ly = e.touches[0].clientY;
         orbit.az += dx * 0.008;
-        orbit.el = Math.min(1.5, Math.max(-0.2, orbit.el + dy * 0.006));
+        orbit.el = Math.min(1.55, Math.max(-0.2, orbit.el + dy * 0.006));
       } else if (mode === 3 && e.touches.length === 2) {
         const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY);
-        orbit.dist = Math.min(400, Math.max(10, orbit.dist * (pinch / (d || 1))));
+        orbit.dist = Math.min(400, Math.max(8, orbit.dist * (pinch / (d || 1))));
         pinch = d;
       }
       e.preventDefault();
@@ -410,14 +594,22 @@
     addEventListener("touchend", () => mode = 0);
     addEventListener("resize", resize);
 
-    const b = $("#btn3D"); if (b) b.onclick = openViewer;
-    const c = $("#v3close"); if (c) c.onclick = closeViewer;
-    const iso = $("#v3iso");
-    if (iso) iso.onclick = () => { orbit.az = -Math.PI / 4; orbit.el = Math.atan(1 / Math.sqrt(2)); };
+    const on = (id, fn, ev) => { const e = $(id); if (e) e[ev || "onclick"] = fn; };
+    on("#btn3D", openViewer);
+    on("#v3close", closeViewer);
+    on("#v3rebuild", rebuild);
+    on("#v3iso", () => { orbit.az = -Math.PI / 4; orbit.el = Math.atan(1 / Math.sqrt(2)); });
+    // TOP-2D: straight down, roof off — the working 2D view inside the model
+    on("#v3top", () => {
+      const r = $("#v3roof"); if (r) r.checked = false;
+      syncLayers();
+      orbit.az = -Math.PI / 2; orbit.el = 1.55;
+    });
     const op = $("#v3op");
     if (op) op.oninput = () => setOpacity(op.value / 100);
-    const rb = $("#v3rebuild");
-    if (rb) rb.onclick = () => { if (open) { closeViewer(); openViewer(); } };
+    ["#v3roof", "#v3furn", "#v3plumb", "#v3elec", "#v3floor"].forEach(id =>
+      on(id, syncLayers, "onchange"));
+    on("#v3para", rebuild, "onchange");
   }
 
   if (document.readyState === "loading") addEventListener("DOMContentLoaded", wire);

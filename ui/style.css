@@ -374,6 +374,11 @@ td.licell{color:var(--fg); font-size:12.5px; padding:7px 8px; text-transform:cap
 #view3d .v3-op{display:flex; align-items:center; gap:8px; font-size:12.5px;
   color:#aab4cd}
 #view3d .v3-op input{width:140px; accent-color:#6366f1}
+#view3d .v3-chk{display:flex; align-items:center; gap:5px; font-size:12.5px;
+  color:#aab4cd; white-space:nowrap}
+#view3d .v3-chk input[type=checkbox]{accent-color:#6366f1}
+#view3d .v3-chk select{background:#252d42; color:#e8ecf6; border:1px solid #39435f;
+  border-radius:6px; padding:2px 6px; font-size:12px}
 #view3d .v3-hint{margin-left:auto; font-size:12px; color:#7d88a6}
 #v3canvas{flex:1; width:100%; height:100%; display:block; touch-action:none}
 /* live alignment guide lines drawn while dragging */
