@@ -1015,6 +1015,11 @@ function buildHandles(info) {
       moveRect(x0, y0, w, h, { role: "box-move" });
       corners.forEach((c, i) => grip(c[0], c[1], "g-size", { role: "box-size", corner: i, centred }));
     }
+    // room LABEL grip: drag the name + size text anywhere (offset stored)
+    if (key === "rooms") {
+      const lx = ccx + (+it.label_dx || 0), ly = ccy + (+it.label_dy || 0);
+      grip(lx, ly, "g-move", { role: "label-move" });
+    }
     // ROTATE handle on the piece itself (furniture): a stalk off the top edge —
     // drag it round to turn the piece, snapping every 15°
     if (POSCFG[key] && POSCFG[key].rot === "angle") {
@@ -1054,6 +1059,10 @@ function applyDrag(d, mx, my) {
     it.angle = r4(a);
   }
   else if (sp.role === "elec-size") { it.size = r4(Math.max(0.5, 2 * Math.abs(mx - it.x))); }
+  else if (sp.role === "label-move") {           // room name/size text offset
+    it.label_dx = r4(mx - ((+it.x || 0) + (+it.w || 0) / 2));
+    it.label_dy = r4(my - ((+it.y || 0) + (+it.h || 0) / 2));
+  }
   else if (sp.role === "pipe-vertex") { const P = it.pts; if (P && P[sp.vi]) P[sp.vi] = [r4(snapX(mx)), r4(snapY(my))]; }
   else if (sp.role === "pipe-move") {
     const P = it.pts, IP = (I.pts || []); const dx = snapG(mx - d.gx), dy = snapG(my - d.gy);
@@ -1737,7 +1746,7 @@ const COLS = {
   ],
 };
 const BLANK = {
-  rooms: { name: "New room", x: 0, y: 0, w: 10, h: 10, size_label: "", open_area: false, void: false },
+  rooms: { name: "New room", x: 0, y: 0, w: 10, h: 10, size_label: "", open_area: false, void: false, label_dx: 0, label_dy: 0 },
   walls: { id: "W-N", x1: 0, y1: 0, x2: 10, y2: 0, thickness_in: 4, exterior: false, railing: false },
   openings: { type: "single_door", tag: "D", wall_id: "", pos: 1, width: 3, swing: { room: "", hinge: "start", side: "left" }, height_mm: 2100, sill_mm: 0, lintel_mm: 2100, count: 1 },
   columns: { tag: "C", shape: "square", x: 5, y: 5, w: 0.75, h: 0.75, room: "" },

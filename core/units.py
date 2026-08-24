@@ -32,7 +32,9 @@ def fmt_len(feet):
 
 
 import re as _re
-_FTIN = _re.compile(r"(\d+)\s*'\s*-?\s*(\d+)?\s*([½¼¾])?\s*\"")
+# matches 12'-6", 12'6", 7'-4½" AND bare feet like 8' (no inch part at all) —
+# labels written as "8' X 4'" must convert too, not just full feet-inch tokens
+_FTIN = _re.compile(r"(\d+)\s*'(?:\s*-?\s*(\d+)\s*([½¼¾])?\s*\")?")
 _FRAC = {"½": 0.5, "¼": 0.25, "¾": 0.75}
 
 

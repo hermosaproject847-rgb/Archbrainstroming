@@ -84,6 +84,10 @@ class Room:
     # shafts, ducts. Without this it counts as just another open area and the
     # walls enclosing it get stripped away.
     void: bool = False
+    # the room's NAME + SIZE label can be nudged off the centre (feet) when it
+    # overlaps furniture / stairs — dragged on the canvas, stored here
+    label_dx: float = 0.0
+    label_dy: float = 0.0
 
     @property
     def centre(self) -> tuple[float, float]:

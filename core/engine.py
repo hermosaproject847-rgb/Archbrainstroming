@@ -592,6 +592,9 @@ def draw_rooms(plan: Plan, dl: DrawList) -> None:
                       for s in plan.stairs)
         if rb.area > 0 and covered / rb.area > 0.5:
             cy = r.y - 1.0
+        # the user can drag the label off the centre (stored offset, feet)
+        cx += getattr(r, "label_dx", 0.0) or 0.0
+        cy += getattr(r, "label_dy", 0.0) or 0.0
         gap = 0.42 if r.size_label else 0.0
         dl.text(cx, cy + gap, r.name.upper(), h=0.62, layer="TEXT", bold=True)
         if r.size_label:
