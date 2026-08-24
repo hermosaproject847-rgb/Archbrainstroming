@@ -607,26 +607,74 @@ def _fmt_ft(v: float) -> str:      # noqa: F811 — one formatter for the sheet
     return units.fmt_len(v)
 
 
+def _fmt_dim(v: float) -> str:
+    """Dimension text the way the civil layout writes it: under a foot it is
+    inches only (9\", 4\"), otherwise feet-inches — short text crowds less."""
+    if v < 1.0 - 1e-6:
+        inch = v * 12.0
+        whole = int(inch + 1e-6)
+        frac = inch - whole
+        if frac >= 0.75:
+            whole += 1
+            frac = 0.0
+        half = "½" if 0.25 <= frac < 0.75 else ""
+        return f"{whole}{half}\""
+    return _fmt_ft(v)
+
+
+def _slash(dl: DrawList, x: float, y: float, horiz: bool) -> None:
+    """The architectural tick: a short 45-degree slash across the dim line."""
+    s = 0.18
+    dl.line(x - s, y - s, x + s, y + s, layer="DIM")
+
+
 def _dim_chain(dl: DrawList, ticks: list[float], base: float, horiz: bool) -> None:
-    """One dimension string: the line, its ticks, and the length text per bay."""
+    """One dimension string, drawn the way the civil layout draws it: a thin
+    line with a 45-degree slash tick at every station and the bay length over
+    each bay. A bay too narrow for its text lifts the text clear of the line
+    (staggered rows) so adjacent small figures never print over each other."""
     ticks = sorted(set(round(t, 4) for t in ticks))
-    # drop zero-length bays (coincident stations)
-    ticks = [t for i, t in enumerate(ticks) if i == 0 or t - ticks[i - 1] > 0.02]
+    # a hairline bay reads as noise — merge it into its neighbour
+    ticks = [t for i, t in enumerate(ticks) if i == 0 or t - ticks[i - 1] > 0.18]
     if len(ticks) < 2:
         return
+    H = 0.40                                 # text height, feet
     if horiz:
         dl.line(ticks[0], base, ticks[-1], base, layer="DIM")
         for t in ticks:
-            dl.line(t, base - 0.32, t, base + 0.32, layer="DIM")
+            _slash(dl, t, base, True)
+        row = 0
         for a, b in zip(ticks, ticks[1:]):
-            dl.text((a + b) / 2, base + 0.55, _fmt_ft(b - a), h=0.40, layer="DIM")
+            txt = _fmt_dim(b - a)
+            need = len(txt) * H * 0.62       # rough text width
+            if b - a >= need:
+                dl.text((a + b) / 2, base + 0.55, txt, h=H, layer="DIM")
+                row = 0
+            else:                            # narrow bay: lift the text clear,
+                row += 1                     # alternating rows so pairs never touch
+                ty = base + 0.55 + row * (H * 1.5)
+                dl.text((a + b) / 2, ty, txt, h=H * 0.9, layer="DIM")
+                dl.line((a + b) / 2, base + 0.18, (a + b) / 2, ty - 0.32, layer="DIM")
+                if row >= 2:
+                    row = 0
     else:
         dl.line(base, ticks[0], base, ticks[-1], layer="DIM")
         for t in ticks:
-            dl.line(base - 0.32, t, base + 0.32, t, layer="DIM")
+            _slash(dl, base, t, False)
+        row = 0
         for a, b in zip(ticks, ticks[1:]):
-            dl.text(base - 0.55, (a + b) / 2, _fmt_ft(b - a), h=0.40,
-                    layer="DIM", angle=90)
+            txt = _fmt_dim(b - a)
+            need = len(txt) * H * 0.62
+            if b - a >= need:
+                dl.text(base - 0.55, (a + b) / 2, txt, h=H, layer="DIM", angle=90)
+                row = 0
+            else:
+                row += 1
+                tx = base - 0.55 - row * (H * 1.5)
+                dl.text(tx, (a + b) / 2, txt, h=H * 0.9, layer="DIM", angle=90)
+                dl.line(base - 0.18, (a + b) / 2, tx + 0.32, (a + b) / 2, layer="DIM")
+                if row >= 2:
+                    row = 0
 
 
 def draw_dims(plan: Plan, dl: DrawList) -> None:
