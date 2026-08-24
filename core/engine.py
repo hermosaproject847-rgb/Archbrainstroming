@@ -695,12 +695,14 @@ def draw_dims(plan: Plan, dl: DrawList) -> None:
 
 
 def draw_auto_dims(plan: Plan, dl: DrawList) -> None:
-    """Automatic INTERNAL (clear, inner-face to inner-face) dimensions: for every
-    civil-layout convention: EVERY wall carries its own dimension chain right
-    beside it, measured INTERNAL FACE to INTERNAL FACE (span from the faces of
-    the perpendicular walls it meets), broken at every column face and every
-    door / window edge on that wall — so each bay, each opening width and each
-    column width reads as its own figure. Overall size on the top & right."""
+    """Automatic civil-layout dimensioning, done the way a working drawing is
+    actually dimensioned: all COLLINEAR walls on one line share ONE continuous
+    chain beside that line. The chain runs internal-face to internal-face and
+    breaks at (a) BOTH faces of every crossing wall — so the crossing wall's
+    thickness prints as its own 5"/9" figure, never an undimensioned gap,
+    (b) column faces, (c) every door / window edge on any wall of the line.
+    Collinear walls are never split at their own joints (a joint is not a
+    break unless a wall or column actually crosses there)."""
     OFF = 1.0
     x0, y0, x1, y1 = plan.extents()
     mx, my = (x0 + x1) / 2.0, (y0 + y1) / 2.0
@@ -708,36 +710,52 @@ def draw_auto_dims(plan: Plan, dl: DrawList) -> None:
     def half_ft(w):
         return (getattr(w, "thickness_in", 0) or 0) / 24.0   # half thickness, feet
 
+    # ---- group the walls into straight LINES (same orientation + centre-line)
+    lines: dict = {}
     for w in plan.walls:
         if getattr(w, "railing", False):
             continue
         horiz = abs(w.x2 - w.x1) >= abs(w.y2 - w.y1)
-        # run coordinates along the wall, cross coordinate of its centre-line
-        a, b = (w.x1, w.x2) if horiz else (w.y1, w.y2)
-        lo, hi = min(a, b), max(a, b)
         cross = (w.y1 + w.y2) / 2.0 if horiz else (w.x1 + w.x2) / 2.0
+        key = (horiz, round(cross * 4) / 4.0)     # collinear within 3"
+        lines.setdefault(key, []).append(w)
+
+    for (horiz, _), ws in lines.items():
+        cross = sum(((w.y1 + w.y2) if horiz else (w.x1 + w.x2)) / 2.0
+                    for w in ws) / len(ws)
+        runs = [(min(a, b), max(a, b)) for a, b in
+                (((w.x1, w.x2) if horiz else (w.y1, w.y2)) for w in ws)]
+        lo, hi = min(r[0] for r in runs), max(r[1] for r in runs)
         if hi - lo < 1.0:
             continue
-        # 1) span: pull each end IN to the face of the perpendicular wall there
+        exterior = any(getattr(w, "exterior", False) for w in ws)
+
+        # 1) crossing walls: pull the ENDS in to their inner faces; a crossing
+        #    wall INSIDE the run adds both its faces (its thickness = a figure)
         span0, span1 = lo, hi
+        inner_faces = []
         for o in plan.walls:
-            if o is w or getattr(o, "railing", False):
+            if o in ws or getattr(o, "railing", False):
                 continue
             o_horiz = abs(o.x2 - o.x1) >= abs(o.y2 - o.y1)
             if o_horiz == horiz:
-                continue                              # parallel — not an end wall
+                continue
             oc = (o.x1 + o.x2) / 2.0 if horiz else (o.y1 + o.y2) / 2.0
-            # the perpendicular wall must actually cross this wall's line
             plo, phi = (min(o.y1, o.y2), max(o.y1, o.y2)) if horiz \
                 else (min(o.x1, o.x2), max(o.x1, o.x2))
-            if not (plo - 0.6 <= cross <= phi + 0.6):
-                continue
+            if not (plo - 0.4 <= cross <= phi + 0.4):
+                continue                              # does not touch this line
             if abs(oc - lo) < 0.6:
                 span0 = max(span0, oc + half_ft(o))
-            if abs(oc - hi) < 0.6:
+            elif abs(oc - hi) < 0.6:
                 span1 = min(span1, oc - half_ft(o))
+            elif lo + 0.6 < oc < hi - 0.6:
+                inner_faces.append((oc - half_ft(o), oc + half_ft(o)))
         ticks = [span0, span1]
-        # 2) column faces on this wall
+
+        # 2) columns on the line — their faces break the chain; a crossing
+        #    wall face buried inside a column is dropped (the column governs)
+        col_iv = []
         for c in plan.columns:
             ccross = c.y if horiz else c.x
             calong = c.x if horiz else c.y
@@ -745,21 +763,30 @@ def draw_auto_dims(plan: Plan, dl: DrawList) -> None:
                 continue
             if not (lo - 0.6 <= calong <= hi + 0.6):
                 continue
-            chw = (getattr(c, "w", 0) if horiz else getattr(c, "h", 0)) or 0
-            chw = chw / 2.0
+            chw = ((getattr(c, "w", 0) if horiz else getattr(c, "h", 0)) or 0) / 2.0
+            col_iv.append((calong - chw, calong + chw))
             for t in (calong - chw, calong + chw):
                 if span0 - 0.05 <= t <= span1 + 0.05:
                     ticks.append(min(max(t, span0), span1))
-        # 3) door / window edges on this wall
-        L = math.hypot(w.x2 - w.x1, w.y2 - w.y1) or 1e-6
-        ux, uy = (w.x2 - w.x1) / L, (w.y2 - w.y1) / L
-        for o in plan.openings:
-            if o.wall_id != w.id:
-                continue
-            for d in (o.pos, o.pos + o.width):
-                t = (w.x1 + ux * d) if horiz else (w.y1 + uy * d)
+        for f0, f1 in inner_faces:
+            for t in (f0, f1):
+                if any(iv[0] - 0.05 <= t <= iv[1] + 0.05 for iv in col_iv):
+                    continue                          # inside a column
                 if span0 - 0.05 <= t <= span1 + 0.05:
-                    ticks.append(min(max(t, span0), span1))
+                    ticks.append(t)
+
+        # 3) door / window edges on ANY wall of this line
+        for w in ws:
+            L = math.hypot(w.x2 - w.x1, w.y2 - w.y1) or 1e-6
+            ux, uy = (w.x2 - w.x1) / L, (w.y2 - w.y1) / L
+            for o in plan.openings:
+                if o.wall_id != w.id:
+                    continue
+                for d in (o.pos, o.pos + o.width):
+                    t = (w.x1 + ux * d) if horiz else (w.y1 + uy * d)
+                    if span0 - 0.05 <= t <= span1 + 0.05:
+                        ticks.append(min(max(t, span0), span1))
+
         # merge near-coincident ticks so hairline segments never print
         ticks = sorted(set(round(t, 3) for t in ticks))
         merged = []
@@ -768,8 +795,8 @@ def draw_auto_dims(plan: Plan, dl: DrawList) -> None:
                 merged.append(t)
         if len(merged) < 2:
             continue
-        # 4) the chain sits just OFF the wall, on its OUTER side (away from the
-        #    middle of the plan) so it never lands inside the room text
+        # 4) the chain sits just OFF the line — exterior lines on the OUTSIDE
+        #    of the building, internal lines on the side away from plan centre
         if horiz:
             base = cross + OFF if cross >= my else cross - OFF
         else:
