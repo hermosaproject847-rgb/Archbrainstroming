@@ -11,7 +11,7 @@
 
   const MM = 1 / 304.8;
   let renderer = null, scene = null, camera = null, raf = 0, open = false;
-  let extMats = [];
+  let extMats = [], intMats = [];
   let G = {};                                // named groups (toggle layers)
   const orbit = { az: -0.9, el: 0.55, dist: 90, tx: 0, ty: 6, tz: 0 };
   const $ = s => document.querySelector(s);
@@ -100,9 +100,11 @@
   function mats() {
     const ext = new THREE.MeshLambertMaterial({ color: 0xd9cfbf, transparent: true, opacity: 1 });
     extMats.push(ext);
+    const int_ = new THREE.MeshLambertMaterial({ color: 0xece6da, transparent: true, opacity: 1 });
+    intMats.push(int_);
     return {
       ext,
-      int_: new THREE.MeshLambertMaterial({ color: 0xece6da }),
+      int_,
       conc: new THREE.MeshLambertMaterial({ color: 0x99a0a8 }),
       slab: new THREE.MeshLambertMaterial({ color: 0xc7cbd1 }),
       glass: new THREE.MeshLambertMaterial({ color: 0x9ec8e8, transparent: true, opacity: 0.45 }),
@@ -369,19 +371,25 @@
         const hgt = k === "wardrobe" ? 6.6 : (k === "sideboard" ? 2.8 : 3.2);
         const body = lam(0x77573a), panel = lam(0x8a6844);
         lb(w, h, hgt, 0, 0, hgt / 2, body);
-        // door split + handles on the FRONT (opposite the back)
+        // SHUTTERS at the standard 450–500 mm module: an 8'-6" wardrobe gets
+        // 5–6 doors, never just 2. Handles pair up at the meeting stiles.
         const fx = -back[0], fy = -back[1];
         const runW = Math.abs(fx) ? h : w;
-        for (const s of [-1, 1])
-          lb(Math.abs(fx) ? 0.06 : runW / 2 - 0.15,
-            Math.abs(fx) ? runW / 2 - 0.15 : 0.06, hgt - 0.2,
-            fx * (w / 2 + 0.03) + (Math.abs(fx) ? 0 : s * runW / 4),
-            fy * (h / 2 + 0.03) + (Math.abs(fy) ? 0 : s * runW / 4),
+        const nSh = Math.max(2, Math.round(runW / 1.55));   // ≈ 475 mm module
+        const shW = runW / nSh;
+        for (let i2 = 0; i2 < nSh; i2++) {
+          const off = -runW / 2 + shW * (i2 + 0.5);
+          lb(Math.abs(fx) ? 0.06 : shW - 0.12,
+            Math.abs(fx) ? shW - 0.12 : 0.06, hgt - 0.2,
+            fx * (w / 2 + 0.03) + (Math.abs(fx) ? 0 : off),
+            fy * (h / 2 + 0.03) + (Math.abs(fy) ? 0 : off),
             hgt / 2, panel);
-        for (const s of [-1, 1])
-          lc(0.05, 0.8, fx * (w / 2 + 0.1) + (Math.abs(fx) ? 0 : s * 0.35),
-            fy * (h / 2 + 0.1) + (Math.abs(fy) ? 0 : s * 0.35),
+          // handle near the meeting edge, alternating so pairs face each other
+          const hOff = off + (i2 % 2 === 0 ? 1 : -1) * (shW / 2 - 0.18);
+          lc(0.045, 0.8, fx * (w / 2 + 0.1) + (Math.abs(fx) ? 0 : hOff),
+            fy * (h / 2 + 0.1) + (Math.abs(fy) ? 0 : hOff),
             hgt * 0.5, lam(0x2e2e2e));
+        }
       } else if (k === "tv_unit") {
         lb(w, h, 1.5, 0, 0, 0.75, lam(0x4a4f58));                 // cabinet
         lb(back[0] ? 0.15 : w * 0.8, back[0] ? h * 0.8 : 0.15, 2.4, // screen
@@ -468,10 +476,13 @@
       // finished floor, it ends there and never shows above; outside the wet
       // zone it runs at ground level to the chambers. Wet-room supply is the
       // low concealed band; dry-area supply is at the ceiling with drops.
+      // EVERY pipe inside a wet room — supply or drainage — lies in the SUNK,
+      // below the finished floor; nothing shows above the flooring there.
+      // Dry-area supply runs at the ceiling; dry drainage at ground level.
       const segZ = (a, b) => {
-        if (supply) return allWet ? z0 + 1.5 : z0 + fh - 0.8;
         const midx = (a[0] + b[0]) / 2, midy = (a[1] + b[1]) / 2;
-        return inWet(midx, midy) ? z0 - 0.25 : z0 + 0.2;
+        if (inWet(midx, midy)) return z0 - 0.25;
+        return supply ? z0 + fh - 0.8 : z0 + 0.2;
       };
       let prevZ = null;
       for (let i = 0; i < P.length - 1; i++) {
@@ -493,14 +504,13 @@
       // PIPE DROPS: only where a CEILING-run supply arrives at a wet/fixture
       // point does it drop down — never a pipe rising out of a fixture
       if (supply && !allWet) {
+        // where a ceiling run reaches the wet zone it DROPS straight down into
+        // the sunk (below FFL) — never left hanging above the flooring
         const zTop = z0 + fh - 0.8;
         for (const e of [P[0], P[P.length - 1]]) {
           if (!inWet(e[0], e[1])) continue;          // the source end stays up
-          const d = cylBetween(e[0], e[1], zTop, e[0], e[1], z0 + 1.5, rad * 0.9, mat);
+          const d = cylBetween(e[0], e[1], zTop, e[0], e[1], z0 - 0.25, rad * 0.9, mat);
           if (d) g.add(d);
-          const cap = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.1, 10, 10), mat);
-          cap.position.set(e[0], z0 + 1.5, -e[1]);
-          g.add(cap);
         }
       }
     }
@@ -526,6 +536,31 @@
   function addElec(g, plan, z0, fh) {
     const ceil = z0 + fh - 0.15;
     const conduit = new THREE.MeshLambertMaterial({ color: 0xff8c1a });
+    // a conduit can never drop THROUGH a window — if the vertical run at (x,y)
+    // would cross a window on that wall, shift the drop beside the window
+    // (0.5 ft clear of the jamb) and connect horizontally at the fitting level
+    const windowDodge = (x, y, zLowAbs) => {
+      for (const w of (plan.walls || [])) {
+        const L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) || 1e-6;
+        const ux = (w.x2 - w.x1) / L, uy = (w.y2 - w.y1) / L;
+        const dx = x - w.x1, dy = y - w.y1;
+        const t = dx * ux + dy * uy;
+        const d = Math.abs(dx * -uy + dy * ux);
+        if (d > 0.9 || t < -0.2 || t > L + 0.2) continue;
+        for (const o of (plan.openings || [])) {
+          if (o.wall_id !== w.id || !/win/i.test(o.type || "")) continue;
+          const a = o.pos, b = o.pos + (o.width || 3);
+          if (t < a - 0.3 || t > b + 0.3) continue;
+          const sill = z0 + ((+o.sill_mm || 900) * MM);
+          const head = sill + ((+o.height_mm || 1200) * MM);
+          if (zLowAbs >= head) continue;        // run starts above the head — clear
+          const tSide = (t - a < b - t) ? a - 0.5 : b + 0.5;
+          const ts = Math.max(0.15, Math.min(L - 0.15, tSide));
+          return { x: w.x1 + ux * ts, y: w.y1 + uy * ts };
+        }
+      }
+      return null;
+    };
     const byTag = {};
     (plan.elec || []).forEach(p => { if (p.tag) byTag[p.tag] = p; });
     for (const p of (plan.elec || [])) {
@@ -534,31 +569,65 @@
       if (code === "SB" || code === "DB") {          // board plate at its height
         const hz = ((+p.height_mm || 1200) * MM);
         g.add(box(0.8, 0.25, 0.5, p.x, p.y, z0 + hz, new THREE.MeshLambertMaterial({ color: 0xf5f2ea })));
-        // conduit: board → up to ceiling → along ceiling to each controlled fitting
-        const up = cylBetween(p.x, p.y, z0 + hz, p.x, p.y, ceil, 0.05, conduit);
+        // conduit: board → up to ceiling → along ceiling to each controlled
+        // fitting. If a window sits above the board, the riser side-steps it.
+        const dg = windowDodge(p.x, p.y, z0 + hz);
+        const rx = dg ? dg.x : p.x, ry = dg ? dg.y : p.y;
+        if (dg) {
+          const side = cylBetween(p.x, p.y, z0 + hz, rx, ry, z0 + hz, 0.05, conduit);
+          if (side) g.add(side);
+        }
+        const up = cylBetween(rx, ry, z0 + hz, rx, ry, ceil, 0.05, conduit);
         if (up) g.add(up);
         (p.controls || []).forEach(tg => {
           const q = byTag[tg]; if (!q) return;
-          const run = cylBetween(p.x, p.y, ceil, q.x, q.y, ceil, 0.05, conduit);
+          const run = cylBetween(rx, ry, ceil, q.x, q.y, ceil, 0.05, conduit);
           if (run) g.add(run);
         });
-      } else if (code === "CF") {                    // ceiling fan: rod + blades
-        const rod = cylBetween(p.x, p.y, ceil, p.x, p.y, ceil - 1.0, 0.06,
-          new THREE.MeshLambertMaterial({ color: 0x777d88 }));
-        if (rod) g.add(rod);
-        for (let k = 0; k < 3; k++) {
-          const a = k * 2.094;
-          const bl = box(1.8, 0.35, 0.06, p.x + Math.cos(a) * 0.95,
-            p.y + Math.sin(a) * 0.95, ceil - 1.0,
-            new THREE.MeshLambertMaterial({ color: 0x8a919c }));
-          bl.rotation.y = -a;
-          g.add(bl);
+      } else if (code === "CF") {                    // ceiling fan — one solid unit
+        const fan = new THREE.Group();
+        const grey = new THREE.MeshLambertMaterial({ color: 0x8a919c });
+        const dark = new THREE.MeshLambertMaterial({ color: 0x6b727d });
+        const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.0, 10), dark);
+        rod.position.y = -0.5;
+        fan.add(rod);
+        const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.22, 14), dark);
+        hub.position.y = -1.0;
+        fan.add(hub);
+        const sweep = Math.max(3.2, (+p.size || 4.6));
+        for (let k = 0; k < 3; k++) {                // blades HELD BY the hub
+          const arm = new THREE.Group();
+          const bl = new THREE.Mesh(new THREE.BoxGeometry(sweep / 2 - 0.2, 0.05, 0.5), grey);
+          bl.position.x = 0.25 + (sweep / 2 - 0.2) / 2;   // root at the hub
+          arm.add(bl);
+          arm.rotation.y = k * 2.0944;
+          arm.position.y = -1.0;
+          fan.add(arm);
         }
-      } else if (code === "AC") {                    // wall unit
-        const m = box(3.2, 0.7, 0.9, p.x, p.y, z0 + ((+p.height_mm || 2175) * MM),
-          new THREE.MeshLambertMaterial({ color: 0xf2f4f7 }));
-        if (+p.angle) m.rotation.y = (+p.angle) * Math.PI / 180;
-        g.add(m);
+        fan.position.set(p.x, ceil, -p.y);
+        g.add(fan);
+      } else if (code === "AC") {                    // high-wall SPLIT unit
+        const ac = new THREE.Group();
+        const body = new THREE.MeshLambertMaterial({ color: 0xf4f6f8 });
+        const grill = new THREE.MeshLambertMaterial({ color: 0xc9ced4 });
+        const shell = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.95, 0.72), body);
+        ac.add(shell);
+        for (let k = 0; k < 4; k++) {                // front grille slats
+          const sl = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.05, 0.02), grill);
+          sl.position.set(0, 0.25 - k * 0.16, 0.37);
+          ac.add(sl);
+        }
+        const flap = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.12, 0.2), grill);
+        flap.position.set(0, -0.46, 0.32);
+        flap.rotation.x = 0.6;                       // open outlet flap
+        ac.add(flap);
+        const led = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.1, 0.02),
+          new THREE.MeshLambertMaterial({ color: 0x2e7d32 }));
+        led.position.set(1.1, 0.05, 0.37);
+        ac.add(led);
+        ac.position.set(p.x, z0 + ((+p.height_mm || 2175) * MM) + 0.45, -p.y);
+        ac.rotation.y = ((+p.angle || 0)) * Math.PI / 180;
+        g.add(ac);
       } else {                                       // any light: warm disc
         const d = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.1, 14),
           new THREE.MeshLambertMaterial({ color: 0xffd76a }));
@@ -655,10 +724,28 @@
           }
           return spans;
         };
-        strip(cutDoors(r.x + 0.2, r.x + r.w - 0.2, true, r.y), true, r.y, 0.2);
-        strip(cutDoors(r.x + 0.2, r.x + r.w - 0.2, true, r.y + r.h), true, r.y + r.h, -0.2);
-        strip(cutDoors(r.y + 0.2, r.y + r.h - 0.2, false, r.x), false, r.x, 0.2);
-        strip(cutDoors(r.y + 0.2, r.y + r.h - 0.2, false, r.x + r.w), false, r.x + r.w, -0.2);
+        // WET rooms get full wall TILE DADO up to 7 ft (doors cut out) instead
+        // of a skirting strip — exactly how a toilet is actually finished
+        const isWetRoom = /toilet|bath|w\.?c|wash/i.test(r.name || "");
+        const dadoH = 2100 * MM;
+        const dado = (spans, horiz, edgeC, off) => {
+          for (const [a, b] of spans) {
+            if (b - a < 0.3) continue;
+            const dt = floorTex("tile").clone();
+            dt.needsUpdate = true;
+            dt.repeat.set(Math.max(1, (b - a) / 2), Math.max(1, dadoH / 2));
+            const dm = new THREE.MeshLambertMaterial({ map: dt });
+            if (horiz)
+              g.add(box(b - a, 0.06, dadoH, (a + b) / 2, edgeC + off, z0 + dadoH / 2, dm));
+            else
+              g.add(box(0.06, b - a, dadoH, edgeC + off, (a + b) / 2, z0 + dadoH / 2, dm));
+          }
+        };
+        const line = isWetRoom ? dado : strip;
+        line(cutDoors(r.x + 0.2, r.x + r.w - 0.2, true, r.y), true, r.y, 0.2);
+        line(cutDoors(r.x + 0.2, r.x + r.w - 0.2, true, r.y + r.h), true, r.y + r.h, -0.2);
+        line(cutDoors(r.y + 0.2, r.y + r.h - 0.2, false, r.x), false, r.x, 0.2);
+        line(cutDoors(r.y + 0.2, r.y + r.h - 0.2, false, r.x + r.w), false, r.x + r.w, -0.2);
         // skirting wraps AROUND every column standing in this room
         for (const c of (plan.columns || [])) {
           if (c.x < r.x - 0.2 || c.x > r.x + r.w + 0.2 ||
@@ -712,14 +799,15 @@
 
   /* --------------------------------------------------------- the model */
   function buildModel() {
-    extMats = [];
+    extMats = []; intMats = [];
     const M = mats();
     const P = params();
     const root = new THREE.Group();
     const base = S.plan; if (!base) return root;
     G = { walls: new THREE.Group(), roof: new THREE.Group(), struct: new THREE.Group(),
       stairs: new THREE.Group(), floor: new THREE.Group(), furn: new THREE.Group(),
-      plumb: new THREE.Group(), elec: new THREE.Group(), top: new THREE.Group() };
+      plumb: new THREE.Group(), elec: new THREE.Group(), top: new THREE.Group(),
+      mumty: new THREE.Group() };
 
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
     (base.walls || []).forEach(w => {
@@ -780,34 +868,35 @@
           const mz = z0 + H + P.slab, mh = 2450 * MM, mt = 0.4;
           const alongX = (st.run_axis || "x") === "x";
           const dirUp = (st.up_from === "left" || st.up_from === "bottom") ? 1 : -1;
+          const Bst = alongX ? st.h : st.w;
+          const fwM = (st.type === "U3") ? Math.min(4.0, Bst * 0.34) : Bst / 2;
+          const doorC = fwM / 2;                     // door centred on the
+          const doorW = 3;                           // ARRIVAL (bottom) band
           const wallStrip = (wx0, wy0, wx1, wy1) => {
             const Lw = Math.hypot(wx1 - wx0, wy1 - wy0); if (Lw < 0.2) return;
             const m = box(Lw, mt, mh, (wx0 + wx1) / 2, (wy0 + wy1) / 2, mz + mh / 2, M.ext);
             m.rotation.y = Math.atan2(-(wy1 - wy0), (wx1 - wx0));
-            G.roof.add(m);
+            G.mumty.add(m);
           };
-          // arrival side = where the return flight lands: the NEAR end, on the
-          // half nearer the origin — leave a 3 ft door gap there
           const sx0 = st.x, sy0 = st.y, sx1 = st.x + st.w, sy1 = st.y + st.h;
-          const doorW = 3;
           if (alongX) {
-            const du = dirUp > 0 ? sx0 : sx1;         // near end x
-            wallStrip(sx0, sy1, sx1, sy1);            // both long walls solid
+            const du = dirUp > 0 ? sx0 : sx1;        // near end x (arrival side)
+            wallStrip(sx0, sy1, sx1, sy1);
             wallStrip(sx0, sy0, sx1, sy0);
-            wallStrip(du, sy0, du, sy0 + (sy1 - sy0) / 2 - doorW / 2);
-            wallStrip(du, sy0 + (sy1 - sy0) / 2 + doorW / 2, du, sy1);
+            wallStrip(du, sy0, du, sy0 + Math.max(0, doorC - doorW / 2));
+            wallStrip(du, sy0 + doorC + doorW / 2, du, sy1);
             const far = dirUp > 0 ? sx1 : sx0;
             wallStrip(far, sy0, far, sy1);
           } else {
             const du = dirUp > 0 ? sy0 : sy1;
             wallStrip(sx0, sy0, sx0, sy1);
             wallStrip(sx1, sy0, sx1, sy1);
-            wallStrip(sx0, du, sx0 + (sx1 - sx0) / 2 - doorW / 2, du);
-            wallStrip(sx0 + (sx1 - sx0) / 2 + doorW / 2, du, sx1, du);
+            wallStrip(sx0, du, sx0 + Math.max(0, doorC - doorW / 2), du);
+            wallStrip(sx0 + doorC + doorW / 2, du, sx1, du);
             const far = dirUp > 0 ? sy1 : sy0;
             wallStrip(sx0, far, sx1, far);
           }
-          G.roof.add(box(st.w + 1.2, st.h + 1.2, P.slab,
+          G.mumty.add(box(st.w + 1.2, st.h + 1.2, P.slab,
             (sx0 + sx1) / 2, (sy0 + sy1) / 2, mz + mh + P.slab / 2, M.slab));
         }
       }
@@ -832,9 +921,14 @@
     if (!G.walls) return;
     G.roof.visible = on("#v3roof");
     G.top.visible = on("#v3roof");
+    if (G.mumty) G.mumty.visible = on("#v3roof") && on("#v3mumty");
     G.furn.visible = on("#v3furn");
     G.plumb.visible = on("#v3plumb");
-    G.elec.visible = on("#v3elec");
+    const elecOn = on("#v3elec");
+    G.elec.visible = elecOn;
+    // conduits are CONCEALED in the walls — turning the electrical layer on
+    // fades the internal walls so the runs read INSIDE them, never outside
+    intMats.forEach(m => { m.opacity = elecOn ? 0.3 : 1; m.needsUpdate = true; });
     G.floor.visible = on("#v3floor");
   }
 
@@ -974,7 +1068,7 @@
     });
     const op = $("#v3op");
     if (op) op.oninput = () => setOpacity(op.value / 100);
-    ["#v3roof", "#v3furn", "#v3plumb", "#v3elec", "#v3floor"].forEach(id =>
+    ["#v3roof", "#v3mumty", "#v3furn", "#v3plumb", "#v3elec", "#v3floor"].forEach(id =>
       on(id, syncLayers, "onchange"));
     on("#v3para", rebuild, "onchange");
   }
