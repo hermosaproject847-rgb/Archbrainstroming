@@ -48,17 +48,26 @@
       glass: new THREE.MeshLambertMaterial({ color: 0x9ec8e8, transparent: true, opacity: 0.45 }),
       step: new THREE.MeshLambertMaterial({ color: 0xb9b2a4 }),
       door: new THREE.MeshLambertMaterial({ color: 0x8a5a34 }),
+      frame: new THREE.MeshLambertMaterial({ color: 0x5f4630 }),
+      chajja: new THREE.MeshLambertMaterial({ color: 0xb9bec6 }),
     };
   }
 
-  /* one wall, its doors/windows CUT OUT (under-sill + over-lintel pieces) */
-  function addWall(g, plan, w, z0, H, P, M) {
+  /* one wall, its doors/windows CUT OUT, each opening fully detailed: frame,
+     mullions + transom, glass, an outside CHAJJA (sunshade) at the lintel and
+     a small projecting sill — the way the real elevation reads. */
+  function addWall(g, plan, w, z0, H, P, M, cxAll, cyAll) {
     const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
     const L = Math.hypot(dx, dy); if (L < 0.05) return;
     const ux = dx / L, uy = dy / L;
     const t = ((+w.thickness_in || 5) / 12);
     const mat = w.exterior ? M.ext : M.int_;
     const ang = Math.atan2(-uy, ux);          // three-space yaw (z = -y)
+    // outward plan normal (away from the building centre) for chajja / sill
+    let nx = -uy, ny = ux;
+    const mxw = (w.x1 + w.x2) / 2, myw = (w.y1 + w.y2) / 2;
+    if ((mxw + nx - cxAll) ** 2 + (myw + ny - cyAll) ** 2 <
+        (mxw - nx - cxAll) ** 2 + (myw - ny - cyAll) ** 2) { nx = -nx; ny = -ny; }
 
     const ops = (plan.openings || [])
       .filter(o => o.wall_id === w.id)
@@ -75,26 +84,67 @@
       .filter(o => o.b - o.a > 0.05)
       .sort((p1, p2) => p1.a - p2.a);
 
-    const put = (a, b, zz0, zz1, m) => {
-      if (b - a < 0.02 || zz1 - zz0 < 0.02) return;
+    // an axis-aligned-in-wall box: `a..b` along the wall, cross-thickness ct
+    // centred `off` outward of the wall centre-line, zz0..zz1 up
+    const wob = (a, b, zz0, zz1, ct, off, m) => {
+      if (b - a < 0.015 || zz1 - zz0 < 0.015) return null;
       const mid = (a + b) / 2;
-      const mesh = box(b - a, t, zz1 - zz0,
-        w.x1 + ux * mid, w.y1 + uy * mid, z0 + (zz0 + zz1) / 2, m);
+      const mesh = box(b - a, ct, zz1 - zz0,
+        w.x1 + ux * mid + nx * off, w.y1 + uy * mid + ny * off,
+        z0 + (zz0 + zz1) / 2, m);
       mesh.rotation.y = ang;
       g.add(mesh);
+      return mesh;
     };
+    const put = (a, b, zz0, zz1, m) => wob(a, b, zz0, zz1, t, 0, m);
 
     let cur = 0;
     for (const o of ops) {
       put(cur, o.a, 0, H, mat);
+      const head = Math.min(o.head, H);
       if (o.sill > 0.05) put(o.a, o.b, 0, Math.min(o.sill, H), mat);
-      if (o.head < H - 0.05) put(o.a, o.b, Math.min(o.head, H), H, mat);
-      if (o.win) {                         // glass pane in the hole
+      if (head < H - 0.05) put(o.a, o.b, head, H, mat);
+
+      const fw = 0.16, ft2 = t * 0.55;          // frame member size / depth
+      if (o.win) {
+        // FRAME: head + sill members and both jambs
+        wob(o.a, o.b, o.sill, o.sill + fw, ft2, 0, M.frame);
+        wob(o.a, o.b, head - fw, head, ft2, 0, M.frame);
+        wob(o.a, o.a + fw, o.sill, head, ft2, 0, M.frame);
+        wob(o.b - fw, o.b, o.sill, head, ft2, 0, M.frame);
+        // GLASS inside the frame
+        wob(o.a + fw, o.b - fw, o.sill + fw, head - fw, t * 0.18, 0, M.glass);
+        // MULLIONS every ~2.5 ft + a transom above mid-height
+        const wSpan = o.b - o.a - 2 * fw;
+        const nMul = Math.max(0, Math.round(wSpan / 2.5) - 1);
+        for (let k = 1; k <= nMul; k++) {
+          const mx2 = o.a + fw + wSpan * k / (nMul + 1);
+          wob(mx2 - 0.05, mx2 + 0.05, o.sill + fw, head - fw, ft2 * 0.8, 0, M.frame);
+        }
+        if (head - o.sill > 3.2)
+          wob(o.a + fw, o.b - fw, (o.sill + head) / 2 - 0.05,
+              (o.sill + head) / 2 + 0.05, ft2 * 0.8, 0, M.frame);
+        // projecting SILL ledge outside
+        if (w.exterior)
+          wob(o.a - 0.2, o.b + 0.2, o.sill - 0.2, o.sill, 0.25,
+              t / 2 + 0.125, M.chajja);
+      } else {
+        // DOOR: frame + a solid leaf
+        wob(o.a, o.a + fw, 0, head, ft2, 0, M.frame);
+        wob(o.b - fw, o.b, 0, head, ft2, 0, M.frame);
+        wob(o.a, o.b, head - fw, head, ft2, 0, M.frame);
+        wob(o.a + fw, o.b - fw, 0.02, head - fw, t * 0.3, 0, M.door);
+      }
+      // CHAJJA — RCC sunshade projecting OUTSIDE over every exterior opening
+      if (w.exterior) {
+        const proj = 1.5, thk = 0.3;
         const mid = (o.a + o.b) / 2;
-        const gl = box(o.b - o.a, t * 0.25, Math.max(0.1, Math.min(o.head, H) - o.sill),
-          w.x1 + ux * mid, w.y1 + uy * mid, z0 + (o.sill + Math.min(o.head, H)) / 2, M.glass);
-        gl.rotation.y = ang;
-        g.add(gl);
+        const ch = box((o.b - o.a) + 0.8, proj, thk,
+          w.x1 + ux * mid + nx * (t / 2 + proj / 2),
+          w.y1 + uy * mid + ny * (t / 2 + proj / 2),
+          z0 + head + thk / 2, M.chajja);
+        ch.rotation.y = ang;
+        g.add(ch);
       }
       cur = o.b;
     }
@@ -102,18 +152,83 @@
   }
 
   function addStairs(g, plan, z0, rise, M) {
+    // u = distance ALONG the run axis, v = across it; both from the stair's
+    // (x, y) corner. One helper maps (u, v, sizes) back to world so every
+    // flight/landing reads the same whichever way the stair runs.
     for (const s of (plan.stairs || [])) {
       const alongX = (s.run_axis || "x") === "x";
-      const run = alongX ? s.w : s.h;
-      const breadth = alongX ? s.h : s.w;
-      const n = Math.max(8, (+s.steps_f1 || 0) + (+s.steps_f2 || 0) + (+s.steps_f3 || 0) || 15);
-      const tread = run / n, riser = rise / n;
-      for (let i = 0; i < n; i++) {
-        const a = i * tread;
-        const cx = alongX ? s.x + a + tread / 2 : s.x + s.w / 2;
-        const cy = alongX ? s.y + s.h / 2 : s.y + a + tread / 2;
-        g.add(box(alongX ? tread : breadth, alongX ? breadth : tread,
-          (i + 1) * riser, cx, cy, z0 + (i + 1) * riser / 2, M.step));
+      const W = alongX ? s.w : s.h;              // along the run
+      const B = alongX ? s.h : s.w;              // across (breadth)
+      const put = (u, v, du, dvv, zc, hz) => {
+        const cx = alongX ? s.x + u + du / 2 : s.x + v + dvv / 2;
+        const cy = alongX ? s.y + v + dvv / 2 : s.y + u + du / 2;
+        g.add(box(alongX ? du : dvv, alongX ? dvv : du, hz, cx, cy, zc, M.step));
+      };
+      const typ = s.type || "straight";
+      const dirUp = (s.up_from === "left" || s.up_from === "bottom") ? 1 : -1;
+
+      // one stepped flight along u: from u0 (level zlo) to u0+len·sign (zhi)
+      const flight = (u0, len, sign, v0, bw, zlo, zhi, n) => {
+        n = Math.max(2, n | 0);
+        const tr = len / n, rs = (zhi - zlo) / n;
+        for (let i = 0; i < n; i++) {
+          // solid step block: from its tread level down ~2 risers
+          const zTop = zlo + (i + 1) * rs;
+          const blockH = Math.min(zTop - z0 + 0.01, rs * 2.2);
+          const uu = sign > 0 ? u0 + i * tr : u0 - (i + 1) * tr;
+          const cxu = alongX ? s.x + uu + tr / 2 : s.x + v0 + bw / 2;
+          const cyu = alongX ? s.y + v0 + bw / 2 : s.y + uu + tr / 2;
+          g.add(box(alongX ? tr : bw, alongX ? bw : tr, blockH,
+            cxu, cyu, zTop - blockH / 2, M.step));
+        }
+      };
+      const landing = (u0, len, v0, bw, zlv) => {
+        const th = 0.5;
+        const cxu = alongX ? s.x + u0 + len / 2 : s.x + v0 + bw / 2;
+        const cyu = alongX ? s.y + v0 + bw / 2 : s.y + u0 + len / 2;
+        g.add(box(alongX ? len : bw, alongX ? bw : len, th, cxu, cyu,
+          zlv - th / 2, M.step));
+      };
+
+      if (typ === "U" || typ === "U3" || typ === "L") {
+        // TWO flights side by side (each half the breadth), landings at the
+        // far end, the U3's short middle flight crossing between the halves —
+        // the same arrangement the plan draws.
+        const land = Math.min(Math.max(+s.landing_size || 3, 2.5), W * 0.45);
+        const runLen = W - land;
+        const half = B / 2;
+        const n1 = +s.steps_f1 || 8;
+        const n2 = +s.steps_f2 || n1;
+        const nm = typ === "U3" ? Math.max(1, +s.steps_f3 || 2) : 0;
+        const tot = Math.max(1, n1 + n2 + nm);
+        const z1 = z0 + rise * n1 / tot;              // after flight 1
+        const z2 = z0 + rise * (n1 + nm) / tot;       // after the mid flight
+        const vA = half, vB = 0;                       // flight1 top half, return bottom
+        const uNear = dirUp > 0 ? 0 : W;
+        const uFar = dirUp > 0 ? runLen : land;        // landing zone start
+        // flight 1: near → far on half A
+        flight(dirUp > 0 ? 0 : W, runLen, dirUp, vA, half, z0, z1, n1);
+        landing(dirUp > 0 ? runLen : 0, land, vA, half, z1);
+        if (nm > 0) {                                  // U3 mid flight, across
+          const trm = half * 2 / (nm + 1);
+          for (let i = 0; i < nm; i++) {
+            const zTop = z1 + (z2 - z1) * (i + 1) / nm;
+            const v0 = vA - (i + 1) * (half / nm);
+            const cxu = alongX ? s.x + (dirUp > 0 ? runLen : 0) + land / 2
+              : s.x + v0 + (half / nm) / 2;
+            const cyu = alongX ? s.y + v0 + (half / nm) / 2
+              : s.y + (dirUp > 0 ? runLen : 0) + land / 2;
+            g.add(box(alongX ? land : half / nm, alongX ? half / nm : land,
+              0.45, cxu, cyu, zTop - 0.22, M.step));
+          }
+        }
+        landing(dirUp > 0 ? runLen : 0, land, vB, half, z2);
+        // return flight: far → near on half B, climbing the rest
+        flight(dirUp > 0 ? runLen : land, runLen, -dirUp, vB, half,
+          z2, z0 + rise, n2);
+      } else {                                         // straight
+        const n = Math.max(8, +s.steps_f1 || 15);
+        flight(dirUp > 0 ? 0 : W, W, dirUp, 0, B, z0, z0 + rise, n);
       }
     }
   }
@@ -142,7 +257,7 @@
       const plan = ((S.floors || [])[f] && S.floors[f].plan) || base;
       const z0 = P.plinth + f * P.fh;
       const H = P.fh;
-      (plan.walls || []).forEach(w => { if (!w.railing) addWall(g, plan, w, z0, H, P, M); });
+      (plan.walls || []).forEach(w => { if (!w.railing) addWall(g, plan, w, z0, H, P, M, cx, cy); });
       // columns run floor to floor
       (plan.columns || []).forEach(c => {
         g.add(box(Math.max(+c.w || 0.8, 0.3), Math.max(+c.h || 0.8, 0.3), H,
