@@ -597,20 +597,26 @@ if ($("#gizDup")) $("#gizDup").onclick = () => {
     while (used.has("F" + n)) n++;
     cp.tag = "F" + n;
   } else if (cp.tag) {
-    // increment the tag's trailing number: PAS-L-09 → PAS-L-10 (next free in
-    // that series, zero-padding kept) — never a letter suffix
-    const used = new Set((S.plan[key] || []).map(o => o.tag));
-    const m = String(cp.tag).match(/^(.*?)(\d+)$/);
+    // the copy takes the series' HIGHEST number + 1 (PAS-L-09 in a set that
+    // reaches PAS-L-12 → PAS-L-13). A legacy suffix after the number ("-C")
+    // is ignored for parsing and dropped from the new tag.
+    const list = S.plan[key] || [];
+    const m = String(cp.tag).match(/^(.*?)(\d+)\D*$/);
     if (m) {
       const pre = m[1], width = m[2].length;
-      let n = parseInt(m[2], 10) + 1;
-      let t = pre + String(n).padStart(width, "0");
-      while (used.has(t)) { n++; t = pre + String(n).padStart(width, "0"); }
-      cp.tag = t;
-    } else {
-      let n = 2, t = cp.tag + "-" + n;
-      while (used.has(t)) { n++; t = cp.tag + "-" + n; }
-      cp.tag = t;
+      let mx = 0;
+      list.forEach(o => {
+        const mm = String(o.tag || "").match(/^(.*?)(\d+)\D*$/);
+        if (mm && mm[1] === pre) mx = Math.max(mx, parseInt(mm[2], 10));
+      });
+      cp.tag = pre + String(mx + 1).padStart(width, "0");
+    } else {                                     // no number anywhere: TAG → TAG2
+      let mx = 1;
+      list.forEach(o => {
+        const mm = String(o.tag || "").match(new RegExp("^" + cp.tag + "(\\d+)$"));
+        if (mm) mx = Math.max(mx, parseInt(mm[1], 10));
+      });
+      cp.tag = cp.tag + (mx + 1);
     }
   } else if (cp.id) cp.id = String(cp.id) + "C";
   (S.plan[key] || (S.plan[key] = [])).push(cp);
