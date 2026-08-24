@@ -1200,7 +1200,8 @@
     pipe:  [["Dia (mm)", "dia_mm", 5]],
     col:   [["X (ft)", "x", 0.25], ["Y (ft)", "y", 0.25],
             ["Width (ft)", "w", 0.05], ["Depth (ft)", "h", 0.05]],
-    beam:  [["Width (mm)", "width_mm", 10], ["Depth (mm)", "depth_mm", 25]],
+    beam:  [["Length (ft)", "__len", 0.25], ["Width (mm)", "width_mm", 10],
+            ["Depth (mm)", "depth_mm", 25]],
   };
   const PROP_TITLE = { furn: "🛋 FURNITURE", elec: "⚡ ELECTRICAL",
     plumb: "🚿 PLUMBING", pipe: "🚰 PIPE RUN",
@@ -1218,16 +1219,31 @@
     el.appendChild(head);
     for (const [label, key, step] of (PROP_FIELDS[ed.kind] || [])) {
       if (r[key] === undefined && step !== "t" &&
-          !(key === "x" || key === "y")) continue;   // only fields the item has
+          !(key === "x" || key === "y" || key === "__len")) continue;
       const row = document.createElement("label");
       row.className = "v3p-row";
       const sp = document.createElement("span"); sp.textContent = label;
       const inp = document.createElement("input");
       if (step === "t") { inp.type = "text"; inp.value = r[key] || ""; }
+      else if (key === "__len") {        // beam LENGTH — derived, edits both ends
+        inp.type = "number"; inp.step = step;
+        inp.value = +Math.hypot(r.x2 - r.x1, r.y2 - r.y1).toFixed(2);
+      }
       else { inp.type = "number"; inp.step = step; inp.value = +(+r[key] || 0).toFixed(2); }
       inp.onchange = () => {
         if (typeof pushUndo === "function") pushUndo();
-        r[key] = step === "t" ? inp.value : (+inp.value || 0);
+        if (key === "__len") {
+          // stretch / shrink about the beam's midpoint, along its own axis
+          const L = Math.hypot(r.x2 - r.x1, r.y2 - r.y1) || 1e-6;
+          const ux = (r.x2 - r.x1) / L, uy = (r.y2 - r.y1) / L;
+          const mx = (r.x1 + r.x2) / 2, my = (r.y1 + r.y2) / 2;
+          const nl = Math.max(0.5, +inp.value || L);
+          const rd = v => Math.round(v * 20) / 20;
+          r.x1 = rd(mx - ux * nl / 2); r.y1 = rd(my - uy * nl / 2);
+          r.x2 = rd(mx + ux * nl / 2); r.y2 = rd(my + uy * nl / 2);
+        } else {
+          r[key] = step === "t" ? inp.value : (+inp.value || 0);
+        }
         if (typeof redraw === "function") redraw();  // 2D follows the spec edit
         rebuild();
         reselectRef(r);
@@ -1383,13 +1399,44 @@
       // no zoom while a drag (pan / move) is in progress — one thing at a time
       if (mode) { e.preventDefault(); return; }
       const f = e.deltaY > 0 ? 1.12 : 0.9;
-      if (topMode) {                         // exact-2D zoom = frustum scale
+      const rc = cv.getBoundingClientRect();
+      if (topMode) {                 // 2D zoom, SketchUp-style: onto the cursor
+        const relx = ((e.clientX - rc.left) / rc.width) * 2 - 1;
+        const rely = ((e.clientY - rc.top) / rc.height) * 2 - 1;
+        const asp = rc.width / Math.max(1, rc.height);
+        const wx = orbit.tx + relx * orthoH * asp;
+        const wz = orbit.tz + rely * orthoH;
+        orbit.tx += (wx - orbit.tx) * (1 - f);
+        orbit.tz += (wz - orbit.tz) * (1 - f);
         orthoH = Math.min(2000, Math.max(2, orthoH * f));
         orthoFrustum();
         e.preventDefault(); return;
       }
-      // STEADY zoom: straight in / out on the fixed pivot (the model centre,
-      // or the selection) — the view never slides anywhere else
+      // SKETCHUP zoom: dolly straight along the ray to the point the cursor
+      // is ON (model surface, else the ground) — you fly INTO what you point
+      const nd = new THREE.Vector2(
+        ((e.clientX - rc.left) / rc.width) * 2 - 1,
+        -((e.clientY - rc.top) / rc.height) * 2 + 1);
+      raycaster.setFromCamera(nd, camera);
+      let hp = null;
+      if (modelRoot) {
+        for (const h of raycaster.intersectObjects(modelRoot.children, true)) {
+          let vis = true;
+          for (let a = h.object; a; a = a.parent) if (a.visible === false) vis = false;
+          if (vis) { hp = h.point; break; }
+        }
+      }
+      if (!hp) {
+        const p = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(
+              new THREE.Plane(new THREE.Vector3(0, 1, 0), -orbit.ty), p)) hp = p;
+      }
+      if (hp) {
+        const cp = camera.position, k = 1 - f;      // camera slides toward hp,
+        orbit.tx += (hp.x - cp.x) * k;              // the pivot rides with it
+        orbit.ty += (hp.y - cp.y) * k;
+        orbit.tz += (hp.z - cp.z) * k;
+      }
       orbit.dist = Math.min(1500, Math.max(1.5, orbit.dist * f));
       e.preventDefault();
     }, { passive: false });
