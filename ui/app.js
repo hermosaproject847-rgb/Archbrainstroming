@@ -465,6 +465,9 @@ function showGizmo(){
       box.appendChild(lab);
     });
   }
+  // Duplicate: any free x/y piece or a pipe run copies cleanly
+  if ($("#gizDup")) $("#gizDup").classList.toggle(
+    "hidden", !(cfg.coord === "xy" || cfg.coord === "poly"));
   $("#gizDelete").classList.remove("hidden");
 }
 function updateGizmoCoords(){
@@ -577,6 +580,28 @@ if ($("#gizDelete")) $("#gizDelete").onclick = () => {
   pushUndo(); (S.plan[key] || []).splice(ri, 1);
   _sel = null; $("#gizmo").classList.add("hidden");
   markDirty(); buildTables(); redraw();
+};
+/* Duplicate: an exact copy of the selected piece, dropped a step aside and
+   immediately selected — drag it to where it goes. */
+if ($("#gizDup")) $("#gizDup").onclick = () => {
+  const it = selItem(); if (!it || !_sel) return;
+  const key = _sel.key;
+  pushUndo();
+  const cp = structuredClone(it);
+  const OFF2 = 1.5;                              // feet, so the copy is visible
+  if (Array.isArray(cp.pts)) cp.pts = cp.pts.map(p => [r4(p[0] + OFF2), r4(p[1] - OFF2)]);
+  else { if ("x" in cp) cp.x = r4((+cp.x || 0) + OFF2); if ("y" in cp) cp.y = r4((+cp.y || 0) - OFF2); }
+  if (key === "furniture") {                     // next free F-number
+    const used = new Set((S.plan.furniture || []).map(f => f.tag));
+    let n = (S.plan.furniture || []).length + 1;
+    while (used.has("F" + n)) n++;
+    cp.tag = "F" + n;
+  } else if (cp.tag) cp.tag = String(cp.tag) + "-C";
+  else if (cp.id) cp.id = String(cp.id) + "C";
+  (S.plan[key] || (S.plan[key] = [])).push(cp);
+  markDirty(); buildTables(); redraw();
+  selectItem(key, S.plan[key].length - 1);
+  status((cp.tag || cp.id || "copy") + " — duplicate ban gaya, drag karke jagah pe rakho");
 };
 if ($("#gizClose")) $("#gizClose").onclick = () => { _sel = null; $("#gizmo").classList.add("hidden"); clearHandles(); $$("tr.selrow,.litem.on").forEach(t => t.classList.remove("selrow", "on")); };
 /* drag the gizmo by its header so it never has to overlap anything */
@@ -966,6 +991,9 @@ function buildHandles(info) {
   } else if (key === "elec") {                 // point fixture — one move grip (+size for fans/AC)
     grip(it.x, it.y, "g-move", { role: "pt-move" });
     if ((+it.size || 0) > 0) grip(it.x + (+it.size) / 2, it.y, "g-size", { role: "elec-size" });
+    const eang = +it.angle || 0;               // rotate stalk (AC / boards / fans)
+    const rp2 = rotPt(it.x, it.y + 1.5, it.x, it.y, eang);
+    grip(rp2[0], rp2[1], "g-rot", { role: "rotate" });
   } else if (key === "pipes") {                 // pipe run: whole-run move + per-vertex drag
     const P = it.pts || [];
     for (let k = 0; k < P.length - 1; k++)
@@ -978,14 +1006,28 @@ function buildHandles(info) {
     const x0 = centred ? it.x - w / 2 : it.x, y0 = centred ? it.y - h / 2 : it.y;
     const ang = +it.angle || 0;
     const corners = [[x0, y0], [x0 + w, y0], [x0, y0 + h], [x0 + w, y0 + h]];
+    const ccx = x0 + w / 2, ccy = y0 + h / 2;
     if (ang) {                       // the box + grips TURN with the piece
-      const ccx = x0 + w / 2, ccy = y0 + h / 2;
       const rc = corners.map(c => rotPt(c[0], c[1], ccx, ccy, ang));
       movePoly([rc[0], rc[1], rc[3], rc[2]], { role: "box-move" });
       rc.forEach((c, i) => grip(c[0], c[1], "g-size", { role: "box-size", corner: i, centred }));
     } else {
       moveRect(x0, y0, w, h, { role: "box-move" });
       corners.forEach((c, i) => grip(c[0], c[1], "g-size", { role: "box-size", corner: i, centred }));
+    }
+    // ROTATE handle on the piece itself (furniture): a stalk off the top edge —
+    // drag it round to turn the piece, snapping every 15°
+    if (POSCFG[key] && POSCFG[key].rot === "angle") {
+      const stalk = h / 2 + 1.1;
+      const [hx, hy] = rotPt(ccx, ccy + stalk, ccx, ccy, ang);
+      const [ex, ey] = rotPt(ccx, ccy + h / 2, ccx, ccy, ang);
+      const l = document.createElementNS(NS_SVG, "line");
+      const [ax, ay] = m2s(info, ex, ey), [bx2, by2] = m2s(info, hx, hy);
+      l.setAttribute("x1", ax); l.setAttribute("y1", ay);
+      l.setAttribute("x2", bx2); l.setAttribute("y2", by2);
+      l.setAttribute("class", "selhi");
+      ov.appendChild(l);
+      grip(hx, hy, "g-rot", { role: "rotate" });
     }
   }
 }
@@ -1002,6 +1044,15 @@ function applyDrag(d, mx, my) {
   const it = d.it, sp = d.spec, I = d.init;
   _guides = [];                                  // rebuilt by snapX/snapY this move
   if (sp.role === "pt-move") { it.x = r4(snapX(mx)); it.y = r4(snapY(my)); }
+  else if (sp.role === "rotate") {
+    // drag the stalk round the piece's centre; the handle rests at the top
+    // (90°) when angle = 0, and the angle snaps every 15°
+    const rcx = ("w" in it) ? (+it.x + (+it.w || 0) / 2) : +it.x;
+    const rcy = ("h" in it) ? (+it.y + (+it.h || 0) / 2) : +it.y;
+    let a = Math.atan2(my - rcy, mx - rcx) * 180 / Math.PI - 90;
+    a = ((Math.round(a / 15) * 15) % 360 + 360) % 360;
+    it.angle = r4(a);
+  }
   else if (sp.role === "elec-size") { it.size = r4(Math.max(0.5, 2 * Math.abs(mx - it.x))); }
   else if (sp.role === "pipe-vertex") { const P = it.pts; if (P && P[sp.vi]) P[sp.vi] = [r4(snapX(mx)), r4(snapY(my))]; }
   else if (sp.role === "pipe-move") {

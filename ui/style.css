@@ -363,6 +363,7 @@ td.licell{color:var(--fg); font-size:12.5px; padding:7px 8px; text-transform:cap
 #plHandles .grip.g-end{stroke:#6366f1; cursor:crosshair}
 #plHandles .grip.g-size{stroke:#22d3ee; cursor:nwse-resize}
 #plHandles .grip.g-move{stroke:#10b981; cursor:move}
+#plHandles .grip.g-rot{stroke:#f59e0b; fill:#fff7e6; cursor:grab}
 /* live alignment guide lines drawn while dragging */
 #plGuides{position:absolute; left:0; top:0}
 #plGuides .aguide{stroke:#f43f5e; stroke-width:1; stroke-dasharray:6 5;
