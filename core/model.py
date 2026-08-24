@@ -309,6 +309,7 @@ class Furniture:
     verdict: str = ""           # COMPLIES / DEVIATES
     reason: str = ""
     note: str = ""
+    chairs: int = 0             # dining: seat count (0 = the kind's default)
 
     @property
     def centre(self) -> tuple[float, float]:

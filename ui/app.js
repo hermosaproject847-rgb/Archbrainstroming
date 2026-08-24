@@ -813,6 +813,13 @@ function screenToModel(cx, cy) {
   const sx = (cx - r.left) / ppu, sy = (cy - r.top) / ppu;
   return [(sx - S.plInfo.ox) / S.plInfo.k, (S.plInfo.h_mm - sy - S.plInfo.oy) / S.plInfo.k];
 }
+/* rotate a model point about (cx,cy) by deg anticlockwise — the same convention
+   the server uses to draw rotated furniture (about the piece's own centre) */
+function rotPt(px, py, cx, cy, deg) {
+  const r = deg * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+  const dx = px - cx, dy = py - cy;
+  return [cx + dx * c - dy * s, cy + dx * s + dy * c];
+}
 function _distSeg(px, py, x1, y1, x2, y2) {
   const vx = x2 - x1, vy = y2 - y1, L2 = vx * vx + vy * vy || 1e-9;
   let t = ((px - x1) * vx + (py - y1) * vy) / L2; t = Math.max(0, Math.min(1, t));
@@ -871,7 +878,12 @@ function hitTest(mx, my, key) {
     const centred = key === "columns";
     (S.plan[key] || []).forEach((it, i) => {
       const w = +it.w || 0, h = +it.h || 0, x0 = centred ? it.x - w / 2 : it.x, y0 = centred ? it.y - h / 2 : it.y;
-      if (mx >= x0 && mx <= x0 + w && my >= y0 && my <= y0 + h) { best = { key, ri: i }; bd = 0; }
+      let tx = mx, ty = my;
+      const ang = +it.angle || 0;
+      if (ang) {                      // a rotated piece: test in ITS frame
+        const p = rotPt(mx, my, x0 + w / 2, y0 + h / 2, -ang); tx = p[0]; ty = p[1];
+      }
+      if (tx >= x0 && tx <= x0 + w && ty >= y0 && ty <= y0 + h) { best = { key, ri: i }; bd = 0; }
     });
   }
   return best;
@@ -928,6 +940,14 @@ function buildHandles(info) {
     r.addEventListener("mousedown", dn); r.addEventListener("touchstart", dn, { passive: false });
     ov.appendChild(r);
   };
+  const movePoly = (pts, spec) => {               // rotated footprint highlight
+    const p = document.createElementNS(NS_SVG, "polygon");
+    p.setAttribute("points", pts.map(q => m2s(info, q[0], q[1]).join(",")).join(" "));
+    p.setAttribute("class", "selhi"); p.style.pointerEvents = "auto";
+    const dn = e => startDrag(e, spec);
+    p.addEventListener("mousedown", dn); p.addEventListener("touchstart", dn, { passive: false });
+    ov.appendChild(p);
+  };
 
   const key = _sel.key;
   if (key === "walls" || key === "beams" || key === "sections") {
@@ -956,9 +976,17 @@ function buildHandles(info) {
   } else {
     const centred = key === "columns", w = +it.w || 0, h = +it.h || 0;
     const x0 = centred ? it.x - w / 2 : it.x, y0 = centred ? it.y - h / 2 : it.y;
-    moveRect(x0, y0, w, h, { role: "box-move" });
-    [[x0, y0], [x0 + w, y0], [x0, y0 + h], [x0 + w, y0 + h]]
-      .forEach((c, i) => grip(c[0], c[1], "g-size", { role: "box-size", corner: i, centred }));
+    const ang = +it.angle || 0;
+    const corners = [[x0, y0], [x0 + w, y0], [x0, y0 + h], [x0 + w, y0 + h]];
+    if (ang) {                       // the box + grips TURN with the piece
+      const ccx = x0 + w / 2, ccy = y0 + h / 2;
+      const rc = corners.map(c => rotPt(c[0], c[1], ccx, ccy, ang));
+      movePoly([rc[0], rc[1], rc[3], rc[2]], { role: "box-move" });
+      rc.forEach((c, i) => grip(c[0], c[1], "g-size", { role: "box-size", corner: i, centred }));
+    } else {
+      moveRect(x0, y0, w, h, { role: "box-move" });
+      corners.forEach((c, i) => grip(c[0], c[1], "g-size", { role: "box-size", corner: i, centred }));
+    }
   }
 }
 
@@ -993,9 +1021,24 @@ function applyDrag(d, mx, my) {
   } else if (sp.role === "box-move") {
     it.x = r4(snapX(I.x + (mx - d.gx))); it.y = r4(snapY(I.y + (my - d.gy)));
   } else if (sp.role === "box-size") {
+    const _ang = +I.angle || 0;
     if (sp.centred) {
       it.w = r4(Math.max(0.3, 2 * Math.abs(mx - I.x)));
       it.h = r4(Math.max(0.3, 2 * Math.abs(my - I.y)));
+    } else if (_ang) {
+      // a ROTATED piece resizes in its own frame: un-rotate the mouse about the
+      // original centre, size against the fixed opposite corner, then carry the
+      // new centre back through the rotation so the piece grows in place.
+      const w0 = +I.w || 0, h0 = +I.h || 0, cx = I.x + w0 / 2, cy = I.y + h0 / 2;
+      const lp = rotPt(mx, my, cx, cy, -_ang);
+      const corners = [[I.x, I.y], [I.x + w0, I.y], [I.x, I.y + h0], [I.x + w0, I.y + h0]];
+      const opp = { 0: 3, 1: 2, 2: 1, 3: 0 }[sp.corner];
+      const fx = corners[opp][0], fy = corners[opp][1];
+      const nw = Math.max(0.3, Math.abs(lp[0] - fx)), nh = Math.max(0.3, Math.abs(lp[1] - fy));
+      const nx = Math.min(fx, lp[0]), ny = Math.min(fy, lp[1]);
+      const nc = rotPt(nx + nw / 2, ny + nh / 2, cx, cy, _ang);
+      it.w = r4(nw); it.h = r4(nh);
+      it.x = r4(nc[0] - nw / 2); it.y = r4(nc[1] - nh / 2);
     } else {
       const w = +I.w || 0, h = +I.h || 0;
       const corners = [[I.x, I.y], [I.x + w, I.y], [I.x, I.y + h], [I.x + w, I.y + h]];
@@ -1150,7 +1193,11 @@ function _dragMove(e) {
   if (now - _lastDragRender > 90) { _lastDragRender = now; redraw(); }
   if (e.cancelable) e.preventDefault();
 }
-function _dragEnd() { if (!_hdrag) return; _hdrag = null; clearGuides(); redraw(); buildHandles(S.plInfo); }
+function _dragEnd() {
+  if (!_hdrag) return;
+  _hdrag = null; clearGuides(); redraw(); buildHandles(S.plInfo);
+  if (_sel && typeof showGizmo === "function") showGizmo();   // W/H fields refresh
+}
 addEventListener("mousemove", _dragMove);
 addEventListener("touchmove", _dragMove, { passive: false });
 addEventListener("mouseup", _dragEnd);
@@ -1627,6 +1674,7 @@ const COLS = {
     ["x", "X", "num"], ["y", "Y", "num"], ["w", "W", "num"], ["h", "H", "num"],
     ["angle", "Angle°", "num"],
     ["facing", "Faces", ["N", "S", "E", "W"]],
+    ["chairs", "Chairs", "num"],     // dining: seat count (0 = kind's default)
     ["zone", "Zone", "text"],
   ],
   steps: [
@@ -1647,7 +1695,7 @@ const BLANK = {
   beams: { tag: "B", x1: 0, y1: 0, x2: 10, y2: 0, width_mm: 230, depth_mm: 300 },
   stairs: { type: "U", x: 0, y: 0, w: 9, h: 8, run_axis: "y", up_from: "bottom", turn_side: "right", steps_f1: 9, steps_f2: 9, steps_f3: 2, landing_size: 3, winders: 0, start_step: 0, landing_depth: 0, well_gap: 0, well: true, show_dn: true },
   steps: { x: 0, y: 0, w: 2, h: 6, count: 2, run_axis: "x", up_from: "left", levels: [], label: "" },
-  furniture: { kind: "wardrobe", tag: "F", room: "", x: 0, y: 0, w: 2, h: 6, angle: 0, facing: "N", zone: "" },
+  furniture: { kind: "wardrobe", tag: "F", room: "", x: 0, y: 0, w: 2, h: 6, angle: 0, facing: "N", chairs: 0, zone: "" },
   elec: { code: "SL", tag: "SL", room: "", x: 0, y: 0, watts: 9, height_mm: 0, size: 0, angle: 0, circuit: "", visible: true, controls: [] },
   pipes: { system: "SOIL", dia_mm: 110, pts: [], length_ft: 0, tag: "", visible: true },
   flooring: { room: "", rx: 0, ry: 0, material: "tile", finish: "Matt", tile_w: 600, tile_h: 600, spacer_mm: 2, start: "symmetry", start_dx: 0, start_dy: 0, skirting_mm: 75, skirting_type: "surface", drop_mm: 0, junction_drop: true, code: "VT-01", visible: true },
