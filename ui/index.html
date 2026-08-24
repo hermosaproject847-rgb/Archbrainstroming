@@ -476,14 +476,22 @@
   <div id="v3side">
     <div class="v3-sec">LAYERS</div>
     <label class="v3-chk"><input id="v3walls" type="checkbox" checked> 🧱 Walls</label>
-    <label class="v3-chk"><input id="v3struct" type="checkbox" checked> 🏗 Structure</label>
+    <label class="v3-chk"><input id="v3struct" type="checkbox" checked> 🏗 Structure
+      <button class="v3lock" data-lock="struct" title="lock — locked layer me edit nahi hota">🔓</button></label>
     <label class="v3-chk"><input id="v3stairs" type="checkbox" checked> 🪜 Staircase</label>
     <label class="v3-chk"><input id="v3roof" type="checkbox" checked> ⛅ Roof / Slab</label>
     <label class="v3-chk" title="staircase ke upar mumty room — off karo to sirf cutout rahega (upar floor ke liye)"><input id="v3mumty" type="checkbox" checked> 🏠 Mumty</label>
     <label class="v3-chk"><input id="v3floor" type="checkbox" checked> ▦ Flooring</label>
-    <label class="v3-chk"><input id="v3furn" type="checkbox" checked> 🛋 Furniture</label>
-    <label class="v3-chk"><input id="v3plumb" type="checkbox"> 🚿 Plumbing</label>
-    <label class="v3-chk"><input id="v3elec" type="checkbox"> ⚡ Electrical</label>
+    <label class="v3-chk"><input id="v3furn" type="checkbox" checked> 🛋 Furniture
+      <button class="v3lock" data-lock="furn" title="lock — locked layer me edit nahi hota">🔓</button></label>
+    <label class="v3-chk"><input id="v3plumb" type="checkbox"> 🚿 Plumbing
+      <button class="v3lock" data-lock="plumb" title="lock — locked layer me edit nahi hota">🔓</button></label>
+    <label class="v3-chk"><input id="v3elec" type="checkbox"> ⚡ Electrical
+      <button class="v3lock" data-lock="elec" title="lock — locked layer me edit nahi hota">🔓</button></label>
+    <div class="v3-sec">LIGHTING</div>
+    <label class="v3-op" title="sun ki glare / brightness kam-jyada karo">☀ Sun / brightness
+      <input id="v3sun" type="range" min="0.1" max="1.5" step="0.05" value="0.6">
+    </label>
     <div class="v3-sec">X-RAY</div>
     <label class="v3-op">External walls
       <input id="v3op" type="range" min="8" max="100" value="100">
@@ -508,6 +516,6 @@
 
 <script src="app.js"></script>
 <script src="vendor/three.min.js"></script>
-<script src="view3d.js?v=18"></script>
+<script src="view3d.js?v=19"></script>
 </body>
 </html>

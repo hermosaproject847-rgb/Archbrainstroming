@@ -400,6 +400,10 @@ td.licell{color:var(--fg); font-size:12.5px; padding:7px 8px; text-transform:cap
   color:#c3cbe2; white-space:nowrap; cursor:pointer; border-radius:6px; padding:2px 4px}
 #view3d .v3-chk:hover{background:#232c44}
 #view3d .v3-chk input[type=checkbox]{accent-color:#6d74f6}
+.v3lock{margin-left:auto; background:none; border:none; cursor:pointer;
+  font-size:13px; opacity:.55; padding:0 2px; line-height:1}
+.v3lock:hover{opacity:1}
+.v3lock.locked{opacity:1; filter:drop-shadow(0 0 3px #f59e0b)}
 #v3side select{background:#252d42; color:#e8ecf6; border:1px solid #39435f;
   border-radius:6px; padding:4px 6px; font-size:12px; width:100%}
 /* PROPERTIES panel — click a product, its specification opens (Revit-style) */

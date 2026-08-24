@@ -17,6 +17,11 @@
   let selObj = null, selHelper = null;       // 3D EDIT: current selection
   let homeCenter = null;                     // model bbox centre = orbit pivot
   let topMode = false, orthoH = 60;          // EXACT-2D top view (orthographic)
+  let sunL = null, ambL = null, hemiL = null;   // lights (sun-glare slider)
+  // LAYER LOCKS — a locked layer's things cannot be selected / moved / edited
+  const locks = { struct: false, furn: false, plumb: false, elec: false };
+  const LOCKOF = { furn: "furn", elec: "elec", plumb: "plumb", pipe: "plumb",
+    col: "struct", beam: "struct" };
   const orbit = { az: -0.9, el: 0.55, dist: 90, tx: 0, ty: 6, tz: 0 };
   const $ = s => document.querySelector(s);
 
@@ -1064,9 +1069,10 @@
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1c2230);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-    const hemi = new THREE.HemisphereLight(0xbcd2ff, 0x3a3126, 0.35);
-    scene.add(hemi);
+    ambL = new THREE.AmbientLight(0xffffff, 0.55);
+    scene.add(ambL);
+    hemiL = new THREE.HemisphereLight(0xbcd2ff, 0x3a3126, 0.35);
+    scene.add(hemiL);
     const sun = new THREE.DirectionalLight(0xfff2dd, 0.85);
     sun.position.set(60, 90, 40);
     sun.castShadow = true;
@@ -1074,6 +1080,8 @@
     sun.shadow.camera.left = -60; sun.shadow.camera.right = 60;
     sun.shadow.camera.top = 60; sun.shadow.camera.bottom = -60;
     scene.add(sun);
+    sunL = sun;
+    applySun();                            // honour the Sun / brightness slider
     const sun2 = new THREE.DirectionalLight(0xdde6ff, 0.22);
     sun2.position.set(-50, 40, -60); scene.add(sun2);
     scene.add(new THREE.GridHelper(200, 40, 0x37415a, 0x2a3248));
@@ -1140,6 +1148,14 @@
   }
   function setOpacity(v) {
     extMats.forEach(m => { m.opacity = v; m.transparent = true; m.needsUpdate = true; });
+  }
+  // SUN / brightness — one slider tames the glare instead of washing the
+  // model out: it scales the sun, the ambient and the sky fill together
+  function applySun() {
+    const v = +((($("#v3sun") || {}).value)) || 0.6;
+    if (sunL) sunL.intensity = v * 0.9;
+    if (ambL) ambL.intensity = 0.30 + v * 0.30;
+    if (hemiL) hemiL.intensity = v * 0.4;
   }
 
   /* ------------------------------------------- 3D EDIT: select + move */
@@ -1248,6 +1264,7 @@
         if (!ed && a.userData && a.userData.edit) { ed = a.userData.edit; o = a; }
       }
       if (!vis) continue;
+      if (ed && locks[LOCKOF[ed.kind]]) ed = null;    // locked layer = untouchable
       if (ed) return { obj: o, pt: hit.point };
       // a SOLID surface blocks the pick; an x-rayed (faded) one lets the
       // click pass through to the concealed services behind it
@@ -1310,14 +1327,10 @@
     addEventListener("mousemove", e => {
       if (!mode || !open) return;
       const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY;
-      if (mode === 1) {                // LOOK-AROUND: the camera stays LOCKED
-        // where it is and only the view direction turns (walkthrough look)
-        const cp = camera.position.clone();
-        orbit.az -= dx * 0.005;
-        orbit.el = Math.min(1.55, Math.max(-1.5, orbit.el + dy * 0.004));
-        orbit.tx = cp.x - orbit.dist * Math.cos(orbit.el) * Math.cos(orbit.az);
-        orbit.ty = cp.y - orbit.dist * Math.sin(orbit.el);
-        orbit.tz = cp.z - orbit.dist * Math.cos(orbit.el) * Math.sin(orbit.az);
+      if (mode === 1) {          // ORBIT about the FIXED pivot (model centre /
+        // selection) — steady, nothing else moves
+        orbit.az -= dx * 0.008;
+        orbit.el = Math.min(1.55, Math.max(-0.2, orbit.el + dy * 0.006));
       } else if (mode === 2) {
         if (topMode) {                       // exact-2D pan, pixel-true
           const rc = cv.getBoundingClientRect();
@@ -1375,20 +1388,8 @@
         orthoFrustum();
         e.preventDefault(); return;
       }
-      // REVIT-style zoom: dolly toward / away from the cursor, but the target
-      // slides on the HORIZONTAL plane at its own height — the horizon stays
-      // level, no diving onto whatever surface the mouse happens to cross
-      const rc = cv.getBoundingClientRect();
-      const nd = new THREE.Vector2(
-        ((e.clientX - rc.left) / rc.width) * 2 - 1,
-        -((e.clientY - rc.top) / rc.height) * 2 + 1);
-      raycaster.setFromCamera(nd, camera);
-      const hp = new THREE.Vector3();
-      if (raycaster.ray.intersectPlane(
-            new THREE.Plane(new THREE.Vector3(0, 1, 0), -orbit.ty), hp)) {
-        orbit.tx += (hp.x - orbit.tx) * (1 - f);
-        orbit.tz += (hp.z - orbit.tz) * (1 - f);
-      }
+      // STEADY zoom: straight in / out on the fixed pivot (the model centre,
+      // or the selection) — the view never slides anywhere else
       orbit.dist = Math.min(1500, Math.max(1.5, orbit.dist * f));
       e.preventDefault();
     }, { passive: false });
@@ -1441,7 +1442,19 @@
       on(id, syncLayers, "onchange"));
     on("#v3intop", syncLayers, "oninput");   // wall x-ray (electrical)
     on("#v3flop", syncLayers, "oninput");    // floor x-ray (plumbing)
+    on("#v3sun", applySun, "oninput");       // sun / glare control
     on("#v3para", rebuild, "onchange");
+    // LAYER LOCK buttons — lock a layer and nothing in it can be edited
+    document.querySelectorAll(".v3lock").forEach(b => {
+      b.onclick = e => {
+        e.preventDefault(); e.stopPropagation();
+        const k = b.dataset.lock;
+        locks[k] = !locks[k];
+        b.textContent = locks[k] ? "🔒" : "🔓";
+        b.classList.toggle("locked", locks[k]);
+        if (locks[k] && selObj && LOCKOF[selObj.userData.edit.kind] === k) clearSel();
+      };
+    });
   }
 
   if (document.readyState === "loading") addEventListener("DOMContentLoaded", wire);
