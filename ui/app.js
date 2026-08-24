@@ -821,8 +821,24 @@ function _cand(axis) {
   ((S.plan && S.plan.refs) || []).forEach(r => { if (r.axis === (axis === "x" ? "v" : "h")) s.push(r.at); });
   return s;
 }
-function snapX(x) { for (const v of _cand("x")) if (Math.abs(x - v) < ALIGN) { _guides.push({ axis: "v", at: v }); return v; } return snapG(x); }
-function snapY(y) { for (const v of _cand("y")) if (Math.abs(y - v) < ALIGN) { _guides.push({ axis: "h", at: v }); return v; } return snapG(y); }
+/* snap to the NEAREST aligned candidate (not the first found) — dragging a
+   light must line it dead straight with the closest light on that axis, both
+   horizontally and vertically. Lights get a wider catch (their rows run long). */
+function _snapTol() {
+  return (_hdrag && _sel && _sel.key === "elec") ? 0.9 : ALIGN;
+}
+function snapX(x) {
+  let best = null, bd = _snapTol();
+  for (const v of _cand("x")) { const d = Math.abs(x - v); if (d < bd) { bd = d; best = v; } }
+  if (best !== null) { _guides.push({ axis: "v", at: best }); return best; }
+  return snapG(x);
+}
+function snapY(y) {
+  let best = null, bd = _snapTol();
+  for (const v of _cand("y")) { const d = Math.abs(y - v); if (d < bd) { bd = d; best = v; } }
+  if (best !== null) { _guides.push({ axis: "h", at: best }); return best; }
+  return snapG(y);
+}
 function orthoEnd(mx, my, ox, oy) {              // snap a wall end to H/V + grid
   const a = ((Math.atan2(my - oy, mx - ox) * 180 / Math.PI) % 180 + 180) % 180;
   if (a < ORTHO || a > 180 - ORTHO) return [snapX(mx), oy];      // horizontal
