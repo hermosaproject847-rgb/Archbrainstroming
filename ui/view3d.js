@@ -241,29 +241,43 @@
       };
 
       if (typ === "U" || typ === "U3" || typ === "L") {
+        // EXACTLY the plan's arrangement: flight 1 in the TOP band, both
+        // landings stacked at the FAR (landing) end, the U3's middle flight
+        // running DOWN the landing column between them, the return flight in
+        // the BOTTOM band — and an OPEN WELL in the middle, never solid.
         const land = Math.min(Math.max(+s.landing_size || 3, 2.5), W * 0.45);
         const runLen = W - land;
-        const half = B / 2;
         const n1 = +s.steps_f1 || 8, n2 = +s.steps_f2 || n1;
         const nm = typ === "U3" ? Math.max(1, +s.steps_f3 || 2) : 0;
+        const fw2 = nm > 0 ? Math.min(4.0, B * 0.34) : B / 2;   // band width
         const tot = Math.max(1, n1 + n2 + nm);
         const z1 = z0 + rise * n1 / tot;
         const z2 = z0 + rise * (n1 + nm) / tot;
-        const vA = half, vB = 0;
-        flight(dirUp > 0 ? 0 : W, runLen, dirUp, vA, half, z0, z1, n1);
-        // handrails on the WELL edge of each flight (offset a touch apart)
-        rail(dirUp > 0 ? 0 : W, dirUp > 0 ? runLen : land, half + 0.08, z0, z1);
-        rail(dirUp > 0 ? runLen : land, dirUp > 0 ? 0 : W, half - 0.08, z2, z0 + rise);
-        landing(dirUp > 0 ? runLen : 0, land, vA, half, z1);
+        const vTop = B - fw2, vBot = 0;
+        const uNear = dirUp > 0 ? 0 : W;
+        const uFarL = dirUp > 0 ? runLen : 0;        // landing column start (u)
+        // flight 1 — top band, near → far
+        flight(uNear, runLen, dirUp, vTop, fw2, z0, z1, n1);
+        rail(uNear, dirUp > 0 ? runLen : land, vTop + 0.08, z0, z1);
+        // landing 1 — far end, TOP corner
+        landing(uFarL, land, vTop, fw2, z1);
         if (nm > 0) {
+          // middle flight: DOWN the landing column from the top landing to the
+          // bottom landing (across the well span), exactly as drawn
+          const span = vTop - fw2;                   // between the two landings
           for (let i = 0; i < nm; i++) {
             const zTop = z1 + (z2 - z1) * (i + 1) / nm;
-            stepBox(dirUp > 0 ? runLen : 0, vA - (i + 1) * (half / nm),
-              land, half / nm, zTop, 0.45);
+            stepBox(uFarL, vTop - (i + 1) * (span / nm), land, span / nm,
+              zTop, Math.min(zTop - z0 + 0.01, ((z2 - z1) / nm) * 2.2));
           }
+          rail(dirUp > 0 ? W - 0.15 : 0.15, dirUp > 0 ? W - 0.15 : 0.15,
+            vTop, z1, z2);
         }
-        landing(dirUp > 0 ? runLen : 0, land, vB, half, z2);
-        flight(dirUp > 0 ? runLen : land, runLen, -dirUp, vB, half, z2, z0 + rise, n2);
+        // landing 2 — far end, BOTTOM corner
+        landing(uFarL, land, vBot, fw2, z2);
+        // return flight — bottom band, far → near
+        flight(dirUp > 0 ? runLen : land, runLen, -dirUp, vBot, fw2, z2, z0 + rise, n2);
+        rail(dirUp > 0 ? runLen : land, uNear, fw2 - 0.08, z2, z0 + rise);
       } else {
         flight(dirUp > 0 ? 0 : W, W, dirUp, 0, B, z0, z0 + rise,
           Math.max(8, +s.steps_f1 || 15));
@@ -450,25 +464,39 @@
       const rad = Math.max(0.08, ((+r.dia_mm || 50) * MM) / 2);
       const supply = (r.system === "CW" || r.system === "HW" || r.system === "ACD");
       const allWet = supply && P.every(p => inWet(p[0], p[1]));
-      // wet-room supply: low concealed band; dry-area supply: at the ceiling
-      // (as the WS layout notes); drainage: at the floor
-      const z = !supply ? z0 + 0.35 : (allWet ? z0 + 1.5 : z0 + fh - 0.8);
+      // MEP levels: wet-room DRAINAGE lives INSIDE THE SUNK — below the
+      // finished floor, it ends there and never shows above; outside the wet
+      // zone it runs at ground level to the chambers. Wet-room supply is the
+      // low concealed band; dry-area supply is at the ceiling with drops.
+      const segZ = (a, b) => {
+        if (supply) return allWet ? z0 + 1.5 : z0 + fh - 0.8;
+        const midx = (a[0] + b[0]) / 2, midy = (a[1] + b[1]) / 2;
+        return inWet(midx, midy) ? z0 - 0.25 : z0 + 0.2;
+      };
+      let prevZ = null;
       for (let i = 0; i < P.length - 1; i++) {
+        const z = segZ(P[i], P[i + 1]);
         const c = cylBetween(P[i][0], P[i][1], z, P[i + 1][0], P[i + 1][1], z, rad, mat);
         if (c) g.add(c);
-      }
-      // a smooth JOINT ball at every bend so elbows read as fittings
-      for (let i = 1; i < P.length - 1; i++) {
-        const j = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.25, 10, 10), mat);
-        j.position.set(P[i][0], z, -P[i][1]);
-        g.add(j);
+        if (prevZ !== null && Math.abs(prevZ - z) > 0.02) {
+          const v = cylBetween(P[i][0], P[i][1], prevZ, P[i][0], P[i][1], z, rad, mat);
+          if (v) g.add(v);                     // level change through the sunk edge
+        }
+        // joint ball at this segment's start vertex
+        if (i > 0) {
+          const j = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.25, 10, 10), mat);
+          j.position.set(P[i][0], z, -P[i][1]);
+          g.add(j);
+        }
+        prevZ = z;
       }
       // PIPE DROPS: only where a CEILING-run supply arrives at a wet/fixture
       // point does it drop down — never a pipe rising out of a fixture
       if (supply && !allWet) {
+        const zTop = z0 + fh - 0.8;
         for (const e of [P[0], P[P.length - 1]]) {
           if (!inWet(e[0], e[1])) continue;          // the source end stays up
-          const d = cylBetween(e[0], e[1], z, e[0], e[1], z0 + 1.5, rad * 0.9, mat);
+          const d = cylBetween(e[0], e[1], zTop, e[0], e[1], z0 + 1.5, rad * 0.9, mat);
           if (d) g.add(d);
           const cap = new THREE.Mesh(new THREE.SphereGeometry(rad * 1.1, 10, 10), mat);
           cap.position.set(e[0], z0 + 1.5, -e[1]);
@@ -556,15 +584,91 @@
       const mat = new THREE.MeshLambertMaterial({ map: t });
       g.add(box(r.w - 0.2, r.h - 0.2, 0.07, r.x + r.w / 2, r.y + r.h / 2,
         z0 + 0.045, mat));
-      // SKIRTING: a darker strip round the room, 75 mm high
+      // SKIRTING: a darker strip round the room, 75 mm high — BROKEN at every
+      // door (skirting never runs across an opening) and carried AROUND every
+      // column standing in the room
       const skC = { wood: 0x6e4a2c, marble: 0xb9b5ae, granite: 0x3c3f45, tile: 0x9a958d }[material] || 0x9a958d;
       const sk = new THREE.MeshLambertMaterial({ color: skC });
       const hSk = (spec && spec.skirting_mm ? spec.skirting_mm : 75) * MM;
       if (hSk > 0.01) {
-        g.add(box(r.w - 0.3, 0.08, hSk, r.x + r.w / 2, r.y + 0.2, z0 + hSk / 2, sk));
-        g.add(box(r.w - 0.3, 0.08, hSk, r.x + r.w / 2, r.y + r.h - 0.2, z0 + hSk / 2, sk));
-        g.add(box(0.08, r.h - 0.3, hSk, r.x + 0.2, r.y + r.h / 2, z0 + hSk / 2, sk));
-        g.add(box(0.08, r.h - 0.3, hSk, r.x + r.w - 0.2, r.y + r.h / 2, z0 + hSk / 2, sk));
+        const DOOR = o => /door|open|gate/.test(o.type || "");
+        // door spans world-space, per opening on any wall
+        const doorSpans = [];
+        for (const o of (plan.openings || [])) {
+          if (!DOOR(o)) continue;
+          const w2 = (plan.walls || []).find(x => x.id === o.wall_id);
+          if (!w2) continue;
+          const L2 = Math.hypot(w2.x2 - w2.x1, w2.y2 - w2.y1) || 1e-6;
+          const ux2 = (w2.x2 - w2.x1) / L2, uy2 = (w2.y2 - w2.y1) / L2;
+          doorSpans.push({
+            horiz: Math.abs(ux2) >= Math.abs(uy2),
+            wy: (w2.y1 + w2.y2) / 2, wx: (w2.x1 + w2.x2) / 2,
+            a: [w2.x1 + ux2 * o.pos, w2.y1 + uy2 * o.pos],
+            b: [w2.x1 + ux2 * (o.pos + o.width), w2.y1 + uy2 * (o.pos + o.width)],
+          });
+        }
+        const strip = (spans, horiz, edgeC, off) => {
+          for (const [a, b] of spans) {
+            if (b - a < 0.25) continue;
+            if (horiz)
+              g.add(box(b - a, 0.08, hSk, (a + b) / 2, edgeC + off, z0 + hSk / 2, sk));
+            else
+              g.add(box(0.08, b - a, hSk, edgeC + off, (a + b) / 2, z0 + hSk / 2, sk));
+          }
+        };
+        const cutDoors = (a0, a1, horiz, edgeC) => {
+          // skirting exists ONLY where an actual wall stands on this edge —
+          // an open boundary (no wall: a stair mouth, an open-plan side) gets
+          // no skirting at all — and then breaks at every door on it
+          let spans = [];
+          for (const w2 of (plan.walls || [])) {
+            if (w2.railing) continue;
+            const wHoriz = Math.abs(w2.x2 - w2.x1) >= Math.abs(w2.y2 - w2.y1);
+            if (wHoriz !== horiz) continue;
+            const wc = horiz ? (w2.y1 + w2.y2) / 2 : (w2.x1 + w2.x2) / 2;
+            if (Math.abs(wc - edgeC) > 0.8) continue;
+            const lo = Math.max(a0, Math.min(horiz ? w2.x1 : w2.y1, horiz ? w2.x2 : w2.y2));
+            const hi = Math.min(a1, Math.max(horiz ? w2.x1 : w2.y1, horiz ? w2.x2 : w2.y2));
+            if (hi - lo > 0.2) spans.push([lo, hi]);
+          }
+          spans.sort((p, q) => p[0] - q[0]);          // merge touching pieces
+          const merged = [];
+          for (const sp of spans) {
+            if (merged.length && sp[0] <= merged[merged.length - 1][1] + 0.15)
+              merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], sp[1]);
+            else merged.push(sp.slice());
+          }
+          spans = merged;
+          for (const d of doorSpans) {
+            if (d.horiz !== horiz) continue;
+            const wc = horiz ? d.wy : d.wx;
+            if (Math.abs(wc - edgeC) > 0.8) continue;      // not this edge's wall
+            const da = Math.min(horiz ? d.a[0] : d.a[1], horiz ? d.b[0] : d.b[1]) - 0.1;
+            const db = Math.max(horiz ? d.a[0] : d.a[1], horiz ? d.b[0] : d.b[1]) + 0.1;
+            const ns = [];
+            for (const [sa, sb] of spans) {
+              if (db <= sa || da >= sb) { ns.push([sa, sb]); continue; }
+              if (da > sa) ns.push([sa, da]);
+              if (db < sb) ns.push([db, sb]);
+            }
+            spans = ns;
+          }
+          return spans;
+        };
+        strip(cutDoors(r.x + 0.2, r.x + r.w - 0.2, true, r.y), true, r.y, 0.2);
+        strip(cutDoors(r.x + 0.2, r.x + r.w - 0.2, true, r.y + r.h), true, r.y + r.h, -0.2);
+        strip(cutDoors(r.y + 0.2, r.y + r.h - 0.2, false, r.x), false, r.x, 0.2);
+        strip(cutDoors(r.y + 0.2, r.y + r.h - 0.2, false, r.x + r.w), false, r.x + r.w, -0.2);
+        // skirting wraps AROUND every column standing in this room
+        for (const c of (plan.columns || [])) {
+          if (c.x < r.x - 0.2 || c.x > r.x + r.w + 0.2 ||
+              c.y < r.y - 0.2 || c.y > r.y + r.h + 0.2) continue;
+          const cw2 = (+c.w || 0.8) / 2 + 0.06, ch2 = (+c.h || 0.8) / 2 + 0.06;
+          g.add(box(cw2 * 2, 0.08, hSk, c.x, c.y - ch2, z0 + hSk / 2, sk));
+          g.add(box(cw2 * 2, 0.08, hSk, c.x, c.y + ch2, z0 + hSk / 2, sk));
+          g.add(box(0.08, ch2 * 2, hSk, c.x - cw2, c.y, z0 + hSk / 2, sk));
+          g.add(box(0.08, ch2 * 2, hSk, c.x + cw2, c.y, z0 + hSk / 2, sk));
+        }
       }
     }
   }
