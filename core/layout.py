@@ -488,77 +488,131 @@ def _door_centroid(plan, room):
             sum(p[1] for p in pts) / len(pts))
 
 
-def _place_sofa(plan, room, clear, bad, taken, dc):
-    """Sofa on the wall FARTHEST from the doors, pushed to the far corner, so
-    the seating sits out of the circulation and the entry stays clear."""
+def _wall_behind(plan, room, side, fp, cover=0.6) -> bool:
+    """A seat's BACK must stand against a real wall — never an open edge (a
+    stair mouth, an open-plan boundary). True when actual wall segments cover
+    at least `cover` of the footprint's run on that side of the room."""
+    x0, y0, x1, y1 = fp.bounds
+    tol = 1.2
+    span = 0.0
+    if side in ("N", "S"):
+        line_y = room.y + room.h if side == "N" else room.y
+        for w in plan.walls:
+            if getattr(w, "railing", False) or abs(w.y1 - w.y2) > 0.5:
+                continue
+            if abs((w.y1 + w.y2) / 2 - line_y) > tol:
+                continue
+            lo, hi = sorted((w.x1, w.x2))
+            span += max(0.0, min(hi, x1) - max(lo, x0))
+        return span >= (x1 - x0) * cover
+    line_x = room.x + room.w if side == "E" else room.x
+    for w in plan.walls:
+        if getattr(w, "railing", False) or abs(w.x1 - w.x2) > 0.5:
+            continue
+        if abs((w.x1 + w.x2) / 2 - line_x) > tol:
+            continue
+        lo, hi = sorted((w.y1, w.y2))
+        span += max(0.0, min(hi, y1) - max(lo, y0))
+    return span >= (y1 - y0) * cover
+
+
+def _sofa_walls(clear, dc):
+    """Candidate sofa walls, farthest from the doors first."""
     cx0, cy0, cx1, cy1 = clear.bounds
     mids = {"N": ((cx0 + cx1) / 2, cy1), "S": ((cx0 + cx1) / 2, cy0),
             "E": (cx1, (cy0 + cy1) / 2), "W": (cx0, (cy0 + cy1) / 2)}
 
     def far(pt):
         return 0.0 if dc is None else (pt[0] - dc[0]) ** 2 + (pt[1] - dc[1]) ** 2
+    return sorted(SIDES, key=lambda s: -far(mids[s])), far
 
-    walls = sorted(SIDES, key=lambda s: -far(mids[s]))
+
+def _sofa_on_side(plan, room, clear, bad, taken, side, far):
+    """The best sofa footprint on ONE given wall (back against real wall)."""
     for kind in ("sofa_3", "sofa_2"):
         dep, length = F.ft(F.CATALOGUE[kind][0]), F.ft(F.CATALOGUE[kind][1])
-        for side in walls:
-            slots = wall_slots(clear, side, dep, length)
-            # the corner farthest from the doors first
-            slots.sort(key=lambda fp: -far((fp.centroid.x, fp.centroid.y)))
-            for fp in slots:
-                if not _fits(fp, clear, bad, taken):
-                    continue
-                strip = _front(fp, side, F.ft(750))   # room to sit + a walkway
-                if strip.difference(clear).area > 0.4:
-                    continue
-                bx0, by0, bx1, by1 = fp.bounds
-                z = _side_zone(plan, room, side)
-                v, r = F.vaastu_check(F.family(kind), z)
-                return Furniture(kind=kind, x=bx0, y=by0, w=bx1 - bx0,
-                                 h=by1 - by0, room=room.name, facing=side,
-                                 zone=z, verdict=v, reason=r)
+        slots = wall_slots(clear, side, dep, length)
+        slots.sort(key=lambda fp: -far((fp.centroid.x, fp.centroid.y)))
+        for fp in slots:
+            if not _fits(fp, clear, bad, taken):
+                continue
+            if not _wall_behind(plan, room, side, fp):
+                continue                       # open edge — nothing to back onto
+            strip = _front(fp, side, F.ft(750))   # room to sit + a walkway
+            if strip.difference(clear).area > 0.4:
+                continue
+            bx0, by0, bx1, by1 = fp.bounds
+            z = _side_zone(plan, room, side)
+            v, r = F.vaastu_check(F.family(kind), z)
+            return Furniture(kind=kind, x=bx0, y=by0, w=bx1 - bx0,
+                             h=by1 - by0, room=room.name, facing=side,
+                             zone=z, verdict=v, reason=r)
+    return None
+
+
+def _place_sofa(plan, room, clear, bad, taken, dc):
+    """Sofa on the wall FARTHEST from the doors, pushed to the far corner, so
+    the seating sits out of the circulation and the entry stays clear."""
+    walls, far = _sofa_walls(clear, dc)
+    for side in walls:
+        p = _sofa_on_side(plan, room, clear, bad, taken, side, far)
+        if p:
+            return p
+    return None
+
+
+def _tv_for(plan, room, clear, bad, taken, sofa):
+    """The TV unit on the wall the sofa LOOKS AT, lined up in front of it — or
+    None when that wall has no clear run (doors / openings)."""
+    opp = {"N": "S", "S": "N", "E": "W", "W": "E"}[sofa.facing]
+    td, tl = F.ft(F.CATALOGUE["tv_unit"][0]), F.ft(F.CATALOGUE["tv_unit"][1])
+    sb = box(sofa.x, sofa.y, sofa.x + sofa.w, sofa.y + sofa.h).bounds
+    for fp in wall_slots(clear, opp, td, tl):
+        if not _fits(fp, clear, bad, taken):
+            continue
+        fb = fp.bounds
+        if sofa.facing in ("W", "E"):            # sofa/TV face along x → align y
+            overlap = min(sb[3], fb[3]) - max(sb[1], fb[1])
+        else:                                     # face along y → align x
+            overlap = min(sb[2], fb[2]) - max(sb[0], fb[0])
+        if overlap > 1.5:                         # genuinely in front of the sofa
+            z = _side_zone(plan, room, opp)
+            v, r = F.vaastu_check(F.family("tv_unit"), z)
+            return Furniture(kind="tv_unit", x=fb[0], y=fb[1], w=fb[2] - fb[0],
+                             h=fb[3] - fb[1], room=room.name, facing=opp,
+                             zone=z, verdict=v, reason=r)
     return None
 
 
 def _living(plan, room, clear, bad, taken, out, notes):
     dc = _door_centroid(plan, room)
-    sofa = _place_sofa(plan, room, clear, bad, taken, dc)
+    # SEATING GROUP as a pair: the sofa AND the TV it faces are chosen together.
+    # Walk the candidate sofa walls (farthest from the doors first); the first
+    # wall whose OPPOSITE wall also takes the TV wins. Only if no wall pairs do
+    # we keep the best lone sofa and say 'wall-mount the TV'.
+    walls, far = _sofa_walls(clear, dc)
+    sofa = tv = first = None
+    for side in walls:
+        s = _sofa_on_side(plan, room, clear, bad, taken, side, far)
+        if s is None:
+            continue
+        first = first or s
+        t = _tv_for(plan, room, clear, bad,
+                    taken + [box(s.x, s.y, s.x + s.w, s.y + s.h)], s)
+        if t:
+            sofa, tv = s, t
+            break
     if sofa is None:
-        sofa = place_piece(plan, room, "sofa_2", clear, bad, taken)
+        sofa = first or place_piece(plan, room, "sofa_2", clear, bad, taken)
     if sofa:
         out.append(sofa)
         taken.append(box(sofa.x, sofa.y, sofa.x + sofa.w, sofa.y + sofa.h))
-
-    # the TV must FACE the sofa — on the wall the sofa looks at, lined up with
-    # it. A TV stuck on a side wall (turned away from the seat) is exactly the
-    # 'random' look; if the facing wall has no clear run for it, the TV is
-    # omitted (wall-mount it) rather than floated somewhere it cannot be watched.
-    if sofa:
-        opp = {"N": "S", "S": "N", "E": "W", "W": "E"}[sofa.facing]
-        td, tl = F.ft(F.CATALOGUE["tv_unit"][0]), F.ft(F.CATALOGUE["tv_unit"][1])
-        sb = box(sofa.x, sofa.y, sofa.x + sofa.w, sofa.y + sofa.h).bounds
-        tv = None
-        for fp in wall_slots(clear, opp, td, tl):
-            if not _fits(fp, clear, bad, taken):
-                continue
-            fb = fp.bounds
-            if sofa.facing in ("W", "E"):        # sofa/TV face along x → align y
-                overlap = min(sb[3], fb[3]) - max(sb[1], fb[1])
-            else:                                 # face along y → align x
-                overlap = min(sb[2], fb[2]) - max(sb[0], fb[0])
-            if overlap > 1.5:                     # genuinely in front of the sofa
-                z = _side_zone(plan, room, opp)
-                v, r = F.vaastu_check(F.family("tv_unit"), z)
-                tv = Furniture(kind="tv_unit", x=fb[0], y=fb[1], w=fb[2] - fb[0],
-                               h=fb[3] - fb[1], room=room.name, facing=opp,
-                               zone=z, verdict=v, reason=r)
-                break
-        if tv:
-            out.append(tv)
-            taken.append(box(tv.x, tv.y, tv.x + tv.w, tv.y + tv.h))
-        else:
-            notes.append(f"{room.name}: the wall facing the sofa is taken by "
-                         "doors/openings — wall-mount the TV there")
+    if tv:
+        out.append(tv)
+        taken.append(box(tv.x, tv.y, tv.x + tv.w, tv.y + tv.h))
+    elif sofa:
+        notes.append(f"{room.name}: the wall facing the sofa is taken by "
+                     "doors/openings — wall-mount the TV there")
 
     # centre table squarely IN FRONT of the sofa, centred on the sofa's length,
     # with a 1.5 ft (≈450 mm) gap between the sofa front and the table
@@ -742,7 +796,31 @@ def _kitchen(plan, room, clear, bad, taken, out, notes):
                 continue
             break
 
-    fr = place_piece(plan, room, "fridge", clear, bad, taken)
+    # the fridge lives in a CORNER next to the counter's end — never floated
+    # mid-wall. Try the four corners, nearest to the counter first.
+    fd = F.ft(700)
+    counters = [f for f in out if f.kind == "counter" and f.room == room.name]
+    cpolys = [box(f.x, f.y, f.x + f.w, f.y + f.h) for f in counters]
+    corners = [(x0 + GAP, y0 + GAP), (x1 - fd - GAP, y0 + GAP),
+               (x0 + GAP, y1 - fd - GAP), (x1 - fd - GAP, y1 - fd - GAP)]
+    best = None
+    for cx, cy in corners:
+        fp = box(cx, cy, cx + fd, cy + fd)
+        if not _fits(fp, clear, bad, taken):
+            continue
+        d = min((fp.distance(cp) for cp in cpolys), default=0.0)
+        if best is None or d < best[0]:
+            best = (d, fp)
+    fr = None
+    if best:
+        bx0, by0, bx1, by1 = best[1].bounds
+        zx = "E" if (bx0 + bx1) / 2 > (x0 + x1) / 2 else "W"
+        z = _side_zone(plan, room, zx)
+        v, r = F.vaastu_check("fridge", z)
+        fr = Furniture(kind="fridge", x=bx0, y=by0, w=bx1 - bx0, h=by1 - by0,
+                       room=room.name, facing=zx, zone=z, verdict=v, reason=r)
+    if fr is None:
+        fr = place_piece(plan, room, "fridge", clear, bad, taken)
     if fr:
         out.append(fr)
         taken.append(box(fr.x, fr.y, fr.x + fr.w, fr.y + fr.h))
@@ -839,6 +917,23 @@ def _wet(plan, room, clear, bad, taken, out, notes):
         if pc:
             out.append(pc)
             taken.append(box(pc.x, pc.y, pc.x + pc.w, pc.y + pc.h))
+
+    # the BASIN must appear in every toilet — as you enter you wash your hands.
+    # If neither the row nor the clearance fallback took it, place it on ANY
+    # wall with the clearance waived (a tight toilet still gets its basin).
+    rb0 = box(room.x, room.y, room.x + room.w, room.y + room.h)
+    if not any(f.kind == "basin" and rb0.contains(footprint(f).centroid)
+               for f in out):
+        pc = place_piece(plan, room, "basin", clear, bad, taken)
+        if pc is None:
+            pc = place_piece(plan, room, "basin", clear, Polygon(), taken)
+        if pc:
+            out.append(pc)
+            taken.append(box(pc.x, pc.y, pc.x + pc.w, pc.y + pc.h))
+            notes.append(f"{room.name}: basin squeezed in with reduced "
+                         "clearance — the room is tight")
+        else:
+            notes.append(f"{room.name}: NO basin fits — the room is too small")
 
     # the shower must appear in EVERY toilet — if the row could not take it,
     # drop it into the free corner farthest from the door, shrinking a compact
@@ -1099,7 +1194,11 @@ def furnish(plan_dict: dict) -> tuple[dict, list[str]]:
             # the sofa (never in front of it) and tried SMALL first, so the walk
             # between the two zones survives.
             sofa = _living(plan, room, clear, bad, taken, out, notes)
-            if is_dining or area >= 130:          # 1BHK hall = living + dining
+            # a hall doubles as the dining ONLY when the house has no dining
+            # room of its own — two dining sets in one home is the 'mess' look
+            has_dining_room = any("dining" in (r.name or "").lower()
+                                  for r in plan.rooms if r is not room)
+            if is_dining or (area >= 130 and not has_dining_room):
                 anchor, prefer_walls = None, None
                 if sofa and sofa.facing in SIDES:
                     bx0, by0, bx1, by1 = clear.bounds
