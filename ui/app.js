@@ -130,6 +130,34 @@ function webPickFile(accept) {
   });
 }
 
+/* WEB: pick SEVERAL files at once (one per floor) through the browser picker */
+function webPickFiles(accept) {
+  return new Promise(resolve => {
+    let inp = document.getElementById("_webfiles");
+    if (!inp) {
+      inp = document.createElement("input");
+      inp.type = "file"; inp.id = "_webfiles"; inp.multiple = true;
+      inp.style.display = "none";
+      document.body.appendChild(inp);
+    }
+    inp.accept = accept || "";
+    inp.onchange = async () => {
+      const files = Array.from(inp.files || []); inp.value = "";
+      if (!files.length) return resolve(null);
+      const paths = [], names = [];
+      for (const fl of files) {                 // upload each, keep the order
+        const fd = new FormData(); fd.append("file", fl);
+        const r = await fetch("/upload", { method: "POST", body: fd })
+          .then(x => x.json()).catch(e => ({ ok: false, error: String(e) }));
+        if (!r.ok) return resolve({ error: r.error });
+        paths.push(r.path); names.push(r.name);
+      }
+      resolve({ paths, names });
+    };
+    inp.click();
+  });
+}
+
 /* WEB: pull the exported combined file(s) from the server as browser downloads */
 function webDownloadCombined(paths) {
   const wanted = ["combined_dxf", "combined_pdf"];
@@ -228,7 +256,11 @@ function banner(msg) {
   el.querySelector('[data-act="close"]').onclick = () => el.remove();
   const lg = el.querySelector('[data-act="login"]');
   if (lg) lg.onclick = async () => {
-    await api().open_login();
+    // on the web build there is no terminal here — the CLI signs in on the
+    // machine that runs the server, so just say so instead of erroring
+    if (isWeb()) status("Sign in to Claude on the machine running the server, "
+      + "then press Re-check.");
+    else await api().open_login();
     status("sign in in the terminal, then press Re-check");
     lg.textContent = "Re-check";
     lg.onclick = async () => {
@@ -3329,7 +3361,15 @@ $("#btnOpen").onclick = async () => {
 
 // Open several drawings at once — one per floor — and read each into its floor
 if ($("#btnOpenFloors")) $("#btnOpenFloors").onclick = async () => {
-  const r = await api().pick_sketches();
+  // the WEB build has no desktop file dialog — use the browser's multi-picker
+  let r;
+  if (isWeb()) {
+    const acc = window.WEB_AI ? ".dxf,.png,.jpg,.jpeg,.pdf" : ".dxf";
+    const w = await webPickFiles(acc);
+    if (!w) return;
+    if (w.error) return fail({ error: w.error });
+    r = { ok: true, paths: w.paths, names: w.names };
+  } else r = await api().pick_sketches();
   if (!r.ok) return fail(r);
   if (r.cancelled) return;
   const paths = r.paths || [], names = r.names || [];
@@ -3948,7 +3988,12 @@ $("#btnExport").onclick = async () => {
     + "no separate per-sheet files)");
   status("exported — one combined DXF with everything: " + combined);
 };
-$("#btnFolder").onclick = () => api().open_folder(S.lastFolder || "");
+$("#btnFolder").onclick = () => {
+  // on the web build the output lives on the server — Export downloads it
+  if (isWeb()) return status("Web build: Export downloads the file straight to "
+    + "your browser — there is no folder to open.");
+  api().open_folder(S.lastFolder || "");
+};
 if ($("#btnDims")) $("#btnDims").onclick = () => autoDims();
 if ($("#btnRefV")) $("#btnRefV").onclick = () => addRef("v");
 if ($("#btnRefH")) $("#btnRefH").onclick = () => addRef("h");
