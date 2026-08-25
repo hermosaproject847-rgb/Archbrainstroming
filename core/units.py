@@ -35,6 +35,7 @@ import re as _re
 # matches 12'-6", 12'6", 7'-4½" AND bare feet like 8' (no inch part at all) —
 # labels written as "8' X 4'" must convert too, not just full feet-inch tokens
 _FTIN = _re.compile(r"(\d+)\s*'(?:\s*-?\s*(\d+)\s*([½¼¾])?\s*\")?")
+_INCH = _re.compile(r"(\d+)\s*([½¼¾])?\s*\"")
 _FRAC = {"½": 0.5, "¼": 0.25, "¾": 0.75}
 
 
@@ -51,7 +52,15 @@ def relabel(text):
         frac = _FRAC.get(m.group(3), 0.0)
         return fmt_len(ft + (inch + frac) / 12.0)
 
-    return _FTIN.sub(_sub, text)
+    text = _FTIN.sub(_sub, text)
+
+    # bare INCHES too (+6", 10½", 5") — a step level or a thickness figure
+    # written inches-only must follow the unit like everything else
+    def _sub_in(m):
+        inch = int(m.group(1)) + _FRAC.get(m.group(2), 0.0)
+        return fmt_len(inch / 12.0)
+
+    return _INCH.sub(_sub_in, text)
 
 
 def dxf_insunits():

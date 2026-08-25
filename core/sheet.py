@@ -257,7 +257,8 @@ def _title_block(dl: DrawList, plan: Plan, W: float, H: float, denom: float,
     # sheet that carries the electrical legend the strip is taken, so the
     # notes shrink to the one line that matters.
     strip = x - MARGIN - 6
-    lines = _wrap(t.wall_note or "", strip, 2.6)
+    from . import units as _u
+    lines = _wrap(_u.relabel(t.wall_note or ""), strip, 2.6)
     lines.append("ALL DIMENSIONS IN FEET-INCHES. DO NOT SCALE THE DRAWING.")
     ty = y + TB_H - 5
     for ln in lines[:5]:

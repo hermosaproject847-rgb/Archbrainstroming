@@ -164,7 +164,8 @@ def draw(dl: DrawList, plan, w_mm: float, h_mm: float, scale: str,
     yy = Y_NOTES_TOP - 0.030
     body = NOTES_TEXT
     if t.wall_note:
-        body = t.wall_note.upper() + "  " + body
+        from . import units as _u
+        body = _u.relabel(t.wall_note.upper()) + "  " + body
     for line in _wrap(body, strip_w, 1.9)[:26]:
         dl.text(X(X_STRIP) + 3, Y(yy), line, h=1.9, layer=LS, halign="left")
         yy -= 0.0088

@@ -544,7 +544,9 @@ def draw_steps(plan: Plan, dl: DrawList) -> None:
 
         # the level written on each tread, reading in the direction of ascent
         rising = s.up_from in ("left", "bottom")
+        from . import units as _u          # level marks follow the unit too
         for i, lvl in enumerate(s.levels[:n]):
+            lvl = _u.relabel(lvl)
             k = i if rising else (n - 1 - i)
             if along_x:
                 cx, cy = s.x + s.w * (k + 0.5) / n, s.y + s.h / 2
@@ -612,7 +614,12 @@ def _fmt_ft(v: float) -> str:      # noqa: F811 — one formatter for the sheet
 
 def _fmt_dim(v: float) -> str:
     """Dimension text the way the civil layout writes it: under a foot it is
-    inches only (9\", 4\"), otherwise feet-inches — short text crowds less."""
+    inches only (9\", 4\"), otherwise feet-inches — short text crowds less.
+    In mm / m mode EVERY figure follows the chosen unit — a drawing must
+    never mix 356-mm chains with leftover 5\" fragments."""
+    from . import units
+    if units.current() != "ft":
+        return units.fmt_len(v)
     if v < 1.0 - 1e-6:
         inch = v * 12.0
         whole = int(inch + 1e-6)
