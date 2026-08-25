@@ -497,6 +497,14 @@
     <label class="v3-op" title="compound wall ki height — main gate isi ke saath banta hai">Height (ft)
       <input id="v3bwh" type="range" min="3" max="10" step="0.5" value="6">
     </label>
+    <label class="v3-chk"><input id="v3facade" type="checkbox" checked> 🏛 Facade
+      <button class="v3lock" data-lock="facade" title="lock — locked layer me edit nahi hota">🔓</button></label>
+    <div class="v3-sec">FACADE STYLE</div>
+    <select id="v3fstyle" title="front elevation ka treatment — plan me save hota hai">
+      <option value="none" selected>None (plain)</option>
+      <option value="p23">P-23 — stone + arch + pergola</option>
+      <option value="plain">Simple — railing only</option>
+    </select>
     <div class="v3-sec">FACADE TOOLS</div>
     <div class="v3-tools2">
       <button id="v3rect" class="v3btn" title="rectangle face daalo — facade study ke liye">▭ Rect</button>
@@ -532,6 +540,6 @@
 
 <script src="app.js?v=4"></script>
 <script src="vendor/three.min.js"></script>
-<script src="view3d.js?v=36"></script>
+<script src="view3d.js?v=37"></script>
 </body>
 </html>

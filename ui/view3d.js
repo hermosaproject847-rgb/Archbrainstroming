@@ -20,7 +20,7 @@
   let sunL = null, ambL = null, hemiL = null;   // lights (sun-glare slider)
   // LAYER LOCKS — a locked layer's things cannot be selected / moved / edited
   const locks = { struct: false, furn: false, plumb: false, elec: false,
-    faces: false, bwall: false, walls: false };
+    faces: false, bwall: false, walls: false, facade: false };
   // per-FLOOR state, kept across rebuilds: its own groups, eye, lock and the
   // XY offset you can nudge a floor by (to study a shifted upper storey)
   let FL = [];                                  // FL[f] = { layer: Group }
@@ -1502,6 +1502,227 @@
     }
   }
 
+
+  /* ================= FACADE =========================================
+     A facade is DATA, not hard-coded geometry: plan.facade holds the spec
+     and every part is derived from the drawing (front wall line, the gate
+     opening, storey heights), so the same spec dresses any plan and a new
+     spec can be written for the next project.
+
+       plan.facade = {
+         style:   "p23" | "none",
+         clad:    { material:"stone"|"grit"|"paint", from_f:1, to_f:2 },
+         arch:    { on:true, span:0, rise:0 },     // 0 = derive from the plan
+         railing: { on:true, type:"glass", h:3.4 },
+         jaali:   { on:true, w:3.2, h:7 },
+         planter: { on:true, depth:1.1 },
+         pergola: { on:true, slats:14 },
+       }
+  =================================================================== */
+  const FACADE_PRESETS = {
+    p23: {
+      clad: { material: "stone", from_f: 1, to_f: 2 },
+      arch: { on: true, span: 0, rise: 0 },
+      railing: { on: true, type: "glass", h: 3.4 },
+      jaali: { on: true, w: 3.2, h: 7 },
+      planter: { on: true, depth: 1.1 },
+      pergola: { on: true, slats: 14 },
+    },
+    plain: {
+      clad: { material: "paint", from_f: 1, to_f: 2 },
+      arch: { on: false }, railing: { on: true, type: "mssteel", h: 3.4 },
+      jaali: { on: false }, planter: { on: false }, pergola: { on: false },
+    },
+  };
+  function facadeSpec(plan) {
+    const fdRaw = plan.facade || {};
+    const style = fdRaw.style || "none";
+    if (style === "none") return null;
+    const base = FACADE_PRESETS[style] || FACADE_PRESETS.p23;
+    const out = { style };
+    for (const k of ["clad", "arch", "railing", "jaali", "planter", "pergola"])
+      out[k] = Object.assign({}, base[k] || {}, fdRaw[k] || {});
+    return out;
+  }
+  // ---- cladding textures, drawn once into a canvas (no external files)
+  const _cladCache = {};
+  function cladTex(kind) {
+    if (_cladCache[kind]) return _cladCache[kind];
+    const c = document.createElement("canvas");
+    c.width = c.height = 256;
+    const x = c.getContext("2d");
+    if (kind === "stone") {                       // random flat-stone cladding
+      x.fillStyle = "#cdbfa6"; x.fillRect(0, 0, 256, 256);
+      let seed = 7;
+      const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+      for (let row = 0; row < 8; row++) {
+        let px = -20 - rnd() * 30;
+        while (px < 256) {
+          const w = 26 + rnd() * 40, h = 26 + rnd() * 6;
+          x.fillStyle = ["#c6b79c", "#d6c9b2", "#bdae93", "#e0d5c0"][(rnd() * 4) | 0];
+          x.fillRect(px + 2, row * 32 + 2, w - 4, h - 4);
+          px += w;
+        }
+      }
+    } else if (kind === "grit") {                 // grit-wash plaster
+      x.fillStyle = "#e6e0d4"; x.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 5000; i++) {
+        x.fillStyle = ["#d8d0c0", "#cdc4b2", "#f0ebe0"][i % 3];
+        x.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+      }
+    } else {                                      // flat paint
+      x.fillStyle = "#eae4d8"; x.fillRect(0, 0, 256, 256);
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    _cladCache[kind] = t;
+    return t;
+  }
+  // ---- the front line of the building, taken from the drawing
+  function frontInfo(plan) {
+    let y0 = 1e9, x0 = 1e9, x1 = -1e9;
+    (plan.walls || []).forEach(w => {
+      y0 = Math.min(y0, w.y1, w.y2);
+      x0 = Math.min(x0, w.x1, w.x2); x1 = Math.max(x1, w.x1, w.x2);
+    });
+    if (x1 <= x0) return null;
+    // the gate / entry opening in the front wall centres the composition
+    let gc = (x0 + x1) / 2, gw = (x1 - x0) * 0.42;
+    for (const w of (plan.walls || [])) {
+      if (!w.exterior || Math.abs(w.y1 - w.y2) > 0.5) continue;
+      if (Math.min(w.y1, w.y2) > y0 + 0.8) continue;
+      const L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) || 1;
+      const ux = (w.x2 - w.x1) / L;
+      for (const o of (plan.openings || [])) {
+        if (o.wall_id !== w.id || !/open|gate/i.test(o.type || "")) continue;
+        const a = w.x1 + ux * (+o.pos || 0);
+        const b = w.x1 + ux * ((+o.pos || 0) + (+o.width || 3));
+        gc = (a + b) / 2; gw = Math.abs(b - a);
+      }
+    }
+    return { y: y0, x0, x1, gateC: gc, gateW: gw };
+  }
+  // ---- build the facade on the front elevation
+  function addFacade(g, plan, P, M) {
+    const fd = facadeSpec(plan); if (!fd) return;
+    const fi = frontInfo(plan); if (!fi) return;
+    const zF = f2 => P.plinth + f2 * P.fh;            // floor level of storey f2
+    const wallY = fi.y - 0.06;                       // just proud of the wall
+    const put = (w, h, cx, z, mat, d) => {           // a panel on the front
+      const m = box(w, d || 0.14, h, cx, wallY, z, mat);
+      g.add(m); return m;
+    };
+    const woodM = new THREE.MeshLambertMaterial({ color: 0x7a4a24 });
+    const glassM = new THREE.MeshLambertMaterial({ color: 0x9ec8e8,
+      transparent: true, opacity: 0.4 });
+    const steelM = new THREE.MeshLambertMaterial({ color: 0x2b2f36 });
+    const leafM = new THREE.MeshLambertMaterial({ color: 0x3f7d3a });
+    const plasterM = new THREE.MeshLambertMaterial({ color: 0xe8e2d6 });
+
+    const aOn = fd.arch && fd.arch.on !== false;
+    const span = aOn ? (+fd.arch.span > 1 ? +fd.arch.span
+      : Math.max(8, Math.min(fi.gateW + 4, (fi.x1 - fi.x0) * 0.5))) : 0;
+    const aL = fi.gateC - span / 2, aR = fi.gateC + span / 2;
+
+    // 1) CLADDING band on the side blocks, between two storey levels
+    if (fd.clad && fd.clad.material !== "paint") {
+      const z0c = zF(+fd.clad.from_f || 1), z1c = zF((+fd.clad.to_f || 2));
+      const hC = Math.max(1, z1c - z0c);
+      for (const seg of [[fi.x0, aOn ? aL : fi.gateC - 0.001],
+                         [aOn ? aR : fi.gateC + 0.001, fi.x1]]) {
+        const wS = seg[1] - seg[0]; if (wS < 1) continue;
+        const t = cladTex(fd.clad.material).clone();
+        t.needsUpdate = true; t.repeat.set(Math.max(1, wS / 5), Math.max(1, hC / 5));
+        put(wS, hC, (seg[0] + seg[1]) / 2, z0c + hC / 2,
+            new THREE.MeshLambertMaterial({ map: t }));
+      }
+    }
+    // 2) the big ARCH over the entrance: piers + a segmented arched band
+    if (aOn) {
+      const zS = zF(1) + 0.2;                        // springing at floor 1
+      const rise = +fd.arch.rise > 1 ? +fd.arch.rise : span / 2;
+      const zT = zS + rise;
+      const bandT = 0.9;
+      for (const px of [aL, aR])                     // the two piers
+        put(bandT, zT - zS, px + (px === aL ? bandT / 2 : -bandT / 2),
+            zS + (zT - zS) / 2, plasterM, 0.34);
+      const N = 22;                                  // the arch itself
+      for (let i = 0; i < N; i++) {
+        const t0 = Math.PI * (i / N), t1 = Math.PI * ((i + 1) / N);
+        const r = span / 2;
+        const x0a = fi.gateC - Math.cos(t0) * r, z0a = zT - r + Math.sin(t0) * r;
+        const x1a = fi.gateC - Math.cos(t1) * r, z1a = zT - r + Math.sin(t1) * r;
+        const seg = box(Math.hypot(x1a - x0a, z1a - z0a) + 0.12, 0.34, bandT,
+          (x0a + x1a) / 2, wallY, (z0a + z1a) / 2, plasterM);
+        seg.rotation.z = Math.atan2(z1a - z0a, x1a - x0a);
+        g.add(seg);
+      }
+    }
+    // 3) balcony RAILING inside the arch, at first-floor level
+    if (fd.railing && fd.railing.on !== false && P.floors > 1) {
+      const zR = zF(1) + 0.1, h = +fd.railing.h || 3.4;
+      const wR = (aOn ? span : (fi.x1 - fi.x0) * 0.5) - 1.2;
+      if (fd.railing.type === "glass") {
+        put(wR, h - 0.35, fi.gateC, zR + (h - 0.35) / 2, glassM, 0.08);
+        put(wR, 0.16, fi.gateC, zR + h - 0.1, steelM, 0.2);
+      } else {
+        put(wR, 0.12, fi.gateC, zR + h - 0.1, steelM, 0.18);
+        const n = Math.max(6, Math.round(wR / 0.5));
+        for (let i = 0; i <= n; i++)
+          put(0.07, h - 0.2, fi.gateC - wR / 2 + (i * wR) / n, zR + (h - 0.2) / 2, steelM, 0.1);
+      }
+    }
+    // 4) JAALI panels on the side blocks, ground storey
+    if (fd.jaali && fd.jaali.on !== false) {
+      const jw = +fd.jaali.w || 3.2, jh = +fd.jaali.h || 7;
+      const zJ = zF(0) + 0.6;
+      for (const cxJ of [(fi.x0 + aL) / 2, (aR + fi.x1) / 2]) {
+        if (!isFinite(cxJ)) continue;
+        put(jw + 0.5, jh + 0.5, cxJ, zJ + jh / 2, plasterM, 0.18);   // reveal
+        const cols = 5, rows = Math.max(6, Math.round(jh / 1.1));
+        for (let i = 0; i <= cols; i++)
+          put(0.09, jh, cxJ - jw / 2 + (i * jw) / cols, zJ + jh / 2, woodM, 0.22);
+        for (let r2 = 0; r2 <= rows; r2++)
+          put(jw, 0.09, cxJ, zJ + (r2 * jh) / rows, woodM, 0.22);
+      }
+    }
+    // 5) PLANTER band under the balcony and along the parapet
+    if (fd.planter && fd.planter.on !== false) {
+      const d = +fd.planter.depth || 1.1;
+      const rows = [];
+      if (P.floors > 1) rows.push([zF(1) - 0.15, aOn ? span : (fi.x1 - fi.x0) * 0.5, fi.gateC]);
+      rows.push([P.plinth + P.floors * P.fh + P.slab + 0.1, fi.x1 - fi.x0, (fi.x0 + fi.x1) / 2]);
+      for (const [z, wP, cxP] of rows) {
+        const trough = box(wP, d, 0.55, cxP, wallY - d / 2 + 0.07, z + 0.27, plasterM);
+        g.add(trough);
+        const n = Math.max(6, Math.round(wP / 1.1));
+        for (let i = 0; i < n; i++) {               // hanging greens
+          const gx = cxP - wP / 2 + (i + 0.5) * (wP / n);
+          g.add(box(0.5, d * 0.7, 1.2, gx, wallY - d / 2 + 0.07, z + 0.1, leafM));
+        }
+      }
+    }
+    // 6) PERGOLA on the roof over each side block
+    if (fd.pergola && fd.pergola.on !== false) {
+      const zP = P.plinth + P.floors * P.fh + P.slab + P.para;
+      const depth = 7, hP = 3.2, wPg = Math.min(11, (fi.x1 - fi.x0) * 0.3);
+      for (const cxP of [fi.x0 + wPg / 2 + 0.5, fi.x1 - wPg / 2 - 0.5]) {
+        for (const px of [cxP - wPg / 2, cxP + wPg / 2])
+          for (const py of [fi.y + 0.4, fi.y + depth]) {
+            const post = box(0.35, 0.35, hP, px, py, zP + hP / 2, woodM);
+            g.add(post);
+          }
+        const nS = Math.max(6, +fd.pergola.slats || 14);
+        for (let i = 0; i <= nS; i++) {             // sloping slat roof
+          const py = fi.y + 0.4 + (i * (depth - 0.4)) / nS;
+          g.add(box(wPg + 0.5, 0.22, 0.28, cxP, py, zP + hP + 0.1 + i * 0.03, woodM));
+        }
+        for (const py of [fi.y + 0.4, fi.y + depth])   // beams
+          g.add(box(wPg + 0.7, 0.3, 0.45, cxP, py, zP + hP - 0.2, woodM));
+      }
+    }
+  }
+
   function buildModel() {
     extMats = []; intMats = []; floorMats = [];
     const M = mats();
@@ -1513,7 +1734,7 @@
       stairs: new THREE.Group(), floor: new THREE.Group(), furn: new THREE.Group(),
       plumb: new THREE.Group(), elec: new THREE.Group(), top: new THREE.Group(),
       mumty: new THREE.Group(), bwall: new THREE.Group(),
-      faces: new THREE.Group() };
+      faces: new THREE.Group(), facade: new THREE.Group() };
 
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
     (base.walls || []).forEach(w => {
@@ -1683,6 +1904,7 @@
     addTop(G.top, topPlan, topZ, P, M,
       ($("#v3para") || {}).value || "parapet", cx, cy);
     addBoundary(G.bwall, base, M, cx, cy, BW_IDS);   // compound wall + gate
+    addFacade(G.facade, base, P, M);                 // front elevation dress
     addFaces(G.faces, base);              // facade study faces
 
     Object.values(G).forEach(gr => root.add(gr));
@@ -1718,6 +1940,7 @@
     G.floor.visible = on("#v3floor");
     if (G.bwall) G.bwall.visible = on("#v3bwall");
     if (G.faces) G.faces.visible = on("#v3faces");
+    if (G.facade) G.facade.visible = on("#v3facade");
     // per-FLOOR eye and nudge: hide or shift a whole storey without touching
     // the layer switches
     FL.forEach((set, fi) => {
@@ -2311,7 +2534,18 @@
     };
     on("#v3rect", addFace("rect"));
     on("#v3circ", addFace("circle"));
-    ["#v3bwall", "#v3faces"].forEach(id => on(id, syncLayers, "onchange"));
+    ["#v3bwall", "#v3faces", "#v3facade"].forEach(id => on(id, syncLayers, "onchange"));
+    // FACADE style: written into the plan, so it saves with the project
+    const fsel = $("#v3fstyle");
+    if (fsel) fsel.onchange = () => {
+      if (!S.plan) return;
+      if (typeof pushUndo === "function") pushUndo();
+      S.plan.facade = Object.assign({}, S.plan.facade, { style: fsel.value });
+      const fb = $("#v3facade"); if (fb) fb.checked = fsel.value !== "none";
+      rebuild();
+      status(fsel.value === "none" ? "facade off"
+        : "facade applied — " + fsel.value.toUpperCase());
+    };
     // LOCK buttons cover the new layers too (data-lock="faces")
     on("#v3para", rebuild, "onchange");
     // LAYER LOCK buttons — lock a layer and nothing in it can be edited
