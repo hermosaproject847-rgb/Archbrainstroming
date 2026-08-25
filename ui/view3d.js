@@ -1721,6 +1721,12 @@
   // ---- build the facade on the front elevation
   function addFacade(g, plan, P, M) {
     const fd = facadeSpec(plan); if (!fd) return;
+    // the terrace drawing may carry its OWN pergola / planters — then the
+    // preset must not add another set on the roof
+    const hasOwn = re => (S.floors || []).some(fl => fl && fl.plan &&
+      (fl.plan.rooms || []).some(r => re.test(r.name || "")));
+    if (hasOwn(/pergola/i)) fd.pergola = { on: false };
+    if (hasOwn(/planter/i) && fd.planter) fd.planter.roofRow = false;
     const fi = frontInfo(plan); if (!fi) return;
     const zF = f2 => P.plinth + f2 * P.fh;            // floor level of storey f2
     const wallY = fi.y - 0.06;                       // just proud of the wall
@@ -1807,7 +1813,8 @@
       const d = +fd.planter.depth || 1.1;
       const rows = [];
       if (P.floors > 1) rows.push([zF(1) - 0.15, aOn ? span : (fi.x1 - fi.x0) * 0.5, fi.gateC]);
-      rows.push([P.plinth + P.floors * P.fh + P.slab + 0.1, fi.x1 - fi.x0, (fi.x0 + fi.x1) / 2]);
+      if (fd.planter.roofRow !== false)
+        rows.push([P.plinth + P.floors * P.fh + P.slab + 0.1, fi.x1 - fi.x0, (fi.x0 + fi.x1) / 2]);
       for (const [z, wP, cxP] of rows) {
         const trough = box(wP, d, 0.55, cxP, wallY - d / 2 + 0.07, z + 0.27, plasterM);
         g.add(trough);
@@ -1961,6 +1968,19 @@
       const up = ((S.floors || [])[uf] && S.floors[uf].plan) || base;
       UP_SPANS[uf] = terraceSpans(up, cx, cy);
     }
+    // is the TOP floor a terrace layout? (its own drawing says so)
+    const topPlanChk = ((S.floors || [])[P.floors - 1]
+      && S.floors[P.floors - 1].plan) || base;
+    const terrTitle = /terrace/i.test(((topPlanChk.title || {}).plan_name) || "");
+    const openArea = (topPlanChk.rooms || []).filter(r => OPEN_AIR.test(r.name || ""))
+      .reduce((a, r) => a + (+r.w || 0) * (+r.h || 0), 0);
+    const allArea = (topPlanChk.rooms || [])
+      .reduce((a, r) => a + (+r.w || 0) * (+r.h || 0), 0) || 1;
+    const TERR_FLOOR = P.floors > 1 && (terrTitle || openArea / allArea > 0.5);
+    const ENCLOSED = r => (r.name || "") && !r.void
+      && !OPEN_AIR.test(r.name || "")
+      && !/pergola|planter|shaft|o\.?\s?t\.?\s?s/i.test(r.name || "");
+    const MUMTY_H = 2450 * MM + 0.3;
     let topZ = P.plinth;
     for (let f = 0; f < P.floors; f++) {
       const plan = ((S.floors || [])[f] && S.floors[f].plan) || base;
@@ -1970,6 +1990,7 @@
       (plan.walls || []).forEach(w => {
         if (w.railing) return;
         if (f === 0 && BW_IDS.has(w.id)) return;     // it is the boundary wall
+        const isTerr = TERR_FLOOR && f === P.floors - 1;
         let bw = null;
         if (f === 0 && BW_SPANS[w.id]) bw = { spans: BW_SPANS[w.id], h: BW_H };
         else if (f > 0) {                            // terrace parapet upstairs
@@ -1978,9 +1999,24 @@
         }
         // a wall standing in an open ground area starts at ground level, so
         // it does not float over the step down
-        let zW = z0;
+        let zW = z0, HW = H;
         if (f === 0 && wallOnGround(plan, w, cx, cy)) zW = 0.18;
-        addWall(L.walls, plan, w, zW, H + (z0 - zW), P, M, cx, cy, bw);
+        if (isTerr) {
+          // ON THE TERRACE: a wall bounding the enclosed room (mumty) rises
+          // to mumty height; every other wall IS the parapet, with a coping
+          const enc = (plan.rooms || []).filter(ENCLOSED);
+          const nearEnc = enc.some(r => {
+            for (let t = 0.1; t <= 0.9; t += 0.2) {
+              const x = w.x1 + (w.x2 - w.x1) * t, y = w.y1 + (w.y2 - w.y1) * t;
+              if (x >= r.x - 0.7 && x <= r.x + r.w + 0.7 &&
+                  y >= r.y - 0.7 && y <= r.y + r.h + 0.7) return true;
+            }
+            return false;
+          });
+          if (nearEnc) { HW = MUMTY_H; bw = null; }
+          else { HW = Math.max(P.para, 3.0); bw = { spans: [[0, 1e6]], h: HW }; HW += 0.4; }
+        }
+        addWall(L.walls, plan, w, zW, HW + (z0 - zW), P, M, cx, cy, bw);
       });
       (plan.columns || []).forEach(c => {
         // A COLUMN IS A FRAME MEMBER: it must stand on the column below it.
@@ -2007,7 +2043,51 @@
       });
       // the slab is CUT OUT over every staircase (the stair well) — a slab
       // poured straight over the stair is exactly the amateur-model look
+      const isTerrF = TERR_FLOOR && f === P.floors - 1;
       const slabG = (f === P.floors - 1 ? L.roof : L.struct);
+      if (isTerrF) {
+        // ONLY the enclosed room (mumty) carries a slab, on top of its walls;
+        // the open terrace has sky above it — nothing else is poured
+        for (const r of (plan.rooms || []).filter(ENCLOSED)) {
+          slabG.add(box(r.w + 0.7, r.h + 0.7, P.slab,
+            r.x + r.w / 2, r.y + r.h / 2, z0 + MUMTY_H + P.slab / 2, M.slab));
+        }
+        // PERGOLA / PLANTER rooms: built exactly at their own rectangles
+        for (const r of (plan.rooms || [])) {
+          const nm = r.name || "";
+          if (/pergola/i.test(nm)) {
+            const woodM = new THREE.MeshLambertMaterial({ color: 0x7a4a24 });
+            const hP = 7.2;
+            for (const px of [r.x + 0.3, r.x + r.w - 0.3])
+              for (const py of [r.y + 0.3, r.y + r.h - 0.3])
+                L.struct.add(box(0.35, 0.35, hP, px, py, z0 + hP / 2, woodM));
+            for (const py of [r.y + 0.3, r.y + r.h - 0.3]) {
+              const bm2 = box(r.w + 0.4, 0.3, 0.45, r.x + r.w / 2, py,
+                z0 + hP - 0.2, woodM);
+              L.struct.add(bm2);
+            }
+            const nS = Math.max(6, Math.round(r.h / 0.75));
+            for (let i = 0; i <= nS; i++)
+              L.struct.add(box(r.w + 0.5, 0.22, 0.26, r.x + r.w / 2,
+                r.y + 0.3 + (i * (r.h - 0.6)) / nS, z0 + hP + 0.05, woodM));
+          } else if (/planter/i.test(nm)) {
+            const pot = new THREE.MeshLambertMaterial({ color: 0xcfc6b4 });
+            const leafM = new THREE.MeshLambertMaterial({ color: 0x3f7d3a });
+            L.struct.add(box(r.w, r.h, 1.2, r.x + r.w / 2, r.y + r.h / 2,
+              z0 + 0.6, pot));
+            const n = Math.max(2, Math.round((r.w * r.h) / 6));
+            for (let i = 0; i < n; i++)
+              L.struct.add(box(0.9, Math.min(0.9, r.h * 0.6), 1.3,
+                r.x + (i + 0.5) * (r.w / n), r.y + r.h / 2, z0 + 1.8, leafM));
+          }
+        }
+        topZ = z0 + MUMTY_H + P.slab;
+        addFlooring(L.floor, plan, z0);
+        addFurniture(L.furn, plan, z0);
+        addPipes(L.plumb, plan, z0, H);
+        addElec(L.elec, plan, z0, MUMTY_H);
+        continue;                       // no outline slab, auto-mumty or stair
+      }
       let fx0 = 1e9, fy0 = 1e9, fx1 = -1e9, fy1 = -1e9;
       (plan.walls || []).forEach(w => {
         fx0 = Math.min(fx0, w.x1, w.x2); fy0 = Math.min(fy0, w.y1, w.y2);
@@ -2090,10 +2170,12 @@
       addElec(L.elec, plan, z0, H);
       topZ = z0 + H + P.slab;
     }
-    const topPlan = ((S.floors || [])[P.floors - 1]
-      && S.floors[P.floors - 1].plan) || base;
-    addTop(G.top, topPlan, topZ, P, M,
-      ($("#v3para") || {}).value || "parapet", cx, cy);
+    if (!TERR_FLOOR) {
+      const topPlan = ((S.floors || [])[P.floors - 1]
+        && S.floors[P.floors - 1].plan) || base;
+      addTop(G.top, topPlan, topZ, P, M,
+        ($("#v3para") || {}).value || "parapet", cx, cy);
+    }
     addBoundary(G.bwall, base, M, cx, cy, BW_IDS);   // compound wall + gate
     addFacade(G.facade, base, P, M);                 // front elevation dress
     addFaces(G.faces, base);              // facade study faces
