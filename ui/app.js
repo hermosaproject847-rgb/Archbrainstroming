@@ -990,7 +990,7 @@ function buildHandles(info) {
   // section / structural / elevation views stay read-only.
   const beamEdit = S.beamView && !S.structView && _sel.key === "beams";
   if ((S.sectionView || S.structView || S.elevView || (S.beamView && !beamEdit))) return;
-  if (floorsWithPlans() >= 2 || !POSCFG[_sel.key]) return;
+  if (allFloorsView() || !POSCFG[_sel.key]) return;
   const _ae = activeEditKey();                        // Plumbing tab edits pipes + fittings
   if (_sel.key !== _ae && !(_ae === "pipes" && _sel.key === "plumb")) return;
   if (POSCFG[_sel.key].coord === "none") return;     // flooring: settings only, no drag
@@ -2091,6 +2091,14 @@ function floorsWithPlans() {
   return (S.floors || []).filter(f => f && f.plan).length;
 }
 
+/* Show ALL floors on one sheet? That view is a read-only composite. Editing
+   always happens on the ACTIVE floor, so this is off unless asked for — a
+   multi-floor project is otherwise fully editable, like a single plan. */
+function allFloorsView() {
+  const c = $("#chkAllFloors");
+  return !!(c && c.checked) && floorsWithPlans() >= 2;
+}
+
 /* the section line(s) are SHARED by every floor at the same position — a cut
    added or moved on any floor shows on all of them, and the multi-floor
    section / elevation reads the same line through each floor's own plan */
@@ -2129,7 +2137,7 @@ function stageFailed(res) {
 function renderEditFloor() {
   const wrap = $("#editFloorWrap"), sel = $("#editFloor");
   if (!wrap || !sel) return;
-  const multi = floorsWithPlans() >= 2;
+  const multi = allFloorsView();
   wrap.classList.toggle("hidden", !multi);
   if (!multi) return;
   sel.innerHTML = "";
@@ -3097,7 +3105,7 @@ function redraw() {
 let _fastBusy = false, _fastPending = false, _checkTimer = null;
 async function doRenderFast() {
   if (!S.plan) return;
-  if (floorsWithPlans() >= 2) return doRender();   // multi-floor uses the full path
+  if (allFloorsView()) return doRender();      // the composite needs the full path
   if (_fastBusy) { _fastPending = true; return; }
   _fastBusy = true;
   try {
@@ -3118,7 +3126,7 @@ async function doRenderFast() {
 function scheduleCheck() {
   clearTimeout(_checkTimer);
   _checkTimer = setTimeout(async () => {
-    if (!S.plan || S.beamView || S.sectionView || floorsWithPlans() >= 2) return;
+    if (!S.plan || S.beamView || S.sectionView || allFloorsView()) return;
     const c = await api().check_plan(S.plan);
     if (c && c.ok) {
       showIssues(c.issues, c.summary);
@@ -3140,7 +3148,7 @@ async function doRender() {
   try {
     do {
       _renderPending = false;
-      const multi = floorsWithPlans() >= 2;
+      const multi = allFloorsView();
       const r = multi
         ? await api().render_project(S.floors, $("#selSheet").value,
             $("#selOrient").value, $("#chkTags").checked, S.layerState || null)
@@ -3244,6 +3252,9 @@ function setPlan(plan) {
 /* ── multi-floor: a project = list of floors, each a full plan ───────── */
 function renderFloorBar() {
   renderEditFloor();
+  // the composite view is only offered when there IS more than one floor
+  const afw = $("#allFloorsWrap");
+  if (afw) afw.style.display = floorsWithPlans() >= 2 ? "" : "none";
   const bar = $("#floorBar");
   if (!bar) return;
   // only show the bar once there is more than one floor (or a plan exists)
@@ -3559,7 +3570,7 @@ $("#btnElec").onclick = async () => {
       + `replaces all of it, losing anything you moved or switched off.\n\n`
       + `Ctrl+Z undoes it. Lay out again?`)) return;
   pushUndo();
-  const multi = floorsWithPlans() >= 2;
+  const multi = allFloorsView();
   busy(true, multi
     ? "Laying out electrical on EVERY floor — fans, boards, circuits, load…"
     : "Laying out the electrical — lux targets, fans, boards, circuits and load…");
@@ -3585,7 +3596,7 @@ $("#btnFloor").onclick = async () => {
       + `again resets every room to defaults.\n\nCtrl+Z undoes it. Reset?`))
     return;
   pushUndo();
-  const multi = floorsWithPlans() >= 2;
+  const multi = allFloorsView();
   busy(true, multi
     ? "Setting flooring on EVERY floor — tile grid, spacers, start, skirting…"
     : "Setting the flooring — tile grid, spacers, start points, skirting and levels…");
@@ -3707,7 +3718,7 @@ $("#btnBeam").onclick = async () => {
 $("#btnElev").onclick = async () => {
   if (!S.plan) return status("read or load a plan first");
   const prm = S.plan.section_params || null;   // reuse section heights if set
-  const multi = floorsWithPlans() >= 2;
+  const multi = allFloorsView();
   busy(true, multi
     ? "Developing the MULTI-FLOOR elevations — every storey to full height…"
     : "Developing the four elevations…");
@@ -3769,7 +3780,7 @@ async function regenSection() {
   _secBusy = true;
   try {
     syncSections(S.plan);
-    const multi = floorsWithPlans() >= 2;
+    const multi = allFloorsView();
     const r = multi
       ? await api().section_project(S.floors, S.plan.section_params)
       : await api().section(S.plan, S.plan.section_params);
@@ -3859,7 +3870,7 @@ if ($("#secGo")) $("#secGo").onclick = async () => {
     return status("enter the floor-to-floor height");
   $("#secWrap").classList.add("hidden");
   syncSections(S.plan);                       // one cut line for every floor
-  const multi = floorsWithPlans() >= 2;
+  const multi = allFloorsView();
   busy(true, multi
     ? "Cutting the MULTI-FLOOR section — every storey stacked, one dim stack…"
     : "Cutting the section — walls, slabs, plinth, openings, levels…");
@@ -3913,7 +3924,7 @@ $("#btnPlumb").onclick = async () => {
       + `${(S.plan.pipes || []).length} pipe run(s).\n\nLaying it out again `
       + `replaces all of it.\n\nCtrl+Z undoes it. Lay out again?`)) return;
   pushUndo();
-  const multi = floorsWithPlans() >= 2;
+  const multi = allFloorsView();
   busy(true, multi
     ? "Laying out plumbing on EVERY floor — water, soil, waste, rain, chambers…"
     : "Laying out the plumbing — water, soil, waste, rain water and the chambers…");
@@ -3938,7 +3949,7 @@ $("#btnFurn").onclick = async () => {
       + `Laying it out again replaces all of it, losing any moves, turns or `
       + `resizes you made.\n\nCtrl+Z undoes it. Lay out again?`)) return;
   pushUndo();
-  const multi = floorsWithPlans() >= 2;
+  const multi = allFloorsView();
   busy(true, multi
     ? "Laying out furniture on EVERY floor — sizes, clearances and Vaastu…"
     : "Laying out the furniture — sizes, clearances and Vaastu…");
@@ -4185,3 +4196,11 @@ async function boot() {
   if (n < 15) return setTimeout(() => waitForBridge(n + 1), 100);
   return boot();
 })();
+
+
+if ($("#chkAllFloors")) $("#chkAllFloors").onchange = () => {
+  _sel = null;
+  if ($("#gizmo")) $("#gizmo").classList.add("hidden");
+  S.forceFit = true;
+  doRender();
+};

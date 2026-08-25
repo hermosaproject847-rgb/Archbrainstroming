@@ -1308,6 +1308,37 @@
   }
 
   /* ------------------------------------------- parapet OR railing on top */
+  // ---- ENTRANCE STEPS: the plan gives the block, the number of risers, the
+  // direction of travel and the level of each tread ("+6\"" ...). They climb
+  // from the ground to the floor they serve, so the plinth is reachable and
+  // the elevation reads correctly.
+  function addSteps(g, plan, z0, M) {
+    for (const st of (plan.steps || [])) {
+      const w = +st.w || 3, h = +st.h || 3;
+      const n = Math.max(1, +st.count || Math.max(1, Math.round(z0 / 0.5)));
+      const alongY = (st.run_axis || "y") === "y";
+      const up = (st.up_from === "bottom" || st.up_from === "left") ? 1 : -1;
+      // tread levels: use the plan's own marks when they are there
+      const lv = (st.levels || []).map(t => {
+        const m = String(t).match(/(-?[\d.]+)\s*(?:'|ft)?\s*(?:-\s*)?(?:(\d+(?:\.\d+)?)\s*")?/);
+        if (!m) return null;
+        const a = parseFloat(m[1]);
+        return /"/.test(String(t)) && !/'/.test(String(t)) ? a / 12
+          : a + (m[2] ? parseFloat(m[2]) / 12 : 0);
+      }).filter(v => v != null && isFinite(v));
+      const run = (alongY ? h : w) / n;                 // going per tread
+      for (let i = 0; i < n; i++) {
+        const top = lv[i] != null ? lv[i] : (z0 * (i + 1)) / n;
+        const d0 = i * run;
+        const cxs = alongY ? st.x + w / 2
+          : st.x + (up > 0 ? d0 + run / 2 : w - d0 - run / 2);
+        const cys = alongY ? st.y + (up > 0 ? d0 + run / 2 : h - d0 - run / 2)
+          : st.y + h / 2;
+        const sw = alongY ? w : run, sh = alongY ? run : h;
+        g.add(box(sw, sh, Math.max(0.1, top), cxs, cys, top / 2, M.step));
+      }
+    }
+  }
   function addTop(g, base, topZ, P, M, mode, cx, cy) {
     if (mode === "none") return;
     let y0 = 1e9;
@@ -1957,6 +1988,7 @@
         }
       }
       addStairs(L.stairs, plan, z0, H, M);
+      if (f === 0) addSteps(L.stairs, plan, z0, M);   // entrance steps
       addFlooring(L.floor, plan, z0);
       addFurniture(L.furn, plan, z0);
       addPipes(L.plumb, plan, z0, H);
