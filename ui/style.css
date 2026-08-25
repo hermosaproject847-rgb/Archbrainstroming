@@ -481,3 +481,46 @@ td.licell{color:var(--fg); font-size:12.5px; padding:7px 8px; text-transform:cap
 #v3vcb .v3vcb-lab{color:#6f7a99; letter-spacing:.4px}
 #v3vcb .v3vcb-val{margin-left:auto; color:#27e0a3; font-weight:600;
   font-family:Consolas,monospace; min-width:64px; text-align:right}
+
+/* ---- SketchUp-like light studio chrome (own styling, own icons) ---- */
+#view3d{background:#f7f8fa}
+#view3d .v3-top{background:linear-gradient(180deg,#fbfbfd,#eef0f4);
+  border-bottom:1px solid #ccd0d9; color:#353a40}
+#view3d .v3-top b{background:none; -webkit-background-clip:initial;
+  background-clip:initial; color:#0063a3}
+.v3btn{background:#fff; color:#353a40; border-color:#c6cad3}
+.v3btn:hover{background:#e8f1fa; border-color:#0063a3; color:#0b3f66}
+.v3btn.v3x{background:#fff2f2; border-color:#e3b7b7}
+.v3btn.v3x:hover{background:#ffe3e3}
+#view3d .v3-hint{color:#6a6e79}
+#v3toolbar{background:#f1f1f6; border-color:#c6cad3; box-shadow:2px 2px 8px rgba(0,0,0,.14)}
+#v3toolbar .v3tool{color:#353a40}
+#v3toolbar .v3tool:hover{background:#dcedf9; color:#0063a3}
+#v3toolbar .v3tool.on{background:#dcedf9; border-color:#0063a3; color:#0063a3}
+#v3toolbar .v3tsep{background:#cbcdd6}
+#v3cam{background:#f1f1f6; border-color:#c6cad3; box-shadow:0 2px 8px rgba(0,0,0,.14)}
+#v3cam button{color:#353a40}
+#v3cam button:hover{background:#dcedf9; color:#0063a3}
+#v3cam .v3camsep{background:#cbcdd6}
+#v3side{background:rgba(241,241,246,.96); border-color:#c6cad3;
+  box-shadow:2px 2px 8px rgba(0,0,0,.14)}
+#v3side .v3-sec{color:#6a6e79; border-bottom-color:#cbcdd6}
+#view3d .v3-chk{color:#353a40}
+#view3d .v3-chk:hover{background:#dcedf9}
+#view3d .v3-op{color:#6a6e79}
+#v3side select{background:#fff; color:#353a40; border-color:#c6cad3}
+#v3floors .v3f-row{color:#353a40}
+#v3floors .v3f-row:hover{background:#dcedf9}
+#v3floors .v3f-nudge input{background:#fff; color:#353a40; border-color:#c6cad3}
+#v3props{background:rgba(241,241,246,.97); border-color:#c6cad3;
+  box-shadow:-2px 2px 8px rgba(0,0,0,.14)}
+#v3props .v3p-head{color:#0063a3; border-bottom-color:#cbcdd6}
+#v3props .v3p-row{color:#353a40}
+#v3props .v3p-row input{background:#fff; color:#353a40; border-color:#c6cad3}
+#v3props .v3p-row input:focus{border-color:#0063a3}
+#v3vcb{background:#f1f1f6; border-color:#c6cad3; color:#353a40;
+  box-shadow:0 2px 8px rgba(0,0,0,.14)}
+#v3vcb .v3vcb-lab{color:#6a6e79}
+#v3vcb .v3vcb-val{color:#0063a3}
+#v3selname{background:rgba(241,241,246,.96); color:#0063a3;
+  border-color:#9fc7e6; box-shadow:0 2px 8px rgba(0,0,0,.14)}

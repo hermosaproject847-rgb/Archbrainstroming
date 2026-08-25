@@ -1372,6 +1372,9 @@
   // it is the boundary wall, so it is built to the boundary height with a
   // coping, and the plan's own "open" opening in it becomes the MAIN GATE.
   const OPEN_AIR = /porch|parking|terrace|o\.?\s?t\.?\s?s|court|garden|planter|lawn|drive|open\s*(space|to\s*sky)/i;
+  // an O.T.S. is an internal light shaft and a porch is covered — neither
+  // gets a parapet. Only a real open terrace / balcony / court does.
+  const TERRACE_RE = /terrace|balcony|court|garden|lawn|chowk/i;
   function boundaryIds(plan, cx, cy) {
     const ids = new Set();
     const open = (plan.rooms || []).filter(r => OPEN_AIR.test(r.name || ""));
@@ -1420,6 +1423,36 @@
         else if (run) { if (run[1] - run[0] > 1.5) spans.push(run); run = null; }
       }
       if (run && run[1] - run[0] > 1.5) { run[1] = L; spans.push(run); }
+      if (spans.length) out[w.id] = spans;
+    }
+    return out;
+  }
+  // stretches of an exterior wall that front an open TERRACE — these carry
+  // the parapet. A stretch must be a real run (> 3 ft) and it never swallows
+  // the whole wall, so room walls upstairs keep their full height.
+  function terraceSpans(plan, cx, cy) {
+    const out = {};
+    const open = (plan.rooms || []).filter(r => TERRACE_RE.test(r.name || ""));
+    if (!open.length) return out;
+    const inOpen = (x, y) => open.some(r =>
+      x >= r.x - 0.3 && x <= r.x + r.w + 0.3 &&
+      y >= r.y - 0.3 && y <= r.y + r.h + 0.3);
+    for (const w of (plan.walls || [])) {
+      if (!w.exterior || w.railing) continue;
+      const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
+      const L = Math.hypot(dx, dy); if (L < 3) continue;
+      let nx = -dy / L, ny = dx / L;
+      const mx = (w.x1 + w.x2) / 2, my = (w.y1 + w.y2) / 2;
+      if ((mx + nx - cx) ** 2 + (my + ny - cy) ** 2 >
+          (mx - nx - cx) ** 2 + (my - ny - cy) ** 2) { nx = -nx; ny = -ny; }
+      const spans = [];
+      let run = null;
+      for (let d = 0; d <= L; d += 0.5) {
+        const x = w.x1 + (dx / L) * d + nx * 1.2, y = w.y1 + (dy / L) * d + ny * 1.2;
+        if (inOpen(x, y)) { if (!run) run = [d, d]; else run[1] = d; }
+        else if (run) { if (run[1] - run[0] > 3) spans.push(run); run = null; }
+      }
+      if (run && run[1] - run[0] > 3) { run[1] = L; spans.push(run); }
       if (spans.length) out[w.id] = spans;
     }
     return out;
@@ -1801,11 +1834,10 @@
     const BW_H = +((($("#v3bwh") || {}).value)) || 6;
     // upstairs the same idea gives the TERRACE PARAPET: a wall stretch that
     // fronts an open terrace stops at parapet height, it is not a room wall
-    const UP_SPANS = [], UP_IDS = [];
+    const UP_SPANS = [];
     for (let uf = 1; uf < P.floors; uf++) {
       const up = ((S.floors || [])[uf] && S.floors[uf].plan) || base;
-      UP_IDS[uf] = boundaryIds(up, cx, cy);
-      UP_SPANS[uf] = boundarySpans(up, cx, cy, UP_IDS[uf]);
+      UP_SPANS[uf] = terraceSpans(up, cx, cy);
     }
     let topZ = P.plinth;
     for (let f = 0; f < P.floors; f++) {
@@ -1819,10 +1851,8 @@
         let bw = null;
         if (f === 0 && BW_SPANS[w.id]) bw = { spans: BW_SPANS[w.id], h: BW_H };
         else if (f > 0) {                            // terrace parapet upstairs
-          const ids = UP_IDS[f], sp = UP_SPANS[f];
-          const ph = Math.max(P.para, 2.8);
-          if (ids && ids.has(w.id)) bw = { spans: [[0, 1e6]], h: ph };
-          else if (sp && sp[w.id]) bw = { spans: sp[w.id], h: ph };
+          const sp = UP_SPANS[f];
+          if (sp && sp[w.id]) bw = { spans: sp[w.id], h: Math.max(P.para, 2.8) };
         }
         addWall(L.walls, plan, w, z0, H, P, M, cx, cy, bw);
       });
@@ -2078,7 +2108,7 @@
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1c2230);
+    scene.background = new THREE.Color(0xf7f8fa);   // studio white
     ambL = new THREE.AmbientLight(0xffffff, 0.55);
     scene.add(ambL);
     hemiL = new THREE.HemisphereLight(0xbcd2ff, 0x3a3126, 0.35);
@@ -2094,10 +2124,25 @@
     applySun();                            // honour the Sun / brightness slider
     const sun2 = new THREE.DirectionalLight(0xdde6ff, 0.22);
     sun2.position.set(-50, 40, -60); scene.add(sun2);
-    scene.add(new THREE.GridHelper(200, 40, 0x37415a, 0x2a3248));
+    // ground grid + the three coloured axes, the way a 3D package shows them
+    scene.add(new THREE.GridHelper(400, 80, 0xc9ccd4, 0xe4e6ea));
+    const axLen = 60, axMat = c => new THREE.LineBasicMaterial({ color: c });
+    const axLine = (x, y, z, c) => {
+      const g2 = new THREE.BufferGeometry().setFromPoints(
+        [new THREE.Vector3(0, 0.02, 0), new THREE.Vector3(x, y, z)]);
+      scene.add(new THREE.Line(g2, axMat(c)));
+      const g3 = new THREE.BufferGeometry().setFromPoints(
+        [new THREE.Vector3(0, 0.02, 0), new THREE.Vector3(-x * 0.35, -y * 0.35, -z * 0.35)]);
+      const dash = new THREE.LineDashedMaterial({ color: c, dashSize: 1, gapSize: 1 });
+      const ln = new THREE.Line(g3, dash); ln.computeLineDistances();
+      scene.add(ln);
+    };
+    axLine(axLen, 0.02, 0, 0xd33b3b);              // X — red
+    axLine(0, 0.02, -axLen, 0x2fa04a);             // Y (plan) — green
+    axLine(0, axLen, 0, 0x2f6fd0);                 // Z — blue
     // soft ground shadow catcher
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(300, 300),
-      new THREE.ShadowMaterial({ opacity: 0.28 }));
+      new THREE.ShadowMaterial({ opacity: 0.16 }));
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     scene.add(ground);
