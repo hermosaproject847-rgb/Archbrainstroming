@@ -1710,6 +1710,8 @@ const COLS = {
     // moves BOTH ends, so the wall grows or shrinks evenly at each side.
     ["__len", "Length (ft)", { get: wallLength, set: setWallLength }],
     ["thickness_in", "Thk (in)", "num"],
+    // its own height (blank = full storey) — same as clicking it in 3D
+    ["height_ft", "Height (ft)", "num"],
     ["exterior", "Ext", "bool"],
     ["railing", "Railing", "bool"],
   ],
@@ -3016,7 +3018,21 @@ function wallPreview() {
 }
 
 function nextWallId() {
-  const used = new Set((S.plan.walls || []).map(w => w.id));
+  // continue the plan's OWN series: with P-1..P-10 on the drawing the next
+  // wall is P-11, so its number is fresh and the tag on the drawing is unique
+  const walls = S.plan.walls || [];
+  const counts = {};
+  let maxN = 0;
+  for (const w of walls) {
+    const m = String(w.id || "").match(/^(.*?)(\d+)$/);
+    if (!m) continue;
+    counts[m[1]] = (counts[m[1]] || 0) + 1;
+    maxN = Math.max(maxN, +m[2]);
+  }
+  const prefix = Object.keys(counts)
+    .sort((a, b) => counts[b] - counts[a])[0];
+  if (prefix !== undefined) return prefix + (maxN + 1);
+  const used = new Set(walls.map(w => w.id));
   for (let i = 1; i < 9999; i++) if (!used.has("W-" + i)) return "W-" + i;
   return "W-" + Date.now();
 }

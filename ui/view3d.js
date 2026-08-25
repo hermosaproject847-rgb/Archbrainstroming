@@ -292,7 +292,44 @@
         }
       };
 
-      if (typ === "U" || typ === "U3" || typ === "L") {
+      if (typ === "L") {
+        // PLAN-TRUE L: flight 1 up the long side, winders in the corner
+        // square, flight 2 perpendicular only if the plan has one
+        const n1 = Math.max(1, +s.steps_f1 || 8);
+        const nw = Math.max(0, +s.winders || 0);
+        const n2 = Math.max(0, +s.steps_f2 || 0);
+        const tot = Math.max(1, n1 + nw + n2);
+        const corner = Math.min(B, W * 0.4);         // the turn square
+        const runLen = W - corner;
+        const z1 = z0 + rise * n1 / tot;             // top of flight 1
+        const z2 = z0 + rise * (n1 + nw) / tot;      // top of the winders
+        const uNear = dirUp > 0 ? 0 : W;
+        const uCorn = dirUp > 0 ? runLen : 0;        // corner square start (u)
+        flight(uNear, runLen, dirUp, 0, B, z0, z1, n1);
+        rail(uNear, dirUp > 0 ? runLen : corner, B - 0.08, z0, z1);
+        // WINDERS: wedge treads fanning through the corner square
+        const fan = (s.winder_style || "fan") === "fan";
+        for (let i = 0; i < Math.max(1, nw); i++) {
+          const zTop = nw ? z1 + (z2 - z1) * (i + 1) / nw : z1;
+          if (fan && nw > 1) {
+            // approximate the fan with narrowing strips across the square
+            stepBox(uCorn, (i * B) / nw, corner, B / nw, zTop,
+              Math.min(zTop - z0 + 0.01, ((z2 - z1) / Math.max(1, nw)) * 2.2));
+          } else {
+            stepBox(uCorn, 0, corner, B, zTop, 0.5);
+          }
+        }
+        // flight 2, perpendicular to flight 1, out of the corner square —
+        // it runs across the block toward the plan's turn side
+        if (n2 > 0) {
+          const run2 = B - corner;
+          for (let i = 0; i < n2; i++) {
+            const zTop = z2 + (z0 + rise - z2) * (i + 1) / n2;
+            stepBox(uCorn, corner + (i * run2) / n2, corner, run2 / n2, zTop,
+              Math.min(zTop - z0 + 0.01, ((z0 + rise - z2) / n2) * 2.2));
+          }
+        }
+      } else if (typ === "U" || typ === "U3") {
         // EXACTLY the plan's arrangement: flight 1 in the TOP band, both
         // landings stacked at the FAR (landing) end, the U3's middle flight
         // running DOWN the landing column between them, the return flight in
