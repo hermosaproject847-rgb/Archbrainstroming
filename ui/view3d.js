@@ -1297,14 +1297,36 @@
   }
 
   /* ------------------------------------------- parapet OR railing on top */
-  function addTop(g, base, topZ, P, M, mode) {
+  function addTop(g, base, topZ, P, M, mode, cx, cy) {
     if (mode === "none") return;
     let y0 = 1e9;
     (base.walls || []).forEach(w => { y0 = Math.min(y0, w.y1, w.y2); });
     const isFront = w => Math.min(w.y1, w.y2) < y0 + 0.8 &&
       Math.abs(w.y1 - w.y2) < 0.5;                   // the lowest horizontal run
+    // a parapet only stands where there IS a roof or terrace behind the wall:
+    // sample just inside it and require a room of this (top) floor there
+    const rms = (base.rooms || []).filter(r => !r.void);
+    const inside = (x, y) => rms.some(r =>
+      x >= r.x - 0.3 && x <= r.x + r.w + 0.3 &&
+      y >= r.y - 0.3 && y <= r.y + r.h + 0.3);
+    const roofed = w => {
+      const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
+      const L = Math.hypot(dx, dy) || 1e-9;
+      let nx = -dy / L, ny = dx / L;
+      const mx = (w.x1 + w.x2) / 2, my = (w.y1 + w.y2) / 2;
+      if (cx !== undefined &&
+          (mx + nx - cx) ** 2 + (my + ny - cy) ** 2 >
+          (mx - nx - cx) ** 2 + (my - ny - cy) ** 2) { nx = -nx; ny = -ny; }
+      let hit = 0, n = 0;
+      for (let t = 0.1; t <= 0.9; t += 0.1) {
+        n++;
+        if (inside(w.x1 + dx * t + nx * 1.0, w.y1 + dy * t + ny * 1.0)) hit++;
+      }
+      return !n || hit / n > 0.35;
+    };
     (base.walls || []).forEach(w => {
       if (!w.exterior || w.railing) return;
+      if (!roofed(w)) return;                        // open below — no parapet
       const L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1); if (L < 0.05) return;
       const rail = mode === "rail-all" || (mode === "rail-front" && isFront(w));
       const ang = Math.atan2(-(w.y2 - w.y1), (w.x2 - w.x1));
@@ -1338,7 +1360,7 @@
   // an OPEN area (porch, parking, terrace, court) is not a room wall at all —
   // it is the boundary wall, so it is built to the boundary height with a
   // coping, and the plan's own "open" opening in it becomes the MAIN GATE.
-  const OPEN_AIR = /porch|parking|terrace|o.?s?t.?s?s|court|garden|planter|lawn|drive|opens*space/i;
+  const OPEN_AIR = /porch|parking|terrace|o\.?\s?t\.?\s?s|court|garden|planter|lawn|drive|open\s*(space|to\s*sky)/i;
   function boundaryIds(plan, cx, cy) {
     const ids = new Set();
     const open = (plan.rooms || []).filter(r => OPEN_AIR.test(r.name || ""));
@@ -1555,8 +1577,17 @@
       // poured straight over the stair is exactly the amateur-model look
       const slabG = (f === P.floors - 1 ? L.roof : L.struct);
       let rects = [[x0 - 0.4, y0 - 0.4, x1 + 0.4, y1 + 0.4]];
-      for (const st of (plan.stairs || [])) {
-        const hole = [st.x, st.y, st.x + st.w, st.y + st.h];
+      // NO SLAB over an open area. On the TOP floor every open-air room is
+      // open to the sky (a terrace has no roof over it). On a lower floor only
+      // a shaft (O.T.S. / open to sky) is punched — a porch below still needs
+      // its slab, because the terrace above stands on it.
+      const shaft = r => /o\.?\s?t\.?\s?s|open\s*to\s*sky|shaft|duct/i.test(r.name || "");
+      const holes = (plan.rooms || []).filter(r =>
+        r.void || shaft(r)                       // a shaft goes through every floor
+        || (f === P.floors - 1 && OPEN_AIR.test(r.name || "")));
+      for (const st of (plan.stairs || []).concat(holes)) {
+        const hole = [st.x - 0.25, st.y - 0.25,
+                      st.x + st.w + 0.25, st.y + st.h + 0.25];
         const nr = [];
         for (const r of rects) {
           if (hole[2] <= r[0] || hole[0] >= r[2] || hole[3] <= r[1] || hole[1] >= r[3]) { nr.push(r); continue; }
@@ -1620,7 +1651,10 @@
       addElec(L.elec, plan, z0, H);
       topZ = z0 + H + P.slab;
     }
-    addTop(G.top, base, topZ, P, M, ($("#v3para") || {}).value || "parapet");
+    const topPlan = ((S.floors || [])[P.floors - 1]
+      && S.floors[P.floors - 1].plan) || base;
+    addTop(G.top, topPlan, topZ, P, M,
+      ($("#v3para") || {}).value || "parapet", cx, cy);
     addBoundary(G.bwall, base, M, cx, cy, BW_IDS);   // compound wall + gate
     addFaces(G.faces, base);              // facade study faces
 
