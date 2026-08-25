@@ -1782,6 +1782,20 @@
     };
     // walls that are really the COMPOUND wall are built by addBoundary, not
     // as full-height room walls (that duplication is what looked wrong)
+    // the ground-floor column grid every upper storey is aligned to
+    const baseCols = (base.columns || []);
+    const colBelow = (c, fi) => {
+      if (!fi) return null;                       // the ground floor IS the grid
+      const key = x => x.tag || x.id;            // columns carry a tag
+      const byId = baseCols.find(b => key(b) && key(c) && key(b) === key(c));
+      if (byId) return byId;
+      let best = null, bd = 2.5;
+      for (const b of baseCols) {
+        const d = Math.hypot((+b.x) - (+c.x), (+b.y) - (+c.y));
+        if (d < bd) { bd = d; best = b; }
+      }
+      return best;
+    };
     const BW_IDS = boundaryIds(base, cx, cy);
     const BW_SPANS = boundarySpans(base, cx, cy, BW_IDS);
     const BW_H = +((($("#v3bwh") || {}).value)) || 6;
@@ -1813,8 +1827,16 @@
         addWall(L.walls, plan, w, z0, H, P, M, cx, cy, bw);
       });
       (plan.columns || []).forEach(c => {
-        const cm = box(Math.max(+c.w || 0.8, 0.3), Math.max(+c.h || 0.8, 0.3), H,
-          c.x, c.y, z0 + H / 2, M.conc);
+        // A COLUMN IS A FRAME MEMBER: it must stand on the column below it.
+        // Each floor was read from its own drawing, so the same column can
+        // land a foot apart; upstairs we take the ground-floor column's line
+        // and size whenever one clearly matches (same id, or nearest within
+        // 2.5 ft), and only a genuinely new column keeps its own position.
+        const g0 = colBelow(c, f);
+        const cw = Math.max(+(g0 ? g0.w : c.w) || 0.8, 0.3);
+        const ch = Math.max(+(g0 ? g0.h : c.h) || 0.8, 0.3);
+        const cx2 = g0 ? +g0.x : +c.x, cy2 = g0 ? +g0.y : +c.y;
+        const cm = box(cw, ch, H, cx2, cy2, z0 + H / 2, M.conc);
         cm.userData.edit = { kind: "col", ref: c, plan };
         L.struct.add(cm);
       });
@@ -2183,6 +2205,17 @@
     selHelper = new THREE.BoxHelper(obj, 0x27e0a3);
     scene.add(selHelper);
     const ed = obj.userData.edit, r = ed.ref;
+    // picking something that belongs to ANOTHER floor makes that floor the
+    // active one — otherwise the edit lands on one floor while undo snapshots
+    // another, and Ctrl+Z would restore the wrong drawing
+    const fi = (S.floors || []).findIndex(fl => fl.plan === ed.plan);
+    if (fi >= 0 && fi !== S.active) {
+      S.active = fi;
+      if (typeof buildTables === "function") buildTables();
+      if (typeof renderFloorBar === "function") renderFloorBar();
+      if (typeof redraw === "function") redraw();
+      status("floor: " + ((S.floors[fi] || {}).name || fi + 1));
+    }
     const chip = $("#v3selname");
     // a wall is named by the NUMBER it carries on the drawing, so the 3D
     // selection and the wall table talk about the same thing
@@ -2287,7 +2320,7 @@
     if (f) setSel(f);
   }
   // pick the closest EDITABLE thing under the cursor (skips hidden layers)
-  function pick(e) {
+  function pick(e, thru) {
     if (!modelRoot || !camera) return null;
     const cv = $("#v3canvas"), rc = cv.getBoundingClientRect();
     const nd = new THREE.Vector2(
@@ -2309,7 +2342,9 @@
       }
       if (ed) return { obj: o, pt: hit.point };
       // a SOLID surface blocks the pick; an x-rayed (faded) one lets the
-      // click pass through to the concealed services behind it
+      // click pass through — and ALT forces the pick straight through
+      // everything, so a stub hidden behind a wall can still be grabbed
+      if (thru) continue;
       const m = Array.isArray(hit.object.material) ? hit.object.material[0] : hit.object.material;
       if (!m || !m.transparent || m.opacity >= 0.9) return null;
     }
@@ -2340,6 +2375,74 @@
     clearSel();
     if (typeof redraw === "function") redraw();   // 2D follows the 3D edit
     rebuild();
+  }
+
+  /* ---- export the model as OBJ + MTL: SketchUp Pro / Go, Blender, 3ds Max
+     and every other package read this, so the model leaves here as real
+     geometry instead of a picture. Only what is VISIBLE is written. */
+  function exportOBJ() {
+    if (!modelRoot) return status("3D model pehle banao");
+    const V = [], N = [], Fc = [];
+    const mats = new Map();
+    let vOff = 1;
+    const p = new THREE.Vector3(), nrm = new THREE.Vector3();
+    modelRoot.updateMatrixWorld(true);
+    modelRoot.traverse(o => {
+      if (!o.isMesh || !o.geometry) return;
+      for (let a = o; a; a = a.parent) if (a.visible === false) return;
+      const g = o.geometry;
+      const pos = g.attributes && g.attributes.position;
+      if (!pos) return;
+      const mm = Array.isArray(o.material) ? o.material[0] : o.material;
+      const col = (mm && mm.color) ? mm.color.getHexString() : "cccccc";
+      const mname = "m" + col;
+      if (!mats.has(mname)) mats.set(mname, col);
+      const idx = g.index ? g.index.array : null;
+      const nAttr = g.attributes.normal;
+      const n0 = V.length / 3;
+      for (let i = 0; i < pos.count; i++) {
+        p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+        V.push(p.x, p.y, p.z);
+        if (nAttr) {
+          nrm.fromBufferAttribute(nAttr, i)
+             .transformDirection(o.matrixWorld);
+          N.push(nrm.x, nrm.y, nrm.z);
+        } else N.push(0, 1, 0);
+      }
+      Fc.push("usemtl " + mname);
+      const tri = (a, b, c) => {
+        const A = vOff + n0 + a, B = vOff + n0 + b, C = vOff + n0 + c;
+        Fc.push("f " + A + "//" + A + " " + B + "//" + B + " " + C + "//" + C);
+      };
+      if (idx) for (let i = 0; i < idx.length; i += 3) tri(idx[i], idx[i + 1], idx[i + 2]);
+      else for (let i = 0; i < pos.count; i += 3) tri(i, i + 1, i + 2);
+    });
+    const name = "ARCH-BRAIN-3D";
+    let obj = "# " + name + " — exported from ARCH BRAIN STORMING\n";
+    obj += "mtllib " + name + ".mtl\n";
+    for (let i = 0; i < V.length; i += 3)
+      obj += "v " + V[i].toFixed(4) + " " + V[i + 1].toFixed(4) + " " + V[i + 2].toFixed(4) + "\n";
+    for (let i = 0; i < N.length; i += 3)
+      obj += "vn " + N[i].toFixed(4) + " " + N[i + 1].toFixed(4) + " " + N[i + 2].toFixed(4) + "\n";
+    obj += "o " + name + "\n" + Fc.join("\n") + "\n";
+    let mtl = "# materials\n";
+    for (const [mn, col] of mats) {
+      const r = parseInt(col.slice(0, 2), 16) / 255;
+      const g2 = parseInt(col.slice(2, 4), 16) / 255;
+      const b = parseInt(col.slice(4, 6), 16) / 255;
+      mtl += "newmtl " + mn + "\nKd " + r.toFixed(3) + " " + g2.toFixed(3) + " "
+           + b.toFixed(3) + "\nKa 0 0 0\nKs 0.05 0.05 0.05\nd 1\nillum 2\n";
+    }
+    const dl = (txt, fn) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([txt], { type: "text/plain" }));
+      a.download = fn;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    };
+    dl(obj, name + ".obj");
+    setTimeout(() => dl(mtl, name + ".mtl"), 400);
+    status("3D model exported — " + name + ".obj + .mtl (SketchUp / Blender / 3ds Max me import karo)");
   }
 
   /* --------------------------------------------------- controls wiring */
@@ -2381,7 +2484,7 @@
       }
       if (TOOL === "orbit") { const sp = surfPoint(e); if (sp) retarget(sp); mode = 1; return; }
       if (TOOL === "pan") { mode = 2; return; }
-      const hit = pick(e);                       // L-down on a thing = grab it
+      const hit = pick(e, e.altKey);             // ALT = x-ray pick, through walls
       if (hit && TOOL === "erase") {             // ERASER: click removes it
         setSel(hit.obj); deleteSel(); mode = 0; return;
       }
@@ -2592,6 +2695,7 @@
     on("#btn3D", openViewer);
     on("#v3close", closeViewer);
     on("#v3rebuild", rebuild);
+    on("#v3obj", exportOBJ);
     on("#v3iso", () => {
       exitTop();
       if (homeCenter) { orbit.tx = homeCenter.x; orbit.ty = homeCenter.y; orbit.tz = homeCenter.z; }
