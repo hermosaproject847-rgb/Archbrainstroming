@@ -2759,7 +2759,9 @@ async function savePlan(saveAs = false) {
       base = (nm.trim().replace(/\.[^.]+$/, "")) || base;
     }
     const name = base + ".json";
-    const blob = new Blob([JSON.stringify(S.plan, null, 2)],
+    // more than one floor => save the WHOLE project in this one file
+    const multi = S.floors.filter(fl => fl.plan).length > 1;
+    const blob = new Blob([JSON.stringify(multi ? projectFile() : S.plan, null, 2)],
                           { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -2767,11 +2769,15 @@ async function savePlan(saveAs = false) {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     S.saveName = name; S.dirty = false; showSaved();
-    status("plan downloaded — " + name + " (re-open it with Open Plan)");
+    status((multi ? "project (" + S.floors.filter(fl => fl.plan).length
+        + " floors) downloaded — " : "plan downloaded — ")
+      + name + " (re-open it with Open Plan)");
     return;
   }
-  const r = saveAs ? await api().save_as(S.plan)
-                   : await api().save_plan_json(S.plan, S.savePath || "");
+  const multiD = S.floors.filter(fl => fl.plan).length > 1;
+  const payload = multiD ? projectFile() : S.plan;
+  const r = saveAs ? await api().save_as(payload)
+                   : await api().save_plan_json(payload, S.savePath || "");
   if (!r.ok) return fail(r);
   if (r.cancelled) return;
   S.savePath = r.path;
@@ -3182,6 +3188,41 @@ function ensureDefaultSections(plan) {
   ];
 }
 
+/* A PROJECT FILE holds every floor in one .json:
+     { "archbrain_project": 1, "floors": [ {name, plan}, ... ], "active": 0 }
+   Saving a multi-floor project writes this; a single floor still writes the
+   plain plan, and both open through loadAnyJson(). */
+function isProjectFile(j) {
+  return !!(j && Array.isArray(j.floors) && j.floors.length
+            && j.floors.some(f => f && f.plan));
+}
+function projectFile() {
+  return {
+    archbrain_project: 1,
+    saved: new Date().toISOString(),
+    active: S.active || 0,
+    floors: S.floors.map(f => ({ name: f.name, plan: f.plan })),
+  };
+}
+function loadAnyJson(j, name) {
+  if (!isProjectFile(j)) { setPlan(j); return 1; }
+  S.floors = j.floors.map((f, i) => ({
+    name: (f && f.name) || _nextFloorNameAt(i),
+    plan: (f && f.plan) || null,
+  }));
+  S.active = Math.min(Math.max(0, +j.active || 0), S.floors.length - 1);
+  if (!S.floors[S.active].plan)                 // land on a floor that has one
+    S.active = Math.max(0, S.floors.findIndex(f => f.plan));
+  S.undo = []; S.redo = [];
+  S.forceFit = true;
+  ["btnRender", "btnExport"].forEach(i => $("#" + i).disabled = false);
+  refreshStageButtons();
+  buildTables();
+  if (S.plan) doRender(); else clearPlanView();
+  renderFloorBar();
+  return S.floors.filter(f => f.plan).length;
+}
+
 function setPlan(plan) {
   pushUndo();               // no-op on the first plan; makes a reload undoable
   _sel = null;              // drop any gizmo selection from the old plan
@@ -3291,8 +3332,9 @@ $("#btnOpen").onclick = async () => {
     if (!f) return;
     if (f.error) return fail({ error: f.error });
     if (f.json) {
-      setPlan(f.json);
-      status("plan loaded from JSON — edit any row and it redraws");
+      const n = loadAnyJson(f.json, f.name);
+      status(n > 1 ? `project loaded — ${n} floors (switch them on the floor bar)`
+                   : "plan loaded from JSON — edit any row and it redraws");
       return;
     }
     const isImg = /\.(png|jpe?g|pdf)$/i.test(f.name || "");
@@ -3944,22 +3986,24 @@ if ($("#btnLoad")) $("#btnLoad").onclick = async () => {
     if (!f) return;
     if (f.error) return fail({ error: f.error });
     if (!f.json) return status("please pick a saved .json plan file");
-    setPlan(f.json);
+    const nF = loadAnyJson(f.json, f.name);
     S.saveName = f.name || "";
     S.dirty = false;
     showSaved();
-    status("plan loaded — " + (f.name || "saved file"));
+    status(nF > 1 ? `project loaded — ${nF} floors (switch them on the floor bar)`
+                  : "plan loaded — " + (f.name || "saved file"));
     return;
   }
   const r = await api().load_plan_json();
   if (!r.ok) return fail(r);
   if (r.cancelled) return;
-  setPlan(r.plan);
+  const nFd = loadAnyJson(r.plan, r.name);
   S.savePath = r.path || "";        // Ctrl+S returns to the file it came from
   S.saveName = r.name || "";
   S.dirty = false;
   showSaved();
-  status("plan loaded — " + (r.name || "saved file"));
+  status(nFd > 1 ? `project loaded — ${nFd} floors (switch them on the floor bar)`
+                : "plan loaded — " + (r.name || "saved file"));
 };
 $("#btnSample").onclick = async () => {
   const r = await api().load_sample();
