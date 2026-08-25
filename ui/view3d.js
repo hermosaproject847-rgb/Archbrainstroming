@@ -1988,6 +1988,40 @@
   }
 
   /* ------------------------------------------------------------- viewer */
+  const viewStack = [];                       // "previous view", SketchUp style
+  function pushView() {
+    viewStack.push(JSON.stringify(orbit));
+    if (viewStack.length > 30) viewStack.shift();
+  }
+  function prevView() {
+    if (!viewStack.length) return status("no previous view");
+    Object.assign(orbit, JSON.parse(viewStack.pop()));
+  }
+  // Top / Front / Back / Left / Right / Iso — the standard camera commands
+  function stdView(which) {
+    pushView();
+    exitTop();
+    if (homeCenter) { orbit.tx = homeCenter.x; orbit.ty = homeCenter.y; orbit.tz = homeCenter.z; }
+    const A = {
+      iso:   [-Math.PI / 4, Math.atan(1 / Math.sqrt(2))],
+      front: [Math.PI / 2, 0.02],
+      back:  [-Math.PI / 2, 0.02],
+      left:  [Math.PI, 0.02],
+      right: [0, 0.02],
+      top:   [-Math.PI / 2, 1.5499],
+    }[which] || [-Math.PI / 4, 0.6];
+    orbit.az = A[0]; orbit.el = A[1];
+    status("view: " + which);
+  }
+  function zoomExtents() {
+    if (!modelRoot) return;
+    const bb = new THREE.Box3().setFromObject(modelRoot);
+    const c = bb.getCenter(new THREE.Vector3()), sz = bb.getSize(new THREE.Vector3());
+    homeCenter = c;
+    orbit.tx = c.x; orbit.ty = c.y; orbit.tz = c.z;
+    orbit.dist = Math.max(sz.x, sz.y, sz.z) * 1.6 + 8;
+    if (topMode) { orthoH = Math.max(sz.z, sz.x) * 0.62; orthoFrustum(); }
+  }
   function applyCam() {
     if (topMode) {                     // EXACT 2D: straight-down orthographic
       camera.position.set(orbit.tx, 300, orbit.tz);
@@ -2225,6 +2259,10 @@
     if (chip) chip.textContent =
       (wn || r.tag || r.name || r.kind || r.system || ed.kind)
       + "  ·  drag = move, Del = delete";
+    if (ed.kind === "wall") {                  // type a height straight in
+      lastAct = { kind: "h", ref: r };
+      vcbLabel("Height"); vcbShow(String(+r.height_ft || ed.storeyH || ""));
+    }
     // REVIT-style: with a selection, the orbit pivots around the SELECTION
     const bc = new THREE.Box3().setFromObject(obj).getCenter(new THREE.Vector3());
     retarget(bc);
@@ -2445,6 +2483,34 @@
     status("3D model exported — " + name + ".obj + .mtl (SketchUp / Blender / 3ds Max me import karo)");
   }
 
+  /* ---- VALUE BOX, the way SketchUp's measurements field works: finish an
+     action, then type the exact figure and press Enter. It applies to the
+     last thing you touched, in the unit the tool works in. */
+  let vcbBuf = "", lastAct = null;             // {kind:"push"|"len"|"h"|"w", ref}
+  function vcbShow(txt) {
+    const el = $("#v3vcb"); if (!el) return;
+    el.querySelector(".v3vcb-val").textContent = txt;
+  }
+  function vcbLabel(t) {
+    const el = $("#v3vcb"); if (!el) return;
+    el.querySelector(".v3vcb-lab").textContent = t;
+  }
+  function vcbApply() {
+    const v = parseFloat(vcbBuf);
+    vcbBuf = "";
+    if (!isFinite(v) || !lastAct || !lastAct.ref) { vcbShow(""); return; }
+    const r = lastAct.ref;
+    if (typeof pushUndo === "function") pushUndo();
+    if (lastAct.kind === "push") r.depth = Math.max(0, v);
+    else if (lastAct.kind === "w") { if (r.shape === "circle") r.r = v; else r.w = v; }
+    else if (lastAct.kind === "h") r.height_ft = v;
+    else if (lastAct.kind === "angle") r.angle = v;
+    if (typeof redraw === "function") redraw();
+    rebuild(); reselectRef(r);
+    vcbShow(String(v));
+    status("set to " + v);
+  }
+
   /* --------------------------------------------------- controls wiring */
   function wire() {
     const cv = $("#v3canvas"); if (!cv) return;
@@ -2561,6 +2627,11 @@
         } else {                                    // PUSH / PULL
           r.depth = Math.max(0, +(dragStart.d0 - ty * 0.02).toFixed(2));
         }
+        lastAct = { kind: TOOL === "push" ? "push"
+          : TOOL === "rotate" ? "angle" : "w", ref: r };
+        vcbLabel(TOOL === "push" ? "Distance" : TOOL === "rotate" ? "Angle" : "Length");
+        vcbShow(String(TOOL === "push" ? r.depth : TOOL === "rotate" ? r.angle
+          : (r.shape === "circle" ? r.r : r.w)));
         dragDelta = { x: 0, z: 0, live: true };
       } else if (mode === 4 && dragEd) {         // slide along the floor plane
         const cvr = cv.getBoundingClientRect();
@@ -2670,14 +2741,43 @@
     addEventListener("resize", resize);
 
     window.rebuild3D = () => { if (open) rebuild(); };   // undo / redo hook
+    const pickTool = t => {
+      const b = document.querySelector('.v3tool[data-tool="' + t + '"]');
+      if (b) b.click();
+    };
+    // SketchUp's own single-key shortcuts
+    const KEYS = { " ": "select", e: "erase", m: "move", q: "rotate", s: "scale",
+      p: "push", r: "rect", c: "circle", b: "paint", t: "tape", o: "orbit",
+      h: "pan" };
+    addEventListener("keydown", ev => {
+      if (!open) return;
+      const tag = (document.activeElement || {}).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      // the VALUE BOX takes digits, a dot, Backspace and Enter
+      if (/^[0-9.]$/.test(ev.key)) { vcbBuf += ev.key; vcbShow(vcbBuf); ev.preventDefault(); return; }
+      if (ev.key === "Backspace" && vcbBuf) { vcbBuf = vcbBuf.slice(0, -1); vcbShow(vcbBuf); ev.preventDefault(); return; }
+      if (ev.key === "Enter") { vcbApply(); ev.preventDefault(); return; }
+      if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      const k = (ev.key || "").toLowerCase();
+      if (KEYS[k]) { pickTool(KEYS[k]); ev.preventDefault(); return; }
+      if (k === "z" && ev.shiftKey) { zoomExtents(); ev.preventDefault(); }
+    });
+    // Camera menu
+    // scope to the camera bar — the 2D stage buttons also use data-view
+    document.querySelectorAll("#v3cam [data-view]").forEach(b => {
+      b.onclick = () => {
+        const v = b.dataset.view;
+        if (v === "extents") return zoomExtents();
+        if (v === "prev") return prevView();
+        if (v === "2d") { const rf = $("#v3roof"); if (rf) rf.checked = false;
+          syncLayers(); enterTop(); return; }
+        stdView(v);
+      };
+    });
     document.querySelectorAll(".v3tool").forEach(btn => {
       btn.onclick = () => {
         const t = btn.dataset.tool;
-        if (t === "zoomext") {                           // zoom extents
-          if (homeCenter) { orbit.tx = homeCenter.x; orbit.ty = homeCenter.y;
-            orbit.tz = homeCenter.z; }
-          orbit.dist = 90; return;
-        }
+        if (t === "zoomext") { zoomExtents(); return; }
         if (t === "rect" || t === "circle") { addFaceTool(t)(); return; }
         TOOL = t;
         document.querySelectorAll(".v3tool").forEach(b =>
@@ -2686,7 +2786,16 @@
         if (cv2) cv2.style.cursor = { erase: "not-allowed", paint: "cell",
           tape: "crosshair", pan: "grab", orbit: "move", rotate: "alias",
           scale: "nwse-resize", push: "ns-resize" }[t] || "default";
-        status("tool: " + t);
+        const PROMPT = { select: "Select an object. Drag to move it.",
+          erase: "Click anything to delete it.",
+          move: "Drag an object along the floor.",
+          rotate: "Drag left / right — 15° snap. Type an angle + Enter.",
+          scale: "Drag right to grow. Type a size + Enter.",
+          push: "Drag a face up or down. Type a distance + Enter.",
+          paint: "Pick a colour, then click a surface.",
+          tape: "Click two points to measure.",
+          orbit: "Drag to orbit the model.", pan: "Drag to pan." };
+        status(PROMPT[t] || ("tool: " + t));
       };
     });
     const pc = $("#v3paintcol");

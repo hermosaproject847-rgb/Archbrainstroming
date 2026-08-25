@@ -464,3 +464,20 @@ td.licell{color:var(--fg); font-size:12.5px; padding:7px 8px; text-transform:cap
   border-radius:6px; background:none; cursor:pointer}
 /* the layers panel steps aside for the palette */
 #v3side{left:66px}
+
+/* camera bar (top-centre) and the measurements value box (bottom-right) */
+#v3cam{position:absolute; top:56px; left:50%; transform:translateX(-50%); z-index:6;
+  display:flex; align-items:center; gap:3px; padding:5px 7px; border-radius:10px;
+  background:rgba(23,30,46,.94); border:1px solid #2f3a58;
+  box-shadow:0 8px 28px rgba(0,0,0,.45)}
+#v3cam button{background:transparent; color:#c3cbe2; border:1px solid transparent;
+  border-radius:7px; padding:4px 9px; font-size:12px; cursor:pointer; transition:.12s}
+#v3cam button:hover{background:#2e3a5c; color:#fff}
+#v3cam .v3camsep{width:1px; height:18px; background:#2f3a58; margin:0 4px}
+#v3vcb{position:absolute; right:14px; bottom:14px; z-index:6;
+  display:flex; align-items:center; gap:10px; padding:7px 12px; border-radius:9px;
+  background:rgba(23,30,46,.94); border:1px solid #2f3a58; color:#aab4cd;
+  font-size:12.5px; min-width:190px; box-shadow:0 8px 28px rgba(0,0,0,.45)}
+#v3vcb .v3vcb-lab{color:#6f7a99; letter-spacing:.4px}
+#v3vcb .v3vcb-val{margin-left:auto; color:#27e0a3; font-weight:600;
+  font-family:Consolas,monospace; min-width:64px; text-align:right}

@@ -473,6 +473,22 @@
     <span class="v3-hint">drag = orbit (SketchUp) · Shift/R-drag = pan · wheel = zoom-to-cursor · W A S D + Q/E = walk · click = select · drag item = move · Del = delete</span>
     <button id="v3close" class="v3btn v3x">✕ Close</button>
   </div>
+  <div id="v3cam">
+    <button data-view="iso"     title="Isometric (standard view)">Iso</button>
+    <button data-view="top"     title="Top">Top</button>
+    <button data-view="front"   title="Front">Front</button>
+    <button data-view="back"    title="Back">Back</button>
+    <button data-view="left"    title="Left">Left</button>
+    <button data-view="right"   title="Right">Right</button>
+    <span class="v3camsep"></span>
+    <button data-view="2d"      title="Exact 2D plan (orthographic, roof off)">2D Plan</button>
+    <button data-view="extents" title="Zoom extents (Shift+Z)">Zoom Ext</button>
+    <button data-view="prev"    title="Previous view">◀ Prev</button>
+  </div>
+  <div id="v3vcb" title="Measurements: type a number and press Enter to set it exactly">
+    <span class="v3vcb-lab">Measurements</span>
+    <span class="v3vcb-val"></span>
+  </div>
   <div id="v3toolbar">
     <button class="v3tool on" data-tool="select" title="Select (click a thing, drag to move)">▮</button>
     <button class="v3tool" data-tool="erase"  title="Eraser — click deletes">◧</button>
@@ -560,6 +576,6 @@
 
 <script src="app.js?v=5"></script>
 <script src="vendor/three.min.js"></script>
-<script src="view3d.js?v=42"></script>
+<script src="view3d.js?v=44"></script>
 </body>
 </html>
