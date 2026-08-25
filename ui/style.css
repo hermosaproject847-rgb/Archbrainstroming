@@ -448,3 +448,19 @@ td.licell{color:var(--fg); font-size:12.5px; padding:7px 8px; text-transform:cap
   border:1px solid #39435f; border-radius:6px; padding:2px 5px; font-size:11.5px}
 #v3side .v3-tools2{display:flex; gap:6px}
 #v3side .v3-tools2 .v3btn{flex:1; padding:5px 4px; font-size:12px}
+
+/* SketchUp-style tool palette down the left of the 3D studio */
+#v3toolbar{position:absolute; left:14px; top:58px; z-index:6; width:42px;
+  display:flex; flex-direction:column; align-items:center; gap:3px;
+  padding:7px 4px; border-radius:12px; background:rgba(23,30,46,.94);
+  border:1px solid #2f3a58; box-shadow:0 8px 28px rgba(0,0,0,.45)}
+#v3toolbar .v3tool{width:32px; height:30px; display:grid; place-items:center;
+  background:transparent; border:1px solid transparent; border-radius:8px;
+  color:#c3cbe2; font-size:15px; line-height:1; cursor:pointer; transition:.12s}
+#v3toolbar .v3tool:hover{background:#2e3a5c; color:#fff}
+#v3toolbar .v3tool.on{background:var(--grad-soft); border-color:#6d74f6; color:#fff}
+#v3toolbar .v3tsep{width:22px; height:1px; background:#2f3a58; margin:3px 0}
+#v3toolbar input[type=color]{width:30px; height:22px; padding:0; border:none;
+  border-radius:6px; background:none; cursor:pointer}
+/* the layers panel steps aside for the palette */
+#v3side{left:66px}

@@ -472,6 +472,25 @@
     <span class="v3-hint">drag = orbit (SketchUp) · Shift/R-drag = pan · wheel = zoom-to-cursor · W A S D + Q/E = walk · click = select · drag item = move · Del = delete</span>
     <button id="v3close" class="v3btn v3x">✕ Close</button>
   </div>
+  <div id="v3toolbar">
+    <button class="v3tool on" data-tool="select" title="Select (click a thing, drag to move)">▮</button>
+    <button class="v3tool" data-tool="erase"  title="Eraser — click deletes">◧</button>
+    <button class="v3tool" data-tool="move"   title="Move — drag on the floor plane">✥</button>
+    <button class="v3tool" data-tool="rotate" title="Rotate — drag left/right, 15° snap">⟳</button>
+    <button class="v3tool" data-tool="scale"  title="Scale — drag right to grow">⤢</button>
+    <button class="v3tool" data-tool="push"   title="Push / Pull — drag up on a face to extrude">⇕</button>
+    <span class="v3tsep"></span>
+    <button class="v3tool" data-tool="rect"   title="Rectangle face">▭</button>
+    <button class="v3tool" data-tool="circle" title="Circle face">◯</button>
+    <span class="v3tsep"></span>
+    <button class="v3tool" data-tool="paint"  title="Paint bucket — click to colour">🪣</button>
+    <input id="v3paintcol" type="color" value="#c8a165" title="paint colour">
+    <button class="v3tool" data-tool="tape"   title="Tape measure — click two points">📏</button>
+    <span class="v3tsep"></span>
+    <button class="v3tool" data-tool="orbit"  title="Orbit">⟲</button>
+    <button class="v3tool" data-tool="pan"    title="Pan">✋</button>
+    <button class="v3tool" data-tool="zoomext" title="Zoom extents">⤡</button>
+  </div>
   <canvas id="v3canvas"></canvas>
   <div id="v3side">
     <div class="v3-sec">LAYERS</div>
@@ -538,8 +557,8 @@
   <div id="v3selname"></div>
 </div>
 
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 <script src="vendor/three.min.js"></script>
-<script src="view3d.js?v=37"></script>
+<script src="view3d.js?v=39"></script>
 </body>
 </html>

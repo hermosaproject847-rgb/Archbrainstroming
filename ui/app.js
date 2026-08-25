@@ -3052,6 +3052,7 @@ function undo() {
   S.redo.push(JSON.stringify(S.plan));
   S.plan = JSON.parse(S.undo.pop());
   refreshUndo(); buildTables(); redraw();
+  if (typeof rebuild3D === "function") rebuild3D();   // the 3D view follows too
   status(`undone — ${S.undo.length} step(s) left`);
 }
 
@@ -3060,6 +3061,7 @@ function redo() {
   S.undo.push(JSON.stringify(S.plan));
   S.plan = JSON.parse(S.redo.pop());
   refreshUndo(); buildTables(); redraw();
+  if (typeof rebuild3D === "function") rebuild3D();
   status("redone");
 }
 

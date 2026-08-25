@@ -16,6 +16,10 @@
   let modelRoot = null;                      // the built house (for rebuilds)
   let selObj = null, selHelper = null;       // 3D EDIT: current selection
   let homeCenter = null;                     // model bbox centre = orbit pivot
+  // the active tool, SketchUp style — every tool reuses the same picking and
+  // the same undo, so a tool is just a different meaning for a drag
+  let TOOL = "select";
+  let paintColor = "#c8a165";
   let topMode = false, orthoH = 60;          // EXACT-2D top view (orthographic)
   let sunL = null, ambL = null, hemiL = null;   // lights (sun-glare slider)
   // LAYER LOCKS — a locked layer's things cannot be selected / moved / edited
@@ -1489,13 +1493,21 @@
         color: parseInt((fc.color || "#8fa3bf").slice(1), 16),
         side: THREE.DoubleSide, transparent: true,
         opacity: fc.opacity == null ? 1 : +fc.opacity });
-      const geo = fc.shape === "circle"
-        ? new THREE.CircleGeometry(Math.max(0.2, +fc.r || 2), 40)
-        : new THREE.PlaneGeometry(Math.max(0.2, +fc.w || 4),
-                                  Math.max(0.2, +fc.h || 4));
+      const d = +fc.depth || 0;              // PUSH/PULL turns it into a solid
+      const geo = d > 0.05
+        ? (fc.shape === "circle"
+            ? new THREE.CylinderGeometry(Math.max(0.2, +fc.r || 2),
+                Math.max(0.2, +fc.r || 2), d, 40)
+            : new THREE.BoxGeometry(Math.max(0.2, +fc.w || 4),
+                Math.max(0.2, +fc.h || 4), d))
+        : (fc.shape === "circle"
+            ? new THREE.CircleGeometry(Math.max(0.2, +fc.r || 2), 40)
+            : new THREE.PlaneGeometry(Math.max(0.2, +fc.w || 4),
+                                      Math.max(0.2, +fc.h || 4)));
       const m = new THREE.Mesh(geo, mat);
       m.position.set(+fc.x || 0, +fc.z || 4, -(+fc.y || 0));
       m.rotation.y = ((+fc.angle || 0)) * Math.PI / 180;
+      if (+fc.depth > 0.05 && fc.shape === "circle") m.rotation.x = Math.PI / 2;
       if (fc.flat) m.rotation.x = -Math.PI / 2;      // lying flat, not upright
       m.userData.edit = { kind: "face", ref: fc, plan };
       g.add(m);
@@ -2172,8 +2184,14 @@
     scene.add(selHelper);
     const ed = obj.userData.edit, r = ed.ref;
     const chip = $("#v3selname");
+    // a wall is named by the NUMBER it carries on the drawing, so the 3D
+    // selection and the wall table talk about the same thing
+    const wn = ed.kind === "wall"
+      ? "WALL " + ((String(r.id || "").match(/\d+/) || [r.id || "?"])[0])
+      : null;
     if (chip) chip.textContent =
-      (r.tag || r.name || r.kind || r.system || ed.kind) + "  ·  drag = move, Del = delete";
+      (wn || r.tag || r.name || r.kind || r.system || ed.kind)
+      + "  ·  drag = move, Del = delete";
     // REVIT-style: with a selection, the orbit pivots around the SELECTION
     const bc = new THREE.Box3().setFromObject(obj).getCenter(new THREE.Vector3());
     retarget(bc);
@@ -2196,6 +2214,7 @@
     face:  [["X (ft)", "x", 0.25], ["Y (ft)", "y", 0.25], ["Height Z (ft)", "z", 0.25],
             ["Width (ft)", "w", 0.25], ["Height (ft)", "h", 0.25],
             ["Radius (ft)", "r", 0.25], ["Angle °", "angle", 15],
+            ["Depth (ft)", "depth", 0.25],
             ["Colour", "color", "t"], ["Opacity", "opacity", 0.05]],
   };
   const PROP_TITLE = { wall: "🧱 WALL", face: "◻ FACE", furn: "🛋 FURNITURE", elec: "⚡ ELECTRICAL",
@@ -2208,7 +2227,9 @@
     const ed = obj.userData.edit, r = ed.ref;
     const head = document.createElement("div");
     head.className = "v3p-head";
-    head.textContent = (PROP_TITLE[ed.kind] || ed.kind.toUpperCase()) +
+    const wnum = ed.kind === "wall"
+      ? "  ·  no. " + ((String(r.id || "").match(/\d+/) || [r.id || "?"])[0]) : "";
+    head.textContent = (PROP_TITLE[ed.kind] || ed.kind.toUpperCase()) + wnum +
       (r.tag || r.name ? "  ·  " + (r.tag || r.name) : "") +
       (r.kind ? "  ·  " + r.kind : "") + (r.system ? "  ·  " + r.system : "");
     el.appendChild(head);
@@ -2326,7 +2347,7 @@
     const cv = $("#v3canvas"); if (!cv) return;
     // modes: 1 = orbit (L-drag empty), 2 = pan (middle / right / shift),
     // 3 = pinch, 4 = drag-move a selected object
-    let mode = 0, lx = 0, ly = 0, pinch = 0;
+    let mode = 0, lx = 0, ly = 0, pinch = 0, tapeA = null;
     let dragEd = null, dragPlane = null, dragStart = null, dragDelta = null, downXY = null;
     cv.addEventListener("contextmenu", e => e.preventDefault());
     // the model-surface point under the cursor (ground plane as fallback) —
@@ -2358,14 +2379,46 @@
         if (sp) retarget(sp);                  // orbit about the cursor point
         mode = 1; e.preventDefault(); return;
       }
+      if (TOOL === "orbit") { const sp = surfPoint(e); if (sp) retarget(sp); mode = 1; return; }
+      if (TOOL === "pan") { mode = 2; return; }
       const hit = pick(e);                       // L-down on a thing = grab it
+      if (hit && TOOL === "erase") {             // ERASER: click removes it
+        setSel(hit.obj); deleteSel(); mode = 0; return;
+      }
+      if (hit && TOOL === "paint") {             // PAINT BUCKET
+        const ed2 = hit.obj.userData.edit;
+        if (typeof pushUndo === "function") pushUndo();
+        ed2.ref.color = paintColor;
+        if (typeof redraw === "function") redraw();
+        const rf = ed2.ref; rebuild(); reselectRef(rf);
+        status("painted " + paintColor); mode = 0; return;
+      }
+      if (TOOL === "tape") {                     // TAPE MEASURE, two clicks
+        const p = surfPoint(e);
+        if (p) {
+          if (!tapeA) { tapeA = p.clone(); status("tape: click the second point"); }
+          else {
+            const d = tapeA.distanceTo(p);
+            const ft = Math.floor(d), inch = Math.round((d - ft) * 12);
+            status("distance = " + ft + "'-" + inch + '"  (' + d.toFixed(2) + " ft)");
+            tapeA = null;
+          }
+        }
+        mode = 0; return;
+      }
       if (hit) {
         setSel(hit.obj);
         dragEd = hit.obj.userData.edit;
         dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -hit.pt.y);
-        dragStart = { pt: hit.pt.clone(), pos: hit.obj.position.clone() };
+        dragStart = { pt: hit.pt.clone(), pos: hit.obj.position.clone(),
+          a0: +(dragEd.ref.angle || 0),
+          w0: +(dragEd.ref.w || dragEd.ref.r || 0),
+          h0: +(dragEd.ref.h || 0), d0: +(dragEd.ref.depth || 0),
+          sx: e.clientX, sy: e.clientY };
         dragDelta = null;
-        mode = 4;
+        mode = (TOOL === "rotate" || TOOL === "scale" || TOOL === "push") ? 5 : 4;
+        // a transform tool changes the plan the moment it drags, so snapshot now
+        if (mode === 5 && typeof pushUndo === "function") pushUndo();
       } else {
         clearSel();
         if (topMode) { mode = 2; return; }   // in exact-2D, L-drag pans
@@ -2392,6 +2445,20 @@
           orbit.tz += Math.sin(orbit.az + Math.PI / 2) * dx * k;
           orbit.ty += dy * k;
         }
+      } else if (mode === 5 && dragEd) {           // rotate / scale / push-pull
+        const r = dragEd.ref;
+        const tx = e.clientX - dragStart.sx, ty = e.clientY - dragStart.sy;
+        if (TOOL === "rotate") {
+          r.angle = Math.round((dragStart.a0 + tx * 0.7) / 15) * 15;
+        } else if (TOOL === "scale") {
+          const k = Math.max(0.15, 1 + tx * 0.006);
+          if (r.shape === "circle") r.r = +(dragStart.w0 * k).toFixed(2);
+          else { r.w = +(dragStart.w0 * k).toFixed(2);
+                 r.h = +((dragStart.h0 || dragStart.w0) * k).toFixed(2); }
+        } else {                                    // PUSH / PULL
+          r.depth = Math.max(0, +(dragStart.d0 - ty * 0.02).toFixed(2));
+        }
+        dragDelta = { x: 0, z: 0, live: true };
       } else if (mode === 4 && dragEd) {         // slide along the floor plane
         const cvr = cv.getBoundingClientRect();
         const nd = new THREE.Vector2(
@@ -2408,6 +2475,12 @@
       }
     });
     addEventListener("mouseup", e => {
+      if (mode === 5 && dragEd && dragDelta) {     // a transform tool finished
+        const ref = dragEd.ref;
+        if (typeof redraw === "function") redraw();
+        rebuild(); reselectRef(ref);
+        mode = 0; dragEd = null; dragDelta = null; return;
+      }
       if (mode === 4 && dragEd && dragDelta &&
           (Math.abs(dragDelta.x) > 0.05 || Math.abs(dragDelta.z) > 0.05)) {
         if (typeof pushUndo === "function") pushUndo();
@@ -2493,6 +2566,28 @@
     addEventListener("touchend", () => mode = 0);
     addEventListener("resize", resize);
 
+    window.rebuild3D = () => { if (open) rebuild(); };   // undo / redo hook
+    document.querySelectorAll(".v3tool").forEach(btn => {
+      btn.onclick = () => {
+        const t = btn.dataset.tool;
+        if (t === "zoomext") {                           // zoom extents
+          if (homeCenter) { orbit.tx = homeCenter.x; orbit.ty = homeCenter.y;
+            orbit.tz = homeCenter.z; }
+          orbit.dist = 90; return;
+        }
+        if (t === "rect" || t === "circle") { addFaceTool(t)(); return; }
+        TOOL = t;
+        document.querySelectorAll(".v3tool").forEach(b =>
+          b.classList.toggle("on", b === btn));
+        const cv2 = $("#v3canvas");
+        if (cv2) cv2.style.cursor = { erase: "not-allowed", paint: "cell",
+          tape: "crosshair", pan: "grab", orbit: "move", rotate: "alias",
+          scale: "nwse-resize", push: "ns-resize" }[t] || "default";
+        status("tool: " + t);
+      };
+    });
+    const pc = $("#v3paintcol");
+    if (pc) pc.oninput = () => { paintColor = pc.value; };
     const on = (id, fn, ev) => { const e = $(id); if (e) e[ev || "onclick"] = fn; };
     on("#btn3D", openViewer);
     on("#v3close", closeViewer);
@@ -2519,7 +2614,7 @@
     on("#v3sun", applySun, "oninput");       // sun / glare control
     on("#v3bwh", rebuild, "onchange");       // boundary-wall height
     // FACADE tools — drop a rectangle / disc into the model and edit it
-    const addFace = shape => () => {
+    const addFaceTool = shape => () => {
       if (!S.plan) return;
       if (!Array.isArray(S.plan.faces3d)) S.plan.faces3d = [];
       const c = homeCenter || { x: 0, z: 0 };
@@ -2532,8 +2627,8 @@
       reselectRef(fc);
       status("face added — drag it, or set its size in the panel");
     };
-    on("#v3rect", addFace("rect"));
-    on("#v3circ", addFace("circle"));
+    on("#v3rect", addFaceTool("rect"));
+    on("#v3circ", addFaceTool("circle"));
     ["#v3bwall", "#v3faces", "#v3facade"].forEach(id => on(id, syncLayers, "onchange"));
     // FACADE style: written into the plan, so it saves with the project
     const fsel = $("#v3fstyle");
