@@ -1636,13 +1636,13 @@
        }
   =================================================================== */
   const FACADE_PRESETS = {
+    // the elevation IS the layout - the preset only dresses the side blocks
+    // with stone cladding; arch / railing / jaali / planter / pergola come
+    // from the drawings or not at all
     p23: {
       clad: { material: "stone", from_f: 1, to_f: 2 },
-      arch: { on: true, span: 0, rise: 0 },
-      railing: { on: true, type: "glass", h: 3.4 },
-      jaali: { on: true, w: 3.2, h: 7 },
-      planter: { on: true, depth: 1.1 },
-      pergola: { on: true, slats: 14 },
+      arch: { on: false }, railing: { on: false },
+      jaali: { on: false }, planter: { on: false }, pergola: { on: false },
     },
     plain: {
       clad: { material: "paint", from_f: 1, to_f: 2 },
@@ -1984,6 +1984,7 @@
     let topZ = P.plinth;
     for (let f = 0; f < P.floors; f++) {
       const plan = ((S.floors || [])[f] && S.floors[f].plan) || base;
+      const terrF = TERR_FLOOR && f === P.floors - 1;   // the terrace storey
       const L = floorSet(f);
       const z0 = P.plinth + f * P.fh;
       const H = P.fh;
@@ -2018,7 +2019,7 @@
         }
         addWall(L.walls, plan, w, zW, HW + (z0 - zW), P, M, cx, cy, bw);
       });
-      (plan.columns || []).forEach(c => {
+      (terrF ? [] : (plan.columns || [])).forEach(c => {
         // A COLUMN IS A FRAME MEMBER: it must stand on the column below it.
         // Each floor was read from its own drawing, so the same column can
         // land a foot apart; upstairs we take the ground-floor column's line
@@ -2032,7 +2033,7 @@
         cm.userData.edit = { kind: "col", ref: c, plan };
         L.struct.add(cm);
       });
-      (plan.beams || []).forEach(b => {
+      (terrF ? [] : (plan.beams || [])).forEach(b => {
         const L = Math.hypot(b.x2 - b.x1, b.y2 - b.y1); if (L < 0.1) return;
         const bw = ((+b.width_mm || 230) * MM), bd = ((+b.depth_mm || 300) * MM);
         const m = box(L, bw, bd, (b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2,
@@ -2100,9 +2101,11 @@
       // a shaft (O.T.S. / open to sky) is punched — a porch below still needs
       // its slab, because the terrace above stands on it.
       const shaft = r => /o\.?\s?t\.?\s?s|open\s*to\s*sky|shaft|duct/i.test(r.name || "");
+      // an OPEN TERRACE is open to the sky on EVERY floor - the slab of the
+      // storey above is cut out over it and follows its outline; a porch /
+      // parking below keeps its slab (the terrace above stands on it)
       const holes = (plan.rooms || []).filter(r =>
-        r.void || shaft(r)                       // a shaft goes through every floor
-        || (f === P.floors - 1 && OPEN_AIR.test(r.name || "")));
+        r.void || shaft(r) || TERRACE_RE.test(r.name || ""));
       for (const st of (plan.stairs || []).concat(holes)) {
         const hole = [st.x - 0.25, st.y - 0.25,
                       st.x + st.w + 0.25, st.y + st.h + 0.25];
