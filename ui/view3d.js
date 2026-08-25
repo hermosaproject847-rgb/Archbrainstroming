@@ -1,6 +1,6 @@
-﻿/* 3D MODEL â€” the whole house in 3D from the live plan, like a real 3D
+﻿/* 3D MODEL — the whole house in 3D from the live plan, like a real 3D
    package: orbit / zoom / pan, an x-ray slider for the outer shell, a TOP-2D
-   mode (roof off, looking straight down), and toggleable SERVICE layers â€”
+   mode (roof off, looking straight down), and toggleable SERVICE layers —
    furniture models, plumbing pipes in their system colours, electrical
    conduiting from each board to its fittings, textured flooring + skirting
    (wood / tile / marble / granite), and a parapet that can turn into a
@@ -18,10 +18,15 @@
   let homeCenter = null;                     // model bbox centre = orbit pivot
   let topMode = false, orthoH = 60;          // EXACT-2D top view (orthographic)
   let sunL = null, ambL = null, hemiL = null;   // lights (sun-glare slider)
-  // LAYER LOCKS â€” a locked layer's things cannot be selected / moved / edited
-  const locks = { struct: false, furn: false, plumb: false, elec: false };
+  // LAYER LOCKS — a locked layer's things cannot be selected / moved / edited
+  const locks = { struct: false, furn: false, plumb: false, elec: false,
+    faces: false, bwall: false };
+  // per-FLOOR state, kept across rebuilds: its own groups, eye, lock and the
+  // XY offset you can nudge a floor by (to study a shifted upper storey)
+  let FL = [];                                  // FL[f] = { layer: Group }
+  const floorVis = [], floorLock = [], floorOff = [];
   const LOCKOF = { furn: "furn", elec: "elec", plumb: "plumb", pipe: "plumb",
-    col: "struct", beam: "struct" };
+    col: "struct", beam: "struct", face: "faces" };
   const orbit = { az: -0.9, el: 0.55, dist: 90, tx: 0, ty: 6, tz: 0 };
   const $ = s => document.querySelector(s);
 
@@ -255,7 +260,7 @@
         // EXACTLY the plan's arrangement: flight 1 in the TOP band, both
         // landings stacked at the FAR (landing) end, the U3's middle flight
         // running DOWN the landing column between them, the return flight in
-        // the BOTTOM band â€” and an OPEN WELL in the middle, never solid.
+        // the BOTTOM band — and an OPEN WELL in the middle, never solid.
         const land = Math.min(Math.max(+s.landing_size || 3, 2.5), W * 0.45);
         const runLen = W - land;
         const n1 = +s.steps_f1 || 8, n2 = +s.steps_f2 || n1;
@@ -267,10 +272,10 @@
         const vTop = B - fw2, vBot = 0;
         const uNear = dirUp > 0 ? 0 : W;
         const uFarL = dirUp > 0 ? runLen : 0;        // landing column start (u)
-        // flight 1 â€” top band, near â†’ far
+        // flight 1 — top band, near → far
         flight(uNear, runLen, dirUp, vTop, fw2, z0, z1, n1);
         rail(uNear, dirUp > 0 ? runLen : land, vTop + 0.08, z0, z1);
-        // landing 1 â€” far end, TOP corner
+        // landing 1 — far end, TOP corner
         landing(uFarL, land, vTop, fw2, z1);
         if (nm > 0) {
           // middle flight: DOWN the landing column from the top landing to the
@@ -284,9 +289,9 @@
           rail(dirUp > 0 ? W - 0.15 : 0.15, dirUp > 0 ? W - 0.15 : 0.15,
             vTop, z1, z2);
         }
-        // landing 2 â€” far end, BOTTOM corner
+        // landing 2 — far end, BOTTOM corner
         landing(uFarL, land, vBot, fw2, z2);
-        // return flight â€” bottom band, far â†’ near
+        // return flight — bottom band, far → near
         flight(dirUp > 0 ? runLen : land, runLen, -dirUp, vBot, fw2, z2, z0 + rise, n2);
         rail(dirUp > 0 ? runLen : land, uNear, fw2 - 0.08, z2, z0 + rise);
       } else {
@@ -380,11 +385,11 @@
         const hgt = k === "wardrobe" ? 6.6 : (k === "sideboard" ? 2.8 : 3.2);
         const body = lam(0x77573a), panel = lam(0x8a6844);
         lb(w, h, hgt, 0, 0, hgt / 2, body);
-        // SHUTTERS at the standard 450â€“500 mm module: an 8'-6" wardrobe gets
-        // 5â€“6 doors, never just 2. Handles pair up at the meeting stiles.
+        // SHUTTERS at the standard 450–500 mm module: an 8'-6" wardrobe gets
+        // 5–6 doors, never just 2. Handles pair up at the meeting stiles.
         const fx = -back[0], fy = -back[1];
         const runW = Math.abs(fx) ? h : w;
-        const nSh = Math.max(2, Math.round(runW / 1.55));   // â‰ˆ 475 mm module
+        const nSh = Math.max(2, Math.round(runW / 1.55));   // ≈ 475 mm module
         const shW = runW / nSh;
         for (let i2 = 0; i2 < nSh; i2++) {
           const off = -runW / 2 + shW * (i2 + 0.5);
@@ -479,7 +484,7 @@
     const inRoom = (x, y) => rooms.some(r => !r.void &&
       x >= r.x - 0.1 && x <= r.x + r.w + 0.1 &&
       y >= r.y - 0.1 && y <= r.y + r.h + 0.1);
-    // MEP levels â€” DRAINAGE: wet rooms in the SUNK, dry rooms just under the
+    // MEP levels — DRAINAGE: wet rooms in the SUNK, dry rooms just under the
     // FFL screed, and OUTSIDE the footprint UNDERGROUND to the chambers.
     // WATER SUPPLY is the opposite: it runs HIGH at ceiling / lintel level,
     // concealed, and only DROPS DOWN THE WALL at the tap points.
@@ -490,11 +495,11 @@
     const inTap = (x, y) => tapRooms.some(r =>
       x >= r.x - 0.6 && x <= r.x + r.w + 0.6 &&
       y >= r.y - 0.6 && y <= r.y + r.h + 0.6);
-    // code gradients (same 1:N the 2D writes on every run) â€” the pipes are
+    // code gradients (same 1:N the 2D writes on every run) — the pipes are
     // actually PLACED on that fall, dropping continuously toward the outfall
     const SLOPE3D = { SOIL: 40, WASTE: 40, STORM: 100, ACD: 50 };
-    // each drainage SYSTEM owns its own LEVEL BAND â€” the deep soil main at
-    // the bottom, waste above it, storm above that â€” so two crossing runs
+    // each drainage SYSTEM owns its own LEVEL BAND — the deep soil main at
+    // the bottom, waste above it, storm above that — so two crossing runs
     // NEVER pass through each other; branches step DOWN into the main via
     // the connector, exactly how the levels work on site
     // each drainage SYSTEM owns an EXCLUSIVE depth band with a clear gap
@@ -626,7 +631,7 @@
         // CONDENSATE line also runs along the ceiling from the unit, on a
         // continuous 1:50 fall, and only drops down OUTSIDE to the drain
         // each high-level system gets its OWN band: cold lowest, hot above
-        // it, vent above that â€” parallel runs never merge into one another
+        // it, vent above that — parallel runs never merge into one another
         const zBase = (isACD ? z0 + 7.1
           : r.system === "HW" ? z0 + fh - 1.05
           : r.system === "VENT" ? z0 + fh - 0.50
@@ -671,7 +676,7 @@
         + (lk % 4) * 0.34;              // clashing runs step clear too
       for (let i = 0; i < P.length - 1; i++) {
         const b = z0 + sysDz;
-        // never deeper than just under the ground â€” long falls are capped
+        // never deeper than just under the ground — long falls are capped
         const zA = Math.max(b - band.drop, b - cum[i] * fall);
         const zB = Math.max(b - band.drop, b - cum[i + 1] * fall);
         if (i === 0) zs[0] = zA;
@@ -692,7 +697,7 @@
       drains.push({ P, zs, dia, rad, mat, sys: r.system });
     }
     // ------- DRAINAGE CONNECTIVITY: every smaller pipe TIES INTO the bigger
-    // main (or the stack) with a proper TEE connector â€” no floating ends
+    // main (or the stack) with a proper TEE connector — no floating ends
     const closestOnSeg = (p, a, b) => {
       const vx = b[0] - a[0], vy = b[1] - a[1];
       const L2 = vx * vx + vy * vy || 1e-9;
@@ -707,7 +712,7 @@
       const endIdx = [0, a.P.length - 1];
       for (const ei of endIdx) {
         const e = a.P[ei], ez = a.zs[ei];
-        // nearest STACK first â€” a branch always prefers its stack
+        // nearest STACK first — a branch always prefers its stack
         let best = null;
         for (const s of stacksXY) {
           const d = Math.hypot(s.x - e[0], s.y - e[1]);
@@ -810,7 +815,7 @@
         addFit(g, best.x, best.y, a.z, fitR(a.rad), a.mat);       // tee / elbow
       }
     }
-    // vertical STACKS / downtakes: DOWN from the sunk to ground drainage â€”
+    // vertical STACKS / downtakes: DOWN from the sunk to ground drainage —
     // a stack never rises above the floor it serves in this view
     for (const p of (plan.plumb || [])) {
       const sc = STACK3D[p.code];
@@ -820,7 +825,7 @@
         const mat = new THREE.MeshLambertMaterial({ color: sc });
         // each stack runs its OWN storey band: supply downtakes come from the
         // tank DOWN to the ceiling distribution; the vent rises above roof;
-        // soil / waste / rain go from the sunk down to the drain â€” a water
+        // soil / waste / rain go from the sunk down to the drain — a water
         // pipe never dives into the drainage zone
         let zt, zb;
         if (p.code === "CWD" || p.code === "HWD") { zt = z0 + fh + 0.6; zb = z0 + fh - 0.9; }
@@ -838,7 +843,7 @@
         sg.add(clamp);
       } else {
         // traps / chambers are FLUSH COVERS at floor (inside) or ground
-        // (outside) level â€” never a raised box sitting in a doorway
+        // (outside) level — never a raised box sitting in a doorway
         const mzTop = inRoom(p.x, p.y) ? z0 + 0.02 : 0.02;
         sg.add(box(0.9, 0.9, 0.08, p.x, p.y, mzTop,
           new THREE.MeshLambertMaterial({ color: 0x6d4c41 })));
@@ -853,7 +858,7 @@
   function addElec(g, plan, z0, fh) {
     const ceil = z0 + fh - 0.15;
     const conduit = new THREE.MeshLambertMaterial({ color: 0xff8c1a });
-    // a conduit can never drop THROUGH a window â€” if the vertical run at (x,y)
+    // a conduit can never drop THROUGH a window — if the vertical run at (x,y)
     // would cross a window on that wall, shift the drop beside the window
     // (0.5 ft clear of the jamb) and connect horizontally at the fitting level
     const windowDodge = (x, y, zLowAbs) => {
@@ -870,7 +875,7 @@
           if (t < a - 0.3 || t > b + 0.3) continue;
           const sill = z0 + ((+o.sill_mm || 900) * MM);
           const head = sill + ((+o.height_mm || 1200) * MM);
-          if (zLowAbs >= head) continue;        // run starts above the head â€” clear
+          if (zLowAbs >= head) continue;        // run starts above the head — clear
           const tSide = (t - a < b - t) ? a - 0.5 : b + 0.5;
           const ts = Math.max(0.15, Math.min(L - 0.15, tSide));
           return { x: w.x1 + ux * ts, y: w.y1 + uy * ts };
@@ -1068,7 +1073,7 @@
         // follows the 2D drawing room by room. The DB is NOT looped to every
         // board any more - that was a lighting loop the drawing never had,
         // and it is what sent long runs across the whole floor.
-      } else if (code === "CF") {                    // ceiling fan â€” one solid unit
+      } else if (code === "CF") {                    // ceiling fan — one solid unit
         const fan = new THREE.Group();
         const grey = new THREE.MeshLambertMaterial({ color: 0x8a919c });
         const dark = new THREE.MeshLambertMaterial({ color: 0x6b727d });
@@ -1159,7 +1164,7 @@
       floorMats.push(mat);
       g.add(box(r.w - 0.2, r.h - 0.2, 0.07, r.x + r.w / 2, r.y + r.h / 2,
         z0 + 0.045, mat));
-      // SKIRTING: a darker strip round the room, 75 mm high â€” BROKEN at every
+      // SKIRTING: a darker strip round the room, 75 mm high — BROKEN at every
       // door (skirting never runs across an opening) and carried AROUND every
       // column standing in the room
       const skC = { wood: 0x6e4a2c, marble: 0xb9b5ae, granite: 0x3c3f45, tile: 0x9a958d }[material] || 0x9a958d;
@@ -1192,9 +1197,9 @@
           }
         };
         const cutDoors = (a0, a1, horiz, edgeC) => {
-          // skirting exists ONLY where an actual wall stands on this edge â€”
+          // skirting exists ONLY where an actual wall stands on this edge —
           // an open boundary (no wall: a stair mouth, an open-plan side) gets
-          // no skirting at all â€” and then breaks at every door on it
+          // no skirting at all — and then breaks at every door on it
           let spans = [];
           for (const w2 of (plan.walls || [])) {
             if (w2.railing) continue;
@@ -1231,7 +1236,7 @@
           return spans;
         };
         // WET rooms get full wall TILE DADO up to 7 ft (doors cut out) instead
-        // of a skirting strip â€” exactly how a toilet is actually finished
+        // of a skirting strip — exactly how a toilet is actually finished
         const isWetRoom = /toilet|bath|w\.?c|wash/i.test(r.name || "");
         const dadoH = 2100 * MM;
         const dado = (spans, horiz, edgeC, off) => {
@@ -1304,6 +1309,71 @@
   }
 
   /* --------------------------------------------------------- the model */
+  // ---- COMPOUND WALL round the plot, with the MAIN GATE in the road face.
+  // Its height comes from the panel slider, so you can study 4 ft vs 7 ft.
+  function addBoundary(g, plan, M) {
+    const pl = plan.plot; if (!pl || !(pl.w > 1) || !(pl.h > 1)) return;
+    const H = +((($("#v3bwh") || {}).value)) || 6;
+    const t = 0.75, pcH = H + 0.35;                 // wall thk, pillar height
+    const bm = new THREE.MeshLambertMaterial({ color: 0xcfc6b4 });
+    const cap = new THREE.MeshLambertMaterial({ color: 0x9aa0a8 });
+    const gm = new THREE.MeshLambertMaterial({ color: 0x37506b });
+    const x0 = pl.x, y0 = pl.y, x1 = pl.x + pl.w, y1 = pl.y + pl.h;
+    const gateW = Math.min(12, pl.w * 0.45);        // main gate, road side
+    const gx = (x0 + x1) / 2;
+    const strip = (ax0, ay0, ax1, ay1) => {
+      const L = Math.hypot(ax1 - ax0, ay1 - ay0); if (L < 0.2) return;
+      const m = box(L, t, H, (ax0 + ax1) / 2, (ay0 + ay1) / 2, H / 2, bm);
+      m.rotation.y = Math.atan2(-(ay1 - ay0), (ax1 - ax0));
+      g.add(m);
+      const c = box(L, t + 0.18, 0.22, (ax0 + ax1) / 2, (ay0 + ay1) / 2, H + 0.11, cap);
+      c.rotation.y = m.rotation.y;
+      g.add(c);                                     // coping over the wall
+    };
+    strip(x0, y1, x1, y1);                          // rear
+    strip(x0, y0, x0, y1);                          // left
+    strip(x1, y0, x1, y1);                          // right
+    strip(x0, y0, gx - gateW / 2, y0);              // front, either side of gate
+    strip(gx + gateW / 2, y0, x1, y0);
+    // gate pillars + a twin-leaf sliding gate with vertical bars
+    for (const px of [gx - gateW / 2, gx + gateW / 2]) {
+      g.add(box(1.1, 1.1, pcH, px, y0, pcH / 2, bm));
+      g.add(box(1.3, 1.3, 0.28, px, y0, pcH + 0.14, cap));
+    }
+    const gH = Math.min(H, 6.5);
+    for (const side of [-1, 1]) {
+      const cxg = gx + side * gateW / 4;
+      g.add(box(gateW / 2 - 0.1, 0.16, 0.28, cxg, y0, 0.35, gm));   // bottom rail
+      g.add(box(gateW / 2 - 0.1, 0.16, 0.28, cxg, y0, gH - 0.2, gm)); // top rail
+      const n = Math.max(5, Math.round((gateW / 2) / 0.55));
+      for (let i = 0; i <= n; i++) {
+        const bx = cxg - (gateW / 4 - 0.1) + (i * (gateW / 2 - 0.2)) / n;
+        g.add(box(0.11, 0.11, gH - 0.55, bx, y0, gH / 2 + 0.2, gm));
+      }
+    }
+  }
+
+  // ---- free FACES you draw for facade study: a rectangle or a disc placed
+  // in the model, movable / resizable / deletable like any other object
+  function addFaces(g, plan) {
+    for (const fc of (plan.faces3d || [])) {
+      const mat = new THREE.MeshLambertMaterial({
+        color: parseInt((fc.color || "#8fa3bf").slice(1), 16),
+        side: THREE.DoubleSide, transparent: true,
+        opacity: fc.opacity == null ? 1 : +fc.opacity });
+      const geo = fc.shape === "circle"
+        ? new THREE.CircleGeometry(Math.max(0.2, +fc.r || 2), 40)
+        : new THREE.PlaneGeometry(Math.max(0.2, +fc.w || 4),
+                                  Math.max(0.2, +fc.h || 4));
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(+fc.x || 0, +fc.z || 4, -(+fc.y || 0));
+      m.rotation.y = ((+fc.angle || 0)) * Math.PI / 180;
+      if (fc.flat) m.rotation.x = -Math.PI / 2;      // lying flat, not upright
+      m.userData.edit = { kind: "face", ref: fc, plan };
+      g.add(m);
+    }
+  }
+
   function buildModel() {
     extMats = []; intMats = []; floorMats = [];
     const M = mats();
@@ -1314,7 +1384,8 @@
     G = { walls: new THREE.Group(), roof: new THREE.Group(), struct: new THREE.Group(),
       stairs: new THREE.Group(), floor: new THREE.Group(), furn: new THREE.Group(),
       plumb: new THREE.Group(), elec: new THREE.Group(), top: new THREE.Group(),
-      mumty: new THREE.Group() };
+      mumty: new THREE.Group(), bwall: new THREE.Group(),
+      faces: new THREE.Group() };
 
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
     (base.walls || []).forEach(w => {
@@ -1331,17 +1402,35 @@
     G.struct.add(box(x1 - x0 + 1, y1 - y0 + 1, Math.max(P.plinth, 0.1),
       cx, cy, Math.max(P.plinth, 0.1) / 2, plinthM));
 
+    // every layer holds one sub-group PER FLOOR, so a floor can be hidden,
+    // locked or nudged as a whole while the layer toggles still work
+    FL = [];
+    const LKEYS = ["walls", "struct", "stairs", "floor", "furn", "plumb",
+      "elec", "roof", "mumty"];
+    const floorSet = fi => {
+      if (FL[fi]) return FL[fi];
+      const set = {};
+      for (const k of LKEYS) {
+        const gg = new THREE.Group();
+        gg.userData.floor = fi;
+        (G[k] || G.walls).add(gg);
+        set[k] = gg;
+      }
+      FL[fi] = set;
+      return set;
+    };
     let topZ = P.plinth;
     for (let f = 0; f < P.floors; f++) {
       const plan = ((S.floors || [])[f] && S.floors[f].plan) || base;
+      const L = floorSet(f);
       const z0 = P.plinth + f * P.fh;
       const H = P.fh;
-      (plan.walls || []).forEach(w => { if (!w.railing) addWall(G.walls, plan, w, z0, H, P, M, cx, cy); });
+      (plan.walls || []).forEach(w => { if (!w.railing) addWall(L.walls, plan, w, z0, H, P, M, cx, cy); });
       (plan.columns || []).forEach(c => {
         const cm = box(Math.max(+c.w || 0.8, 0.3), Math.max(+c.h || 0.8, 0.3), H,
           c.x, c.y, z0 + H / 2, M.conc);
         cm.userData.edit = { kind: "col", ref: c, plan };
-        G.struct.add(cm);
+        L.struct.add(cm);
       });
       (plan.beams || []).forEach(b => {
         const L = Math.hypot(b.x2 - b.x1, b.y2 - b.y1); if (L < 0.1) return;
@@ -1350,11 +1439,11 @@
           z0 + H - bd / 2, M.conc);
         m.rotation.y = Math.atan2(-(b.y2 - b.y1), (b.x2 - b.x1));
         m.userData.edit = { kind: "beam", ref: b, plan };
-        G.struct.add(m);
+        L.struct.add(m);
       });
-      // the slab is CUT OUT over every staircase (the stair well) â€” a slab
+      // the slab is CUT OUT over every staircase (the stair well) — a slab
       // poured straight over the stair is exactly the amateur-model look
-      const slabG = (f === P.floors - 1 ? G.roof : G.struct);
+      const slabG = (f === P.floors - 1 ? L.roof : L.struct);
       let rects = [[x0 - 0.4, y0 - 0.4, x1 + 0.4, y1 + 0.4]];
       for (const st of (plan.stairs || [])) {
         const hole = [st.x, st.y, st.x + st.w, st.y + st.h];
@@ -1374,7 +1463,7 @@
         slabG.add(box(r[2] - r[0], r[3] - r[1], P.slab,
           (r[0] + r[2]) / 2, (r[1] + r[3]) / 2, z0 + H + P.slab / 2, M.slab));
       }
-      // MUMTY over the top-floor staircase: its own little room on the roof â€”
+      // MUMTY over the top-floor staircase: its own little room on the roof —
       // walls round the stair well, a door gap where the flight arrives, and
       // its own flat slab. This is how the stair actually comes out on top.
       if (f === P.floors - 1) {
@@ -1390,7 +1479,7 @@
             const Lw = Math.hypot(wx1 - wx0, wy1 - wy0); if (Lw < 0.2) return;
             const m = box(Lw, mt, mh, (wx0 + wx1) / 2, (wy0 + wy1) / 2, mz + mh / 2, M.ext);
             m.rotation.y = Math.atan2(-(wy1 - wy0), (wx1 - wx0));
-            G.mumty.add(m);
+            L.mumty.add(m);
           };
           const sx0 = st.x, sy0 = st.y, sx1 = st.x + st.w, sy1 = st.y + st.h;
           if (alongX) {
@@ -1410,22 +1499,25 @@
             const far = dirUp > 0 ? sy1 : sy0;
             wallStrip(sx0, far, sx1, far);
           }
-          G.mumty.add(box(st.w + 1.2, st.h + 1.2, P.slab,
+          L.mumty.add(box(st.w + 1.2, st.h + 1.2, P.slab,
             (sx0 + sx1) / 2, (sy0 + sy1) / 2, mz + mh + P.slab / 2, M.slab));
         }
       }
-      addStairs(G.stairs, plan, z0, H, M);
-      addFlooring(G.floor, plan, z0);
-      addFurniture(G.furn, plan, z0);
-      addPipes(G.plumb, plan, z0, H);
-      addElec(G.elec, plan, z0, H);
+      addStairs(L.stairs, plan, z0, H, M);
+      addFlooring(L.floor, plan, z0);
+      addFurniture(L.furn, plan, z0);
+      addPipes(L.plumb, plan, z0, H);
+      addElec(L.elec, plan, z0, H);
       topZ = z0 + H + P.slab;
     }
     addTop(G.top, base, topZ, P, M, ($("#v3para") || {}).value || "parapet");
+    addBoundary(G.bwall, base, M);        // compound wall + main gate
+    addFaces(G.faces, base);              // facade study faces
 
     Object.values(G).forEach(gr => root.add(gr));
     root.position.set(-cx, 0, cy);
     // apply the current layer checkboxes
+    buildFloorPanel();
     syncLayers();
     return root;
   }
@@ -1442,17 +1534,29 @@
     G.furn.visible = on("#v3furn");
     const plumbOn = on("#v3plumb");
     G.plumb.visible = plumbOn;
-    // piping is UNDERFLOOR â€” with the plumbing layer on, the floor/plinth
+    // piping is UNDERFLOOR — with the plumbing layer on, the floor/plinth
     // fades (floor x-ray slider) so the concealed runs read below the FFL
     const fOp = plumbOn ? (+((($("#v3flop") || {}).value)) || 0.35) : 1;
     floorMats.forEach(m => { m.opacity = fOp; m.needsUpdate = true; });
     const elecOn = on("#v3elec");
     G.elec.visible = elecOn;
-    // conduits are CONCEALED in the walls â€” turning the electrical layer on
+    // conduits are CONCEALED in the walls — turning the electrical layer on
     // fades the internal walls (wall x-ray slider) so the runs read INSIDE
     const wOp = elecOn ? (+((($("#v3intop") || {}).value)) || 0.3) : 1;
     intMats.forEach(m => { m.opacity = wOp; m.needsUpdate = true; });
     G.floor.visible = on("#v3floor");
+    if (G.bwall) G.bwall.visible = on("#v3bwall");
+    if (G.faces) G.faces.visible = on("#v3faces");
+    // per-FLOOR eye and nudge: hide or shift a whole storey without touching
+    // the layer switches
+    FL.forEach((set, fi) => {
+      const vis = floorVis[fi] !== false;
+      const o = floorOff[fi] || { x: 0, y: 0 };
+      for (const k in set) {
+        set[k].visible = vis;
+        set[k].position.set(o.x || 0, 0, -(o.y || 0));
+      }
+    });
   }
 
   /* ------------------------------------------------------------- viewer */
@@ -1472,7 +1576,7 @@
     camera.lookAt(tx, ty, tz);
   }
   // ENTER the exact-2D top view: a real ORTHOGRAPHIC camera looking straight
-  // down â€” zero perspective, walls dead-flat, exactly the 2D plan
+  // down — zero perspective, walls dead-flat, exactly the 2D plan
   function enterTop() {
     const holder = $("#view3d");
     const w = holder.clientWidth, h = holder.clientHeight - 44, asp = w / Math.max(1, h);
@@ -1549,7 +1653,7 @@
     const opInp = $("#v3op"); if (opInp) setOpacity(opInp.value / 100);
     resize(); loop();
   }
-  // rebuild keeps the CAMERA where you left it â€” only the model is re-derived
+  // rebuild keeps the CAMERA where you left it — only the model is re-derived
   function rebuild() {
     if (!open || !scene) return;
     clearSel();
@@ -1593,8 +1697,55 @@
   function setOpacity(v) {
     extMats.forEach(m => { m.opacity = v; m.transparent = true; m.needsUpdate = true; });
   }
-  // SUN / brightness â€” one slider tames the glare instead of washing the
+  // SUN / brightness — one slider tames the glare instead of washing the
   // model out: it scales the sun, the ambient and the sky fill together
+  // LAYERS panel gets a FLOORS block: eye, lock and an X / Y nudge per storey
+  function buildFloorPanel() {
+    const host = $("#v3floors"); if (!host) return;
+    const P = params();
+    host.innerHTML = "";
+    for (let i = 0; i < P.floors; i++) {
+      const nm = ((S.floors || [])[i] || {}).name || ("Floor " + (i + 1));
+      const row = document.createElement("div");
+      row.className = "v3f-row";
+      const eye = document.createElement("input");
+      eye.type = "checkbox"; eye.checked = floorVis[i] !== false;
+      eye.title = "show / hide this floor";
+      eye.onchange = () => { floorVis[i] = eye.checked; syncLayers(); };
+      const lab = document.createElement("span");
+      lab.className = "v3f-name"; lab.textContent = nm;
+      const lk = document.createElement("button");
+      lk.className = "v3lock" + (floorLock[i] ? " locked" : "");
+      lk.textContent = floorLock[i] ? "🔒" : "🔓";
+      lk.title = "lock this floor — nothing in it can be selected or edited";
+      lk.onclick = e => {
+        e.preventDefault();
+        floorLock[i] = !floorLock[i];
+        lk.textContent = floorLock[i] ? "🔒" : "🔓";
+        lk.classList.toggle("locked", floorLock[i]);
+        if (floorLock[i] && selObj) clearSel();
+      };
+      row.appendChild(eye); row.appendChild(lab); row.appendChild(lk);
+      host.appendChild(row);
+      if (i > 0) {                       // the ground floor stays put
+        const nud = document.createElement("div");
+        nud.className = "v3f-nudge";
+        for (const ax of ["x", "y"]) {
+          const inp = document.createElement("input");
+          inp.type = "number"; inp.step = 0.25; inp.value = 0;
+          inp.title = "shift this floor along " + ax.toUpperCase() + " (ft)";
+          inp.onchange = () => {
+            floorOff[i] = floorOff[i] || { x: 0, y: 0 };
+            floorOff[i][ax] = +inp.value || 0;
+            syncLayers();
+          };
+          nud.appendChild(inp);
+        }
+        host.appendChild(nud);
+      }
+    }
+  }
+
   function applySun() {
     const v = +((($("#v3sun") || {}).value)) || 0.6;
     if (sunL) sunL.intensity = v * 0.9;
@@ -1628,7 +1779,7 @@
     const ed = obj.userData.edit, r = ed.ref;
     const chip = $("#v3selname");
     if (chip) chip.textContent =
-      (r.tag || r.name || r.kind || r.system || ed.kind) + "  Â·  drag = move, Del = delete";
+      (r.tag || r.name || r.kind || r.system || ed.kind) + "  ·  drag = move, Del = delete";
     // REVIT-style: with a selection, the orbit pivots around the SELECTION
     const bc = new THREE.Box3().setFromObject(obj).getCenter(new THREE.Vector3());
     retarget(bc);
@@ -1637,19 +1788,23 @@
   /* ---------- PROPERTIES panel: click a product, edit its specification */
   const PROP_FIELDS = {
     furn:  [["Tag", "tag", "t"], ["X (ft)", "x", 0.25], ["Y (ft)", "y", 0.25],
-            ["Width (ft)", "w", 0.25], ["Depth (ft)", "h", 0.25], ["Angle Â°", "angle", 15]],
+            ["Width (ft)", "w", 0.25], ["Depth (ft)", "h", 0.25], ["Angle °", "angle", 15]],
     elec:  [["Tag", "tag", "t"], ["X (ft)", "x", 0.25], ["Y (ft)", "y", 0.25],
-            ["Height (mm)", "height_mm", 25], ["Fan sweep (ft)", "size", 0.2], ["Angle Â°", "angle", 15]],
+            ["Height (mm)", "height_mm", 25], ["Fan sweep (ft)", "size", 0.2], ["Angle °", "angle", 15]],
     plumb: [["Code", "code", "t"], ["X (ft)", "x", 0.25], ["Y (ft)", "y", 0.25]],
     pipe:  [["Dia (mm)", "dia_mm", 5]],
     col:   [["X (ft)", "x", 0.25], ["Y (ft)", "y", 0.25],
             ["Width (ft)", "w", 0.05], ["Depth (ft)", "h", 0.05]],
     beam:  [["Length (ft)", "__len", 0.25], ["Width (mm)", "width_mm", 10],
             ["Depth (mm)", "depth_mm", 25]],
+    face:  [["X (ft)", "x", 0.25], ["Y (ft)", "y", 0.25], ["Height Z (ft)", "z", 0.25],
+            ["Width (ft)", "w", 0.25], ["Height (ft)", "h", 0.25],
+            ["Radius (ft)", "r", 0.25], ["Angle °", "angle", 15],
+            ["Colour", "color", "t"], ["Opacity", "opacity", 0.05]],
   };
-  const PROP_TITLE = { furn: "ðŸ›‹ FURNITURE", elec: "âš¡ ELECTRICAL",
-    plumb: "ðŸš¿ PLUMBING", pipe: "ðŸš° PIPE RUN",
-    col: "ðŸ— COLUMN", beam: "ðŸ— BEAM" };
+  const PROP_TITLE = { face: "◻ FACE", furn: "🛋 FURNITURE", elec: "⚡ ELECTRICAL",
+    plumb: "🚿 PLUMBING", pipe: "🚰 PIPE RUN",
+    col: "🏗 COLUMN", beam: "🏗 BEAM" };
   function showProps(obj) {
     const el = $("#v3props"); if (!el) return;
     el.innerHTML = "";
@@ -1658,8 +1813,8 @@
     const head = document.createElement("div");
     head.className = "v3p-head";
     head.textContent = (PROP_TITLE[ed.kind] || ed.kind.toUpperCase()) +
-      (r.tag || r.name ? "  Â·  " + (r.tag || r.name) : "") +
-      (r.kind ? "  Â·  " + r.kind : "") + (r.system ? "  Â·  " + r.system : "");
+      (r.tag || r.name ? "  ·  " + (r.tag || r.name) : "") +
+      (r.kind ? "  ·  " + r.kind : "") + (r.system ? "  ·  " + r.system : "");
     el.appendChild(head);
     for (const [label, key, step] of (PROP_FIELDS[ed.kind] || [])) {
       if (r[key] === undefined && step !== "t" &&
@@ -1669,7 +1824,7 @@
       const sp = document.createElement("span"); sp.textContent = label;
       const inp = document.createElement("input");
       if (step === "t") { inp.type = "text"; inp.value = r[key] || ""; }
-      else if (key === "__len") {        // beam LENGTH â€” derived, edits both ends
+      else if (key === "__len") {        // beam LENGTH — derived, edits both ends
         inp.type = "number"; inp.step = step;
         inp.value = +Math.hypot(r.x2 - r.x1, r.y2 - r.y1).toFixed(2);
       }
@@ -1696,11 +1851,11 @@
       el.appendChild(row);
     }
     const del = document.createElement("button");
-    del.className = "v3btn v3x"; del.textContent = "ðŸ—‘ Delete";
+    del.className = "v3btn v3x"; del.textContent = "🗑 Delete";
     del.onclick = deleteSel;
     el.appendChild(del);
   }
-  // after a rebuild the meshes are new â€” find the one for the same plan ref
+  // after a rebuild the meshes are new — find the one for the same plan ref
   function reselectRef(ref) {
     if (!modelRoot) return;
     let f = null;
@@ -1725,6 +1880,11 @@
       }
       if (!vis) continue;
       if (ed && locks[LOCKOF[ed.kind]]) ed = null;    // locked layer = untouchable
+      if (ed) {                                       // locked FLOOR likewise
+        for (let a = o; a; a = a.parent)
+          if (a.userData && a.userData.floor !== undefined
+              && floorLock[a.userData.floor]) { ed = null; break; }
+      }
       if (ed) return { obj: o, pt: hit.point };
       // a SOLID surface blocks the pick; an x-rayed (faded) one lets the
       // click pass through to the concealed services behind it
@@ -1733,11 +1893,12 @@
     }
     return null;
   }
-  // move the ref by (dx, dy) in PLAN feet â€” every editable kind knows its shape
+  // move the ref by (dx, dy) in PLAN feet — every editable kind knows its shape
   function applyMove(ed, dx, dy) {
     const rnd = v => Math.round(v * 20) / 20, r = ed.ref;
     dx = rnd(dx); dy = rnd(dy);
-    if (ed.kind === "pipe") (r.pts || []).forEach(pt => { pt[0] = rnd(pt[0] + dx); pt[1] = rnd(pt[1] + dy); });
+    if (ed.kind === "face") { r.x = rnd((+r.x || 0) + dx); r.y = rnd((+r.y || 0) + dy); }
+    else if (ed.kind === "pipe") (r.pts || []).forEach(pt => { pt[0] = rnd(pt[0] + dx); pt[1] = rnd(pt[1] + dy); });
     else if (ed.kind === "beam") { r.x1 = rnd(r.x1 + dx); r.x2 = rnd(r.x2 + dx); r.y1 = rnd(r.y1 + dy); r.y2 = rnd(r.y2 + dy); }
     else { r.x = rnd((+r.x || 0) + dx); r.y = rnd((+r.y || 0) + dy); }
   }
@@ -1745,7 +1906,7 @@
     if (!selObj) return;
     const ed = selObj.userData.edit;
     const pool = { furn: "furniture", elec: "elec", plumb: "plumb", pipe: "pipes",
-      col: "columns", beam: "beams" }[ed.kind];
+      col: "columns", beam: "beams", face: "faces3d" }[ed.kind];
     const arr = (ed.plan && ed.plan[pool]) || [];
     const i = arr.indexOf(ed.ref); if (i < 0) return;
     if (typeof pushUndo === "function") pushUndo();
@@ -1763,7 +1924,7 @@
     let mode = 0, lx = 0, ly = 0, pinch = 0;
     let dragEd = null, dragPlane = null, dragStart = null, dragDelta = null, downXY = null;
     cv.addEventListener("contextmenu", e => e.preventDefault());
-    // the model-surface point under the cursor (ground plane as fallback) â€”
+    // the model-surface point under the cursor (ground plane as fallback) —
     // SketchUp pivots its orbit and its zoom on exactly this point
     function surfPoint(e) {
       const rc = cv.getBoundingClientRect();
@@ -1845,7 +2006,7 @@
       if (mode === 4 && dragEd && dragDelta &&
           (Math.abs(dragDelta.x) > 0.05 || Math.abs(dragDelta.z) > 0.05)) {
         if (typeof pushUndo === "function") pushUndo();
-        applyMove(dragEd, dragDelta.x, -dragDelta.z);   // three z = âˆ’plan y
+        applyMove(dragEd, dragDelta.x, -dragDelta.z);   // three z = −plan y
         if (typeof redraw === "function") redraw();     // 2D follows
         const ref = dragEd.ref;
         rebuild();
@@ -1862,7 +2023,7 @@
       if (selObj && (e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); deleteSel(); }
     });
     addEventListener("keyup", e => { flyKeys[(e.key || "").toLowerCase()] = false; });
-    // Ctrl+Z / Ctrl+Y / Ctrl+S work INSIDE the 3D view too â€” app.js already
+    // Ctrl+Z / Ctrl+Y / Ctrl+S work INSIDE the 3D view too — app.js already
     // performs the undo/redo/save on the plan; here the model re-derives so
     // the 3D (and through redraw, every drawing) follows the same history
     addEventListener("keydown", e => {
@@ -1873,7 +2034,7 @@
     });
     cv.addEventListener("wheel", e => {
       if (!open) return;
-      // no zoom while a drag (pan / move) is in progress â€” one thing at a time
+      // no zoom while a drag (pan / move) is in progress — one thing at a time
       if (mode) { e.preventDefault(); return; }
       const f = e.deltaY > 0 ? 1.12 : 0.9;
       const rc = cv.getBoundingClientRect();
@@ -1890,7 +2051,7 @@
         e.preventDefault(); return;
       }
       // SKETCHUP zoom: dolly straight along the ray to the point the cursor
-      // is ON (model surface, else the ground) â€” you fly INTO what you point
+      // is ON (model surface, else the ground) — you fly INTO what you point
       const hp = surfPoint(e);
       if (hp) {
         const cp = camera.position, k = 1 - f;      // camera slides toward hp,
@@ -1936,7 +2097,7 @@
       if (homeCenter) { orbit.tx = homeCenter.x; orbit.ty = homeCenter.y; orbit.tz = homeCenter.z; }
       orbit.az = -Math.PI / 4; orbit.el = Math.atan(1 / Math.sqrt(2));
     });
-    // TOP-2D: true ORTHOGRAPHIC straight-down view, roof off â€” the EXACT
+    // TOP-2D: true ORTHOGRAPHIC straight-down view, roof off — the EXACT
     // 2D plan, no perspective lean on the walls
     on("#v3top", () => {
       const r = $("#v3roof"); if (r) r.checked = false;
@@ -1951,14 +2112,33 @@
     on("#v3intop", syncLayers, "oninput");   // wall x-ray (electrical)
     on("#v3flop", syncLayers, "oninput");    // floor x-ray (plumbing)
     on("#v3sun", applySun, "oninput");       // sun / glare control
+    on("#v3bwh", rebuild, "onchange");       // boundary-wall height
+    // FACADE tools — drop a rectangle / disc into the model and edit it
+    const addFace = shape => () => {
+      if (!S.plan) return;
+      if (!Array.isArray(S.plan.faces3d)) S.plan.faces3d = [];
+      const c = homeCenter || { x: 0, z: 0 };
+      if (typeof pushUndo === "function") pushUndo();
+      const fc = { shape, x: Math.round((c.x + 0) * 4) / 4, y: 0, z: 5,
+        w: 6, h: 4, r: 3, angle: 0, color: "#8fa3bf", opacity: 1 };
+      S.plan.faces3d.push(fc);
+      const fb = $("#v3faces"); if (fb) fb.checked = true;
+      rebuild();
+      reselectRef(fc);
+      status("face added — drag it, or set its size in the panel");
+    };
+    on("#v3rect", addFace("rect"));
+    on("#v3circ", addFace("circle"));
+    ["#v3bwall", "#v3faces"].forEach(id => on(id, syncLayers, "onchange"));
+    // LOCK buttons cover the new layers too (data-lock="faces")
     on("#v3para", rebuild, "onchange");
-    // LAYER LOCK buttons â€” lock a layer and nothing in it can be edited
+    // LAYER LOCK buttons — lock a layer and nothing in it can be edited
     document.querySelectorAll(".v3lock").forEach(b => {
       b.onclick = e => {
         e.preventDefault(); e.stopPropagation();
         const k = b.dataset.lock;
         locks[k] = !locks[k];
-        b.textContent = locks[k] ? "ðŸ”’" : "ðŸ”“";
+        b.textContent = locks[k] ? "🔒" : "🔓";
         b.classList.toggle("locked", locks[k]);
         if (locks[k] && selObj && LOCKOF[selObj.userData.edit.kind] === k) clearSel();
       };

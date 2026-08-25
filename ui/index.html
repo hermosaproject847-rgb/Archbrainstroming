@@ -488,6 +488,21 @@
       <button class="v3lock" data-lock="plumb" title="lock — locked layer me edit nahi hota">🔓</button></label>
     <label class="v3-chk"><input id="v3elec" type="checkbox"> ⚡ Electrical
       <button class="v3lock" data-lock="elec" title="lock — locked layer me edit nahi hota">🔓</button></label>
+    <label class="v3-chk"><input id="v3bwall" type="checkbox" checked> 🧱 Boundary wall
+      <button class="v3lock" data-lock="bwall" title="lock — locked layer me edit nahi hota">🔓</button></label>
+    <label class="v3-chk"><input id="v3faces" type="checkbox" checked> ◻ Facade faces
+      <button class="v3lock" data-lock="faces" title="lock — locked layer me edit nahi hota">🔓</button></label>
+    <div class="v3-sec">BOUNDARY WALL</div>
+    <label class="v3-op" title="compound wall ki height — main gate isi ke saath banta hai">Height (ft)
+      <input id="v3bwh" type="range" min="3" max="10" step="0.5" value="6">
+    </label>
+    <div class="v3-sec">FACADE TOOLS</div>
+    <div class="v3-tools2">
+      <button id="v3rect" class="v3btn" title="rectangle face daalo — facade study ke liye">▭ Rect</button>
+      <button id="v3circ" class="v3btn" title="circular face daalo">◯ Circle</button>
+    </div>
+    <div class="v3-sec">FLOORS</div>
+    <div id="v3floors"></div>
     <div class="v3-sec">LIGHTING</div>
     <label class="v3-op" title="sun ki glare / brightness kam-jyada karo">☀ Sun / brightness
       <input id="v3sun" type="range" min="0.1" max="1.5" step="0.05" value="0.6">
@@ -514,8 +529,8 @@
   <div id="v3selname"></div>
 </div>
 
-<script src="app.js?v=2"></script>
+<script src="app.js?v=3"></script>
 <script src="vendor/three.min.js"></script>
-<script src="view3d.js?v=31"></script>
+<script src="view3d.js?v=32"></script>
 </body>
 </html>

@@ -3380,11 +3380,36 @@ if ($("#btnOpenFloors")) $("#btnOpenFloors").onclick = async () => {
   S.active = 0; S.undo = []; S.redo = [];
   let okCount = 0;
   for (let i = 0; i < paths.length; i++) {
-    busy(true, `Reading ${names[i]} — floor ${i + 1} of ${paths.length} `
-             + `(AI, can take a minute each)…`);
-    const rr = await api().read_path(paths[i], "", false);
-    if (rr.ok && rr.plan) { S.floors[i].plan = rr.plan; okCount++; }
-    else { pushLog(`Could not read ${names[i]}: ${rr.error || "no plan"}`); }
+    const lbl = `${names[i]} — floor ${i + 1} of ${paths.length}`;
+    busy(true, `Reading ${lbl}…`, true);
+    // An AI read can run for minutes. A single sync request dies on the
+    // Cloudflare tunnel (502) even though the server finished and cached the
+    // read — that is why floors used to "read" but never load. Images / PDFs
+    // therefore go through the same background JOB + poll the single Open
+    // Drawing uses; a DXF is instant so it stays a direct call.
+    const isImg = /.(png|jpe?g|pdf)$/i.test(names[i] || paths[i] || "");
+    let rr;
+    if (isImg) {
+      const st = await api().read_async_start(paths[i], "", false);
+      if (!st.ok) { pushLog(`Could not start ${names[i]}: ${st.error || "?"}`); continue; }
+      rr = { ok: false, error: "read timed out" };
+      const t0 = Date.now();
+      let miss = 0;
+      for (let k = 0; k < 400; k++) {              // up to ~20 min per floor
+        await _sleep(3000);
+        const sres = await api().read_async_status(st.job);
+        if (sres && sres.ok && sres.done) { rr = sres.result; break; }
+        if (sres && !sres.ok) { if (++miss > 5) { rr = sres; break; } continue; }
+        miss = 0;
+        const secs = Math.round((Date.now() - t0) / 1000);
+        busy(true, `Reading ${lbl}…  (${Math.floor(secs / 60)}m `
+          + `${String(secs % 60).padStart(2, "0")}s)`, true);
+      }
+    } else {
+      rr = await api().read_path(paths[i], "", false);
+    }
+    if (rr && rr.ok && rr.plan) { S.floors[i].plan = rr.plan; okCount++; }
+    else { pushLog(`Could not read ${names[i]}: ${(rr && rr.error) || "no plan"}`); }
   }
   busy(false);
   S.active = 0;
