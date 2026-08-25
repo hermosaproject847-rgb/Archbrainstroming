@@ -126,12 +126,13 @@
       door: new THREE.MeshLambertMaterial({ color: 0x8a5a34 }),
       frame: new THREE.MeshLambertMaterial({ color: 0x5f4630 }),
       chajja: new THREE.MeshLambertMaterial({ color: 0xb9bec6 }),
+      cap: new THREE.MeshLambertMaterial({ color: 0x9aa0a8 }),
       rail: new THREE.MeshLambertMaterial({ color: 0x3d434d }),
     };
   }
 
   /* ---- one wall with detailed openings (frame, mullions, glass, chajja) */
-  function addWall(g, plan, w, z0, H, P, M, cxAll, cyAll) {
+  function addWall(g, plan, w, z0, H, P, M, cxAll, cyAll, BW) {
     const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
     const L = Math.hypot(dx, dy); if (L < 0.05) return;
     const ux = dx / L, uy = dy / L;
@@ -167,7 +168,31 @@
       mesh.rotation.y = ang;
       g.add(mesh);
     };
-    const put = (a, b, zz0, zz1, m) => wob(a, b, zz0, zz1, t, 0, m);
+    const put0 = (a, b, zz0, zz1, m) => wob(a, b, zz0, zz1, t, 0, m);
+    // Part of an exterior wall can front an OPEN area (porch, parking): that
+    // stretch is the COMPOUND wall, so it stops at the boundary height and
+    // gets a coping instead of running full storey height.
+    const bwSpans = (BW && BW.spans) || [];
+    const bwH = (BW && BW.h) || H;
+    const put = (a, b, zz0, zz1, m) => {
+      if (!bwSpans.length) return put0(a, b, zz0, zz1, m);
+      const cuts = [a, b];
+      for (const sp of bwSpans) {
+        if (sp[0] > a && sp[0] < b) cuts.push(sp[0]);
+        if (sp[1] > a && sp[1] < b) cuts.push(sp[1]);
+      }
+      cuts.sort((p, q) => p - q);
+      for (let i = 0; i < cuts.length - 1; i++) {
+        const A = cuts[i], B = cuts[i + 1];
+        if (B - A < 0.02) continue;
+        const mid = (A + B) / 2;
+        const inBw = bwSpans.some(sp => mid >= sp[0] && mid <= sp[1]);
+        const top = inBw ? Math.min(zz1, bwH) : zz1;
+        if (top - zz0 > 0.02) put0(A, B, zz0, top, m);
+        if (inBw && zz1 > bwH + 0.05 && zz0 < bwH)   // coping caps the stretch
+          wob(A, B, bwH, bwH + 0.22, t + 0.2, 0, M.cap || M.chajja);
+      }
+    };
 
     let cur = 0;
     for (const o of ops) {
@@ -1309,47 +1334,121 @@
   }
 
   /* --------------------------------------------------------- the model */
-  // ---- COMPOUND WALL round the plot, with the MAIN GATE in the road face.
-  // Its height comes from the panel slider, so you can study 4 ft vs 7 ft.
-  function addBoundary(g, plan, M) {
-    const pl = plan.plot; if (!pl || !(pl.w > 1) || !(pl.h > 1)) return;
+  // ---- COMPOUND WALL, taken FROM THE PLAN. An exterior wall that encloses
+  // an OPEN area (porch, parking, terrace, court) is not a room wall at all —
+  // it is the boundary wall, so it is built to the boundary height with a
+  // coping, and the plan's own "open" opening in it becomes the MAIN GATE.
+  const OPEN_AIR = /porch|parking|terrace|o.?s?t.?s?s|court|garden|planter|lawn|drive|opens*space/i;
+  function boundaryIds(plan, cx, cy) {
+    const ids = new Set();
+    const open = (plan.rooms || []).filter(r => OPEN_AIR.test(r.name || ""));
+    if (!open.length) return ids;
+    const inOpen = (x, y) => open.some(r =>
+      x >= r.x - 0.35 && x <= r.x + r.w + 0.35 &&
+      y >= r.y - 0.35 && y <= r.y + r.h + 0.35);
+    for (const w of (plan.walls || [])) {
+      if (!w.exterior || w.railing) continue;
+      const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
+      const L = Math.hypot(dx, dy) || 1e-9;
+      let nx = -dy / L, ny = dx / L;                 // inward normal
+      const mx = (w.x1 + w.x2) / 2, my = (w.y1 + w.y2) / 2;
+      if ((mx + nx - cx) ** 2 + (my + ny - cy) ** 2 >
+          (mx - nx - cx) ** 2 + (my - ny - cy) ** 2) { nx = -nx; ny = -ny; }
+      let hits = 0, n = 0;
+      for (let t = 0.08; t <= 0.93; t += 0.07) {     // sample just inside it
+        const x = w.x1 + dx * t + nx * 1.2, y = w.y1 + dy * t + ny * 1.2;
+        n++; if (inOpen(x, y)) hits++;
+      }
+      if (n && hits / n > 0.85) ids.add(w.id);       // the whole wall is boundary
+    }
+    return ids;
+  }
+  // the OPEN stretches of every other exterior wall, as spans along the wall
+  function boundarySpans(plan, cx, cy, fullIds) {
+    const out = {};
+    const open = (plan.rooms || []).filter(r => OPEN_AIR.test(r.name || ""));
+    if (!open.length) return out;
+    const inOpen = (x, y) => open.some(r =>
+      x >= r.x - 0.35 && x <= r.x + r.w + 0.35 &&
+      y >= r.y - 0.35 && y <= r.y + r.h + 0.35);
+    for (const w of (plan.walls || [])) {
+      if (!w.exterior || w.railing || fullIds.has(w.id)) continue;
+      const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
+      const L = Math.hypot(dx, dy); if (L < 1) continue;
+      let nx = -dy / L, ny = dx / L;
+      const mx = (w.x1 + w.x2) / 2, my = (w.y1 + w.y2) / 2;
+      if ((mx + nx - cx) ** 2 + (my + ny - cy) ** 2 >
+          (mx - nx - cx) ** 2 + (my - ny - cy) ** 2) { nx = -nx; ny = -ny; }
+      const step = 0.5, spans = [];
+      let run = null;
+      for (let d = 0; d <= L; d += step) {
+        const x = w.x1 + (dx / L) * d + nx * 1.2, y = w.y1 + (dy / L) * d + ny * 1.2;
+        if (inOpen(x, y)) { if (!run) run = [d, d]; else run[1] = d; }
+        else if (run) { if (run[1] - run[0] > 1.5) spans.push(run); run = null; }
+      }
+      if (run && run[1] - run[0] > 1.5) { run[1] = L; spans.push(run); }
+      if (spans.length) out[w.id] = spans;
+    }
+    return out;
+  }
+  function addBoundary(g, plan, M, cx, cy, ids) {
+    if (!ids || !ids.size) return;
     const H = +((($("#v3bwh") || {}).value)) || 6;
-    const t = 0.75, pcH = H + 0.35;                 // wall thk, pillar height
     const bm = new THREE.MeshLambertMaterial({ color: 0xcfc6b4 });
     const cap = new THREE.MeshLambertMaterial({ color: 0x9aa0a8 });
     const gm = new THREE.MeshLambertMaterial({ color: 0x37506b });
-    const x0 = pl.x, y0 = pl.y, x1 = pl.x + pl.w, y1 = pl.y + pl.h;
-    const gateW = Math.min(12, pl.w * 0.45);        // main gate, road side
-    const gx = (x0 + x1) / 2;
-    const strip = (ax0, ay0, ax1, ay1) => {
-      const L = Math.hypot(ax1 - ax0, ay1 - ay0); if (L < 0.2) return;
-      const m = box(L, t, H, (ax0 + ax1) / 2, (ay0 + ay1) / 2, H / 2, bm);
-      m.rotation.y = Math.atan2(-(ay1 - ay0), (ax1 - ax0));
-      g.add(m);
-      const c = box(L, t + 0.18, 0.22, (ax0 + ax1) / 2, (ay0 + ay1) / 2, H + 0.11, cap);
-      c.rotation.y = m.rotation.y;
-      g.add(c);                                     // coping over the wall
-    };
-    strip(x0, y1, x1, y1);                          // rear
-    strip(x0, y0, x0, y1);                          // left
-    strip(x1, y0, x1, y1);                          // right
-    strip(x0, y0, gx - gateW / 2, y0);              // front, either side of gate
-    strip(gx + gateW / 2, y0, x1, y0);
-    // gate pillars + a twin-leaf sliding gate with vertical bars
-    for (const px of [gx - gateW / 2, gx + gateW / 2]) {
-      g.add(box(1.1, 1.1, pcH, px, y0, pcH / 2, bm));
-      g.add(box(1.3, 1.3, 0.28, px, y0, pcH + 0.14, cap));
-    }
-    const gH = Math.min(H, 6.5);
-    for (const side of [-1, 1]) {
-      const cxg = gx + side * gateW / 4;
-      g.add(box(gateW / 2 - 0.1, 0.16, 0.28, cxg, y0, 0.35, gm));   // bottom rail
-      g.add(box(gateW / 2 - 0.1, 0.16, 0.28, cxg, y0, gH - 0.2, gm)); // top rail
-      const n = Math.max(5, Math.round((gateW / 2) / 0.55));
-      for (let i = 0; i <= n; i++) {
-        const bx = cxg - (gateW / 4 - 0.1) + (i * (gateW / 2 - 0.2)) / n;
-        g.add(box(0.11, 0.11, gH - 0.55, bx, y0, gH / 2 + 0.2, gm));
+    for (const w of (plan.walls || [])) {
+      if (!ids.has(w.id)) continue;
+      const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
+      const L = Math.hypot(dx, dy); if (L < 0.3) continue;
+      const ux = dx / L, uy = dy / L;
+      const t = Math.max(0.5, (+w.thickness_in || 9) / 12);
+      const ang = Math.atan2(-uy, ux);
+      // the plan's own gate / entry gaps in this wall
+      const gaps = (plan.openings || [])
+        .filter(o => o.wall_id === w.id)
+        .map(o => [Math.max(0, +o.pos || 0),
+                   Math.min(L, (+o.pos || 0) + (+o.width || 3)),
+                   /open|gate/i.test(o.type || "")])
+        .sort((a, b) => a[0] - b[0]);
+      const piece = (a, b) => {
+        const Ls = b - a; if (Ls < 0.25) return;
+        const mx = w.x1 + ux * (a + Ls / 2), my = w.y1 + uy * (a + Ls / 2);
+        const m = box(Ls, t, H, mx, my, H / 2, bm); m.rotation.y = ang; g.add(m);
+        const c = box(Ls, t + 0.2, 0.22, mx, my, H + 0.11, cap);
+        c.rotation.y = ang; g.add(c);                // coping band on top
+      };
+      let cur = 0;
+      for (const [a, b, isGate] of gaps) {
+        piece(cur, a); cur = Math.max(cur, b);
+        const pcH = H + 0.5;
+        for (const gp of [a, b]) {                   // pillars either side
+          const px = w.x1 + ux * gp, py = w.y1 + uy * gp;
+          const p1 = box(1.15, Math.max(1.15, t + 0.3), pcH, px, py, pcH / 2, bm);
+          p1.rotation.y = ang; g.add(p1);
+          const p2 = box(1.35, Math.max(1.35, t + 0.5), 0.28, px, py, pcH + 0.14, cap);
+          p2.rotation.y = ang; g.add(p2);
+        }
+        if (!isGate) continue;
+        // twin-leaf MAIN GATE filling the plan's opening
+        const gW = b - a, gH = Math.min(H, 6.5), half = gW / 2;
+        for (const side of [0, 1]) {
+          const c0 = a + side * half, cc = c0 + half / 2;
+          const cxg = w.x1 + ux * cc, cyg = w.y1 + uy * cc;
+          for (const zz of [0.35, gH - 0.2]) {
+            const rl = box(half - 0.12, 0.16, 0.28, cxg, cyg, zz, gm);
+            rl.rotation.y = ang; g.add(rl);
+          }
+          const nb = Math.max(4, Math.round(half / 0.55));
+          for (let k = 0; k <= nb; k++) {
+            const bt = c0 + 0.06 + (k * (half - 0.12)) / nb;
+            const bx = w.x1 + ux * bt, by = w.y1 + uy * bt;
+            const br = box(0.11, 0.11, gH - 0.55, bx, by, gH / 2 + 0.2, gm);
+            br.rotation.y = ang; g.add(br);
+          }
+        }
       }
+      piece(cur, L);
     }
   }
 
@@ -1419,13 +1518,24 @@
       FL[fi] = set;
       return set;
     };
+    // walls that are really the COMPOUND wall are built by addBoundary, not
+    // as full-height room walls (that duplication is what looked wrong)
+    const BW_IDS = boundaryIds(base, cx, cy);
+    const BW_SPANS = boundarySpans(base, cx, cy, BW_IDS);
+    const BW_H = +((($("#v3bwh") || {}).value)) || 6;
     let topZ = P.plinth;
     for (let f = 0; f < P.floors; f++) {
       const plan = ((S.floors || [])[f] && S.floors[f].plan) || base;
       const L = floorSet(f);
       const z0 = P.plinth + f * P.fh;
       const H = P.fh;
-      (plan.walls || []).forEach(w => { if (!w.railing) addWall(L.walls, plan, w, z0, H, P, M, cx, cy); });
+      (plan.walls || []).forEach(w => {
+        if (w.railing) return;
+        if (f === 0 && BW_IDS.has(w.id)) return;     // it is the boundary wall
+        const bw = (f === 0 && BW_SPANS[w.id])
+          ? { spans: BW_SPANS[w.id], h: BW_H } : null;
+        addWall(L.walls, plan, w, z0, H, P, M, cx, cy, bw);
+      });
       (plan.columns || []).forEach(c => {
         const cm = box(Math.max(+c.w || 0.8, 0.3), Math.max(+c.h || 0.8, 0.3), H,
           c.x, c.y, z0 + H / 2, M.conc);
@@ -1511,7 +1621,7 @@
       topZ = z0 + H + P.slab;
     }
     addTop(G.top, base, topZ, P, M, ($("#v3para") || {}).value || "parapet");
-    addBoundary(G.bwall, base, M);        // compound wall + main gate
+    addBoundary(G.bwall, base, M, cx, cy, BW_IDS);   // compound wall + gate
     addFaces(G.faces, base);              // facade study faces
 
     Object.values(G).forEach(gr => root.add(gr));
