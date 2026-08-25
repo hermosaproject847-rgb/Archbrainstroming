@@ -28,6 +28,7 @@
   // per-FLOOR state, kept across rebuilds: its own groups, eye, lock and the
   // XY offset you can nudge a floor by (to study a shifted upper storey)
   let FL = [];                                  // FL[f] = { layer: Group }
+  let FL_ALIGN = [];                            // FL_ALIGN[f] = {x,y} auto-fit
   const floorVis = [], floorLock = [], floorOff = [];
   const LOCKOF = { furn: "furn", elec: "elec", plumb: "plumb", pipe: "plumb",
     col: "struct", beam: "struct", face: "faces", wall: "walls" };
@@ -1530,7 +1531,8 @@
   }
   // parapet RIGHT ROUND the terrace: walk the floor-below's exterior walls;
   // any stretch not already carrying a terrace-plan wall gets the parapet
-  function addTerraceRing(g, terrPlan, belowPlan, z0, P, M) {
+  function addTerraceRing(g, terrPlan, belowPlan, z0, P, M, dAl) {
+    dAl = dAl || { x: 0, y: 0 };
     const tw = (terrPlan.walls || []).filter(w => !w.railing);
     const covered = (x, y) => tw.some(w => {
       const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
@@ -1540,8 +1542,10 @@
       return Math.hypot(w.x1 + dx * t - x, w.y1 + dy * t - y) < 0.9;
     });
     const H = Math.max(P.para, 3.0), t2 = 0.4;
-    for (const w of (belowPlan.walls || [])) {
-      if (!w.exterior || w.railing) continue;
+    for (const w0 of (belowPlan.walls || [])) {
+      if (!w0.exterior || w0.railing) continue;
+      const w = { x1: w0.x1 + dAl.x, y1: w0.y1 + dAl.y,
+                  x2: w0.x2 + dAl.x, y2: w0.y2 + dAl.y };
       const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
       const L = Math.hypot(dx, dy); if (L < 1) continue;
       const ux = dx / L, uy = dy / L;
@@ -1560,6 +1564,47 @@
         m.rotation.y = ang; g.add(m);
         const c = box(b - a, t2 + 0.2, 0.22, mx, my, z0 + H + 0.11, M.cap);
         c.rotation.y = ang; g.add(c);
+      }
+    }
+  }
+  // an upper floor's OPEN TERRACE gets a parapet along every edge of the
+  // room that has no wall of its own in the drawing (the AI often leaves
+  // those edges wall-less) - a coping-topped strip, like a real parapet
+  function addRoomParapets(g, plan, z0, P, M) {
+    const walls = (plan.walls || []).filter(w => !w.railing);
+    const near = (x, y) => walls.some(w => {
+      const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
+      const L2 = dx * dx + dy * dy || 1e-9;
+      let t = ((x - w.x1) * dx + (y - w.y1) * dy) / L2;
+      t = Math.max(0, Math.min(1, t));
+      return Math.hypot(w.x1 + dx * t - x, w.y1 + dy * t - y) < 0.9;
+    });
+    const H = Math.max(P.para, 3.0), t2 = 0.38;
+    for (const r of (plan.rooms || [])) {
+      if (r.void || !TERRACE_RE.test(r.name || "")) continue;
+      const edges = [
+        [r.x, r.y, r.x + r.w, r.y], [r.x, r.y + r.h, r.x + r.w, r.y + r.h],
+        [r.x, r.y, r.x, r.y + r.h], [r.x + r.w, r.y, r.x + r.w, r.y + r.h],
+      ];
+      for (const [ex0, ey0, ex1, ey1] of edges) {
+        const dx = ex1 - ex0, dy = ey1 - ey0;
+        const L = Math.hypot(dx, dy); if (L < 1.5) continue;
+        const ux = dx / L, uy = dy / L, ang = Math.atan2(-uy, ux);
+        const spans = [];
+        let run = null;
+        for (let d = 0; d <= L; d += 0.5) {
+          const x = ex0 + ux * d, y = ey0 + uy * d;
+          if (!near(x, y)) { if (!run) run = [d, d]; else run[1] = d; }
+          else if (run) { if (run[1] - run[0] > 1.5) spans.push(run); run = null; }
+        }
+        if (run && run[1] - run[0] > 1.5) { run[1] = L; spans.push(run); }
+        for (const [a, b] of spans) {
+          const mx = ex0 + ux * (a + b) / 2, my = ey0 + uy * (a + b) / 2;
+          const m = box(b - a, t2, H, mx, my, z0 + H / 2, M.ext);
+          m.rotation.y = ang; g.add(m);
+          const c = box(b - a, t2 + 0.2, 0.22, mx, my, z0 + H + 0.11, M.cap);
+          c.rotation.y = ang; g.add(c);
+        }
       }
     }
   }
@@ -2003,6 +2048,39 @@
       const up = ((S.floors || [])[uf] && S.floors[uf].plan) || base;
       UP_SPANS[uf] = terraceSpans(up, cx, cy);
     }
+    // ---- AUTO-ALIGN the storeys. Each drawing was read in its own frame;
+    // the STAIR exists on every floor and must stack, so each floor is
+    // shifted to put its stair on the floor below's stair (bbox corner as
+    // the fallback). Offsets chain, so every floor lands in the ground frame.
+    FL_ALIGN = [{ x: 0, y: 0 }];
+    {
+      const bb = pl => {
+        let a = [1e9, 1e9, -1e9, -1e9];
+        (pl.walls || []).forEach(w => {
+          a = [Math.min(a[0], w.x1, w.x2), Math.min(a[1], w.y1, w.y2),
+               Math.max(a[2], w.x1, w.x2), Math.max(a[3], w.y1, w.y2)];
+        });
+        return a;
+      };
+      const stC = pl => {
+        const st = (pl.stairs || [])[0];
+        return st ? [st.x + st.w / 2, st.y + st.h / 2] : null;
+      };
+      for (let fi = 1; fi < P.floors; fi++) {
+        const pl = ((S.floors || [])[fi] && S.floors[fi].plan) || base;
+        const pb = ((S.floors || [])[fi - 1] && S.floors[fi - 1].plan) || base;
+        const a = stC(pl), b2 = stC(pb);
+        let dx = 0, dy = 0;
+        if (a && b2) { dx = b2[0] - a[0]; dy = b2[1] - a[1]; }
+        else {
+          const A = bb(pl), B2 = bb(pb);
+          dx = B2[0] - A[0]; dy = B2[1] - A[1];
+        }
+        if (Math.abs(dx) > 6) dx = 0;              // sanity: never fly away
+        if (Math.abs(dy) > 6) dy = 0;
+        FL_ALIGN[fi] = { x: FL_ALIGN[fi - 1].x + dx, y: FL_ALIGN[fi - 1].y + dy };
+      }
+    }
     // is the TOP floor a terrace layout? (its own drawing says so)
     const topPlanChk = ((S.floors || [])[P.floors - 1]
       && S.floors[P.floors - 1].plan) || base;
@@ -2121,7 +2199,12 @@
         // the parapet runs the WHOLE way round, following the storey below's
         // edge wherever the terrace drawing has no wall of its own
         const below = ((S.floors || [])[f - 1] && S.floors[f - 1].plan) || base;
-        addTerraceRing(L.walls, plan, below, z0, P, M);
+        const dAl = {
+          x: (FL_ALIGN[f - 1] || { x: 0 }).x - (FL_ALIGN[f] || { x: 0 }).x,
+          y: (FL_ALIGN[f - 1] || { y: 0 }).y - (FL_ALIGN[f] || { y: 0 }).y,
+        };
+        addTerraceRing(L.walls, plan, below, z0, P, M, dAl);
+        addRoomParapets(L.walls, plan, z0, P, M);
         addFlooring(L.floor, plan, z0);
         addFurniture(L.furn, plan, z0);
         addPipes(L.plumb, plan, z0, H);
@@ -2204,6 +2287,7 @@
             (sx0 + sx1) / 2, (sy0 + sy1) / 2, mz + mh + P.slab / 2, M.slab));
         }
       }
+      if (f > 0) addRoomParapets(L.walls, plan, z0, P, M);
       addStairs(L.stairs, plan, z0, H, M);
       if (f === 0) addSteps(L.stairs, plan, z0, M);   // entrance steps
       addFlooring(L.floor, plan, z0);
@@ -2261,9 +2345,10 @@
     FL.forEach((set, fi) => {
       const vis = floorVis[fi] !== false;
       const o = floorOff[fi] || { x: 0, y: 0 };
+      const al = FL_ALIGN[fi] || { x: 0, y: 0 };
       for (const k in set) {
         set[k].visible = vis;
-        set[k].position.set(o.x || 0, 0, -(o.y || 0));
+        set[k].position.set(al.x + (o.x || 0), 0, -(al.y + (o.y || 0)));
       }
     });
   }
