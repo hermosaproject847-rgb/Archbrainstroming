@@ -2736,9 +2736,12 @@ function buildTitle() {
   host.innerHTML = ""; host.appendChild(tbl);
 }
 
+let _autosaveT = null;
 function markDirty() {
   S.dirty = true;
   showSaved();
+  clearTimeout(_autosaveT);
+  _autosaveT = setTimeout(autosaveProject, 1500);   // crash-safe, debounced
 }
 
 /* ── saving ──────────────────────────────────────────────────
@@ -3230,6 +3233,18 @@ function projectFile() {
     floors: S.floors.map(f => ({ name: f.name, plan: f.plan })),
   };
 }
+const AUTOSAVE_KEY = "abs_autosave_project";
+function autosaveProject() {
+  try {
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(projectFile()));
+  } catch (e) { /* storage full — the session copy still stands */ }
+}
+function takeAutosave() {
+  try {
+    const t = localStorage.getItem(AUTOSAVE_KEY);
+    return t ? JSON.parse(t) : null;
+  } catch (e) { return null; }
+}
 function loadAnyJson(j, name) {
   if (!isProjectFile(j)) { setPlan(j); return 1; }
   S.floors = j.floors.map((f, i) => ({
@@ -3458,30 +3473,50 @@ if ($("#btnOpenFloors")) $("#btnOpenFloors").onclick = async () => {
     // read — that is why floors used to "read" but never load. Images / PDFs
     // therefore go through the same background JOB + poll the single Open
     // Drawing uses; a DXF is instant so it stays a direct call.
-    const isImg = /.(png|jpe?g|pdf)$/i.test(names[i] || paths[i] || "");
-    let rr;
-    if (isImg) {
-      const st = await api().read_async_start(paths[i], "", false);
-      if (!st.ok) { pushLog(`Could not start ${names[i]}: ${st.error || "?"}`); continue; }
-      rr = { ok: false, error: "read timed out" };
-      const t0 = Date.now();
-      let miss = 0;
-      for (let k = 0; k < 400; k++) {              // up to ~20 min per floor
-        await _sleep(3000);
-        const sres = await api().read_async_status(st.job);
-        if (sres && sres.ok && sres.done) { rr = sres.result; break; }
-        if (sres && !sres.ok) { if (++miss > 5) { rr = sres; break; } continue; }
-        miss = 0;
-        const secs = Math.round((Date.now() - t0) / 1000);
-        busy(true, `Reading ${lbl}…  (${Math.floor(secs / 60)}m `
-          + `${String(secs % 60).padStart(2, "0")}s)`, true);
+    const isImg = /[.](png|jpe?g|pdf)$/i.test(names[i] || paths[i] || "");
+    let rr = null;
+    // one RESTART if the job/polling dies: the server caches a finished read,
+    // so a restarted job answers instantly instead of reading again
+    for (let attempt = 0; attempt < 2 && !(rr && rr.ok); attempt++) {
+      if (attempt) pushLog(`Retrying ${names[i]} (the finished read is cached — this is quick)…`);
+      if (isImg) {
+        let st = null;
+        try { st = await api().read_async_start(paths[i], "", false); } catch (e) { st = { ok: false, error: String(e) }; }
+        if (!st || !st.ok) { rr = st || { ok: false, error: "could not start" }; continue; }
+        rr = { ok: false, error: "read timed out" };
+        const t0 = Date.now();
+        let miss = 0;
+        for (let k = 0; k < 400; k++) {            // up to ~20 min per floor
+          await _sleep(3000);
+          let sres = null;
+          try { sres = await api().read_async_status(st.job); } catch (e) { sres = null; }
+          if (sres && sres.ok && sres.done) { rr = sres.result; break; }
+          if (!sres || !sres.ok) { if (++miss > 5) { rr = sres || rr; break; } continue; }
+          miss = 0;
+          const secs = Math.round((Date.now() - t0) / 1000);
+          busy(true, `Reading ${lbl}…  (${Math.floor(secs / 60)}m `
+            + `${String(secs % 60).padStart(2, "0")}s)`, true);
+        }
+      } else {
+        try { rr = await api().read_path(paths[i], "", false); } catch (e) { rr = { ok: false, error: String(e) }; }
       }
-    } else {
-      rr = await api().read_path(paths[i], "", false);
     }
-    if (rr && rr.ok && rr.plan) { S.floors[i].plan = rr.plan; okCount++; }
+    if (rr && rr.ok && rr.plan) {
+      S.floors[i].plan = rr.plan; okCount++;
+      // LOAD AS YOU GO: this floor is usable right now, and the whole
+      // project is autosaved so nothing finished can be lost any more
+      S.active = i;
+      ["btnRender", "btnExport"].forEach(x => $("#" + x).disabled = false);
+      refreshStageButtons();
+      buildTables(); renderFloorBar();
+      if (S.plan) doRender();
+      autosaveProject();
+      status(`${names[i]} loaded (${okCount} of ${paths.length}) — baaki padh raha hoon…`);
+    }
     else { pushLog(`Could not read ${names[i]}: ${(rr && rr.error) || "no plan"}`); }
   }
+  S.active = 0;
+  autosaveProject();
   busy(false);
   S.active = 0;
   ["btnRender", "btnExport"].forEach(i => $("#" + i).disabled = false);
@@ -4158,6 +4193,20 @@ function addLogoutButton() {
 
 async function boot() {
   status("ready");
+  // RECOVERY: a refresh / crash / tunnel drop no longer loses finished work —
+  // the last autosaved project is offered back before anything else
+  try {
+    const back = takeAutosave();
+    if (back && !S.dirty && !(S.plan)) {
+      const nf = (back.floors || []).filter(fl => fl && fl.plan).length;
+      if (nf && confirm(`Pichhla kaam mila — ${nf} floor(s) ka autosave. `
+          + `Wapas load karein?`)) {
+        loadAnyJson(back, "autosave");
+        status(`recovered — ${nf} floor(s) from the last session (Save karke `
+          + `file bana lo)`);
+      }
+    }
+  } catch (e) { /* recovery must never block boot */ }
   if (isWeb()) {
     document.body.classList.add("web");  // single display — hide the input pane
     addLogoutButton();                  // a Log out control on the web build
