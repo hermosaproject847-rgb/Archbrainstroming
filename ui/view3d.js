@@ -20,13 +20,13 @@
   let sunL = null, ambL = null, hemiL = null;   // lights (sun-glare slider)
   // LAYER LOCKS — a locked layer's things cannot be selected / moved / edited
   const locks = { struct: false, furn: false, plumb: false, elec: false,
-    faces: false, bwall: false };
+    faces: false, bwall: false, walls: false };
   // per-FLOOR state, kept across rebuilds: its own groups, eye, lock and the
   // XY offset you can nudge a floor by (to study a shifted upper storey)
   let FL = [];                                  // FL[f] = { layer: Group }
   const floorVis = [], floorLock = [], floorOff = [];
   const LOCKOF = { furn: "furn", elec: "elec", plumb: "plumb", pipe: "plumb",
-    col: "struct", beam: "struct", face: "faces" };
+    col: "struct", beam: "struct", face: "faces", wall: "walls" };
   const orbit = { az: -0.9, el: 0.55, dist: 90, tx: 0, ty: 6, tz: 0 };
   const $ = s => document.querySelector(s);
 
@@ -132,9 +132,16 @@
   }
 
   /* ---- one wall with detailed openings (frame, mullions, glass, chajja) */
-  function addWall(g, plan, w, z0, H, P, M, cxAll, cyAll, BW) {
+  function addWall(g, plan, w, z0, H0, P, M, cxAll, cyAll, BW) {
     const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
     const L = Math.hypot(dx, dy); if (L < 0.05) return;
+    // a wall can carry its OWN height (click it in 3D and type one) — that is
+    // how a parapet stretch, a half wall or a raised feature wall is made
+    const H = (+w.height_ft > 0.3) ? +w.height_ft : H0;
+    const wg = new THREE.Group();                 // one wall = one selection
+    wg.userData.edit = { kind: "wall", ref: w, plan, storeyH: H0 };
+    g.add(wg);
+    g = wg;
     const ux = dx / L, uy = dy / L;
     const t = ((+w.thickness_in || 5) / 12);
     const mat = w.exterior ? M.ext : M.int_;
@@ -1545,6 +1552,14 @@
     const BW_IDS = boundaryIds(base, cx, cy);
     const BW_SPANS = boundarySpans(base, cx, cy, BW_IDS);
     const BW_H = +((($("#v3bwh") || {}).value)) || 6;
+    // upstairs the same idea gives the TERRACE PARAPET: a wall stretch that
+    // fronts an open terrace stops at parapet height, it is not a room wall
+    const UP_SPANS = [], UP_IDS = [];
+    for (let uf = 1; uf < P.floors; uf++) {
+      const up = ((S.floors || [])[uf] && S.floors[uf].plan) || base;
+      UP_IDS[uf] = boundaryIds(up, cx, cy);
+      UP_SPANS[uf] = boundarySpans(up, cx, cy, UP_IDS[uf]);
+    }
     let topZ = P.plinth;
     for (let f = 0; f < P.floors; f++) {
       const plan = ((S.floors || [])[f] && S.floors[f].plan) || base;
@@ -1554,8 +1569,14 @@
       (plan.walls || []).forEach(w => {
         if (w.railing) return;
         if (f === 0 && BW_IDS.has(w.id)) return;     // it is the boundary wall
-        const bw = (f === 0 && BW_SPANS[w.id])
-          ? { spans: BW_SPANS[w.id], h: BW_H } : null;
+        let bw = null;
+        if (f === 0 && BW_SPANS[w.id]) bw = { spans: BW_SPANS[w.id], h: BW_H };
+        else if (f > 0) {                            // terrace parapet upstairs
+          const ids = UP_IDS[f], sp = UP_SPANS[f];
+          const ph = Math.max(P.para, 2.8);
+          if (ids && ids.has(w.id)) bw = { spans: [[0, 1e6]], h: ph };
+          else if (sp && sp[w.id]) bw = { spans: sp[w.id], h: ph };
+        }
         addWall(L.walls, plan, w, z0, H, P, M, cx, cy, bw);
       });
       (plan.columns || []).forEach(c => {
@@ -1576,7 +1597,13 @@
       // the slab is CUT OUT over every staircase (the stair well) — a slab
       // poured straight over the stair is exactly the amateur-model look
       const slabG = (f === P.floors - 1 ? L.roof : L.struct);
-      let rects = [[x0 - 0.4, y0 - 0.4, x1 + 0.4, y1 + 0.4]];
+      let fx0 = 1e9, fy0 = 1e9, fx1 = -1e9, fy1 = -1e9;
+      (plan.walls || []).forEach(w => {
+        fx0 = Math.min(fx0, w.x1, w.x2); fy0 = Math.min(fy0, w.y1, w.y2);
+        fx1 = Math.max(fx1, w.x1, w.x2); fy1 = Math.max(fy1, w.y1, w.y2);
+      });
+      if (fx1 <= fx0) { fx0 = x0; fy0 = y0; fx1 = x1; fy1 = y1; }
+      let rects = [[fx0 - 0.25, fy0 - 0.25, fx1 + 0.25, fy1 + 0.25]];
       // NO SLAB over an open area. On the TOP floor every open-air room is
       // open to the sky (a terrace has no roof over it). On a lower floor only
       // a shaft (O.T.S. / open to sky) is punched — a porch below still needs
@@ -1609,7 +1636,7 @@
       // its own flat slab. This is how the stair actually comes out on top.
       if (f === P.floors - 1) {
         for (const st of (plan.stairs || [])) {
-          const mz = z0 + H + P.slab, mh = 2450 * MM, mt = 0.4;
+          const mz = z0 + H, mh = 2450 * MM + P.slab, mt = 0.4;
           const alongX = (st.run_axis || "x") === "x";
           const dirUp = (st.up_from === "left" || st.up_from === "bottom") ? 1 : -1;
           const Bst = alongX ? st.h : st.w;
@@ -1640,7 +1667,7 @@
             const far = dirUp > 0 ? sy1 : sy0;
             wallStrip(sx0, far, sx1, far);
           }
-          L.mumty.add(box(st.w + 1.2, st.h + 1.2, P.slab,
+          L.mumty.add(box(st.w + 0.8, st.h + 0.8, P.slab,
             (sx0 + sx1) / 2, (sy0 + sy1) / 2, mz + mh + P.slab / 2, M.slab));
         }
       }
@@ -1941,12 +1968,14 @@
             ["Width (ft)", "w", 0.05], ["Depth (ft)", "h", 0.05]],
     beam:  [["Length (ft)", "__len", 0.25], ["Width (mm)", "width_mm", 10],
             ["Depth (mm)", "depth_mm", 25]],
+    wall:  [["Height (ft)", "height_ft", 0.25],
+            ["Thickness (in)", "thickness_in", 0.5]],
     face:  [["X (ft)", "x", 0.25], ["Y (ft)", "y", 0.25], ["Height Z (ft)", "z", 0.25],
             ["Width (ft)", "w", 0.25], ["Height (ft)", "h", 0.25],
             ["Radius (ft)", "r", 0.25], ["Angle °", "angle", 15],
             ["Colour", "color", "t"], ["Opacity", "opacity", 0.05]],
   };
-  const PROP_TITLE = { face: "◻ FACE", furn: "🛋 FURNITURE", elec: "⚡ ELECTRICAL",
+  const PROP_TITLE = { wall: "🧱 WALL", face: "◻ FACE", furn: "🛋 FURNITURE", elec: "⚡ ELECTRICAL",
     plumb: "🚿 PLUMBING", pipe: "🚰 PIPE RUN",
     col: "🏗 COLUMN", beam: "🏗 BEAM" };
   function showProps(obj) {
@@ -1962,12 +1991,17 @@
     el.appendChild(head);
     for (const [label, key, step] of (PROP_FIELDS[ed.kind] || [])) {
       if (r[key] === undefined && step !== "t" &&
-          !(key === "x" || key === "y" || key === "__len")) continue;
+          !(key === "x" || key === "y" || key === "__len"
+            || key === "height_ft")) continue;   // height starts unset
       const row = document.createElement("label");
       row.className = "v3p-row";
       const sp = document.createElement("span"); sp.textContent = label;
       const inp = document.createElement("input");
       if (step === "t") { inp.type = "text"; inp.value = r[key] || ""; }
+      else if (ed.kind === "wall" && key === "height_ft") {
+        inp.type = "number"; inp.step = step;      // blank = full storey height
+        inp.value = +(+r.height_ft || ed.storeyH || 0).toFixed(2);
+      }
       else if (key === "__len") {        // beam LENGTH — derived, edits both ends
         inp.type = "number"; inp.step = step;
         inp.value = +Math.hypot(r.x2 - r.x1, r.y2 - r.y1).toFixed(2);
@@ -2041,7 +2075,11 @@
   function applyMove(ed, dx, dy) {
     const rnd = v => Math.round(v * 20) / 20, r = ed.ref;
     dx = rnd(dx); dy = rnd(dy);
-    if (ed.kind === "face") { r.x = rnd((+r.x || 0) + dx); r.y = rnd((+r.y || 0) + dy); }
+    if (ed.kind === "wall") {
+      r.x1 = rnd(r.x1 + dx); r.x2 = rnd(r.x2 + dx);
+      r.y1 = rnd(r.y1 + dy); r.y2 = rnd(r.y2 + dy);
+    }
+    else if (ed.kind === "face") { r.x = rnd((+r.x || 0) + dx); r.y = rnd((+r.y || 0) + dy); }
     else if (ed.kind === "pipe") (r.pts || []).forEach(pt => { pt[0] = rnd(pt[0] + dx); pt[1] = rnd(pt[1] + dy); });
     else if (ed.kind === "beam") { r.x1 = rnd(r.x1 + dx); r.x2 = rnd(r.x2 + dx); r.y1 = rnd(r.y1 + dy); r.y2 = rnd(r.y2 + dy); }
     else { r.x = rnd((+r.x || 0) + dx); r.y = rnd((+r.y || 0) + dy); }
@@ -2050,7 +2088,7 @@
     if (!selObj) return;
     const ed = selObj.userData.edit;
     const pool = { furn: "furniture", elec: "elec", plumb: "plumb", pipe: "pipes",
-      col: "columns", beam: "beams", face: "faces3d" }[ed.kind];
+      col: "columns", beam: "beams", face: "faces3d", wall: "walls" }[ed.kind];
     const arr = (ed.plan && ed.plan[pool]) || [];
     const i = arr.indexOf(ed.ref); if (i < 0) return;
     if (typeof pushUndo === "function") pushUndo();

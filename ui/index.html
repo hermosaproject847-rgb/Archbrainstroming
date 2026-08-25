@@ -475,7 +475,8 @@
   <canvas id="v3canvas"></canvas>
   <div id="v3side">
     <div class="v3-sec">LAYERS</div>
-    <label class="v3-chk"><input id="v3walls" type="checkbox" checked> 🧱 Walls</label>
+    <label class="v3-chk"><input id="v3walls" type="checkbox" checked> 🧱 Walls
+      <button class="v3lock" data-lock="walls" title="lock — locked layer me edit nahi hota">🔓</button></label>
     <label class="v3-chk"><input id="v3struct" type="checkbox" checked> 🏗 Structure
       <button class="v3lock" data-lock="struct" title="lock — locked layer me edit nahi hota">🔓</button></label>
     <label class="v3-chk"><input id="v3stairs" type="checkbox" checked> 🪜 Staircase</label>
@@ -531,6 +532,6 @@
 
 <script src="app.js?v=4"></script>
 <script src="vendor/three.min.js"></script>
-<script src="view3d.js?v=34"></script>
+<script src="view3d.js?v=36"></script>
 </body>
 </html>
