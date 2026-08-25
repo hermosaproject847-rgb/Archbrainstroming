@@ -1186,8 +1186,11 @@
   /* ---------------------------------- flooring with REAL-looking texture */
   function addFlooring(g, plan, z0) {
     const rooms = plan.rooms || [];
+    const GRND_RE = /porch|parking|drive|court|lawn|garden|entry|ramp/i;
     for (const r of rooms) {
       if (r.void) continue;
+      // paved on the ground already — no floor finish up on the plinth
+      if (z0 <= 2.5 && GRND_RE.test(r.name || "")) continue;
       const spec = (plan.flooring || []).find(f =>
         (f.room || "").trim().toLowerCase() === (r.name || "").trim().toLowerCase());
       const material = spec ? (spec.material || "tile") : "tile";
@@ -1824,8 +1827,38 @@
     // to the underfloor piping without fading every column in the model
     const plinthM = new THREE.MeshLambertMaterial({ color: 0x99a0a8, transparent: true, opacity: 1 });
     floorMats.push(plinthM);
-    G.struct.add(box(x1 - x0 + 1, y1 - y0 + 1, Math.max(P.plinth, 0.1),
-      cx, cy, Math.max(P.plinth, 0.1) / 2, plinthM));
+    // a PORCH / PARKING / DRIVE is outside the house: it is paved on the
+    // ground, not carried up on the plinth, so it is cut out of the block
+    const GROUND_RE = /porch|parking|drive|court|lawn|garden|entry|ramp/i;
+    const openGround = (base.rooms || []).filter(r =>
+      !r.void && GROUND_RE.test(r.name || ""));
+    let pr = [[x0 - 0.5, y0 - 0.5, x1 + 0.5, y1 + 0.5]];
+    for (const r of openGround) {
+      const hole = [r.x - 0.1, r.y - 0.1, r.x + r.w + 0.1, r.y + r.h + 0.1];
+      const nr = [];
+      for (const q of pr) {
+        if (hole[2] <= q[0] || hole[0] >= q[2] || hole[3] <= q[1] || hole[1] >= q[3]) { nr.push(q); continue; }
+        if (hole[0] > q[0]) nr.push([q[0], q[1], hole[0], q[3]]);
+        if (hole[2] < q[2]) nr.push([hole[2], q[1], q[2], q[3]]);
+        const ix0 = Math.max(q[0], hole[0]), ix1 = Math.min(q[2], hole[2]);
+        if (hole[1] > q[1]) nr.push([ix0, q[1], ix1, hole[1]]);
+        if (hole[3] < q[3]) nr.push([ix0, hole[3], ix1, q[3]]);
+      }
+      pr = nr;
+    }
+    const plH = Math.max(P.plinth, 0.1);
+    for (const q of pr) {
+      if (q[2] - q[0] < 0.15 || q[3] - q[1] < 0.15) continue;
+      G.struct.add(box(q[2] - q[0], q[3] - q[1], plH,
+        (q[0] + q[2]) / 2, (q[1] + q[3]) / 2, plH / 2, plinthM));
+    }
+    // and the open areas get their paving on the ground
+    for (const r of openGround) {
+      const pv = new THREE.MeshLambertMaterial({ color: 0xb9b3a7, transparent: true, opacity: 1 });
+      floorMats.push(pv);
+      G.struct.add(box(r.w, r.h, 0.18, r.x + r.w / 2, r.y + r.h / 2, 0.09, pv));
+    }
+    window.__openGround = openGround.map(r => r.name);
 
     // every layer holds one sub-group PER FLOOR, so a floor can be hidden,
     // locked or nudged as a whole while the layer toggles still work
@@ -1860,6 +1893,27 @@
       }
       return best;
     };
+    // does this wall stand along an open GROUND area (porch / parking)?
+    const GROUND_RE2 = /porch|parking|drive|court|lawn|garden|entry|ramp/i;
+    const groundRooms = (base.rooms || []).filter(r =>
+      !r.void && GROUND_RE2.test(r.name || ""));
+    const wallOnGround = (plan, w, cx2, cy2) => {
+      if (!groundRooms.length) return false;
+      const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
+      const L = Math.hypot(dx, dy) || 1e-9;
+      let nx = -dy / L, ny = dx / L;
+      const mx = (w.x1 + w.x2) / 2, my = (w.y1 + w.y2) / 2;
+      if ((mx + nx - cx2) ** 2 + (my + ny - cy2) ** 2 >
+          (mx - nx - cx2) ** 2 + (my - ny - cy2) ** 2) { nx = -nx; ny = -ny; }
+      let hit = 0, n = 0;
+      for (let t = 0.1; t <= 0.9; t += 0.1) {
+        n++;
+        const x = w.x1 + dx * t + nx * 1.0, y = w.y1 + dy * t + ny * 1.0;
+        if (groundRooms.some(r => x >= r.x - 0.3 && x <= r.x + r.w + 0.3
+            && y >= r.y - 0.3 && y <= r.y + r.h + 0.3)) hit++;
+      }
+      return n && hit / n > 0.6;
+    };
     const BW_IDS = boundaryIds(base, cx, cy);
     const BW_SPANS = boundarySpans(base, cx, cy, BW_IDS);
     const BW_H = +((($("#v3bwh") || {}).value)) || 6;
@@ -1885,7 +1939,11 @@
           const sp = UP_SPANS[f];
           if (sp && sp[w.id]) bw = { spans: sp[w.id], h: Math.max(P.para, 2.8) };
         }
-        addWall(L.walls, plan, w, z0, H, P, M, cx, cy, bw);
+        // a wall standing in an open ground area starts at ground level, so
+        // it does not float over the step down
+        let zW = z0;
+        if (f === 0 && wallOnGround(plan, w, cx, cy)) zW = 0.18;
+        addWall(L.walls, plan, w, zW, H + (z0 - zW), P, M, cx, cy, bw);
       });
       (plan.columns || []).forEach(c => {
         // A COLUMN IS A FRAME MEMBER: it must stand on the column below it.
@@ -2817,7 +2875,16 @@
     addEventListener("touchend", () => mode = 0);
     addEventListener("resize", resize);
 
-    window.rebuild3D = () => { if (open) rebuild(); };   // undo / redo hook
+    window.rebuild3D = () => { if (open) rebuild(); };
+    window.__v3dump = () => {
+      const out = {};
+      for (const k in G) {
+        let n = 0; G[k].traverse(o => { if (o.isMesh) n++; });
+        const bb = new THREE.Box3().setFromObject(G[k]);
+        out[k] = n ? { meshes: n, y: [+bb.min.y.toFixed(1), +bb.max.y.toFixed(1)] } : 0;
+      }
+      return out;
+    };   // undo / redo hook
     const pickTool = t => {
       const b = document.querySelector('.v3tool[data-tool="' + t + '"]');
       if (b) b.click();
