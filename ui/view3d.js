@@ -1528,6 +1528,41 @@
     }
     return out;
   }
+  // parapet RIGHT ROUND the terrace: walk the floor-below's exterior walls;
+  // any stretch not already carrying a terrace-plan wall gets the parapet
+  function addTerraceRing(g, terrPlan, belowPlan, z0, P, M) {
+    const tw = (terrPlan.walls || []).filter(w => !w.railing);
+    const covered = (x, y) => tw.some(w => {
+      const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
+      const L2 = dx * dx + dy * dy || 1e-9;
+      let t = ((x - w.x1) * dx + (y - w.y1) * dy) / L2;
+      t = Math.max(0, Math.min(1, t));
+      return Math.hypot(w.x1 + dx * t - x, w.y1 + dy * t - y) < 0.9;
+    });
+    const H = Math.max(P.para, 3.0), t2 = 0.4;
+    for (const w of (belowPlan.walls || [])) {
+      if (!w.exterior || w.railing) continue;
+      const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
+      const L = Math.hypot(dx, dy); if (L < 1) continue;
+      const ux = dx / L, uy = dy / L;
+      const ang = Math.atan2(-uy, ux);
+      const spans = [];
+      let run = null;
+      for (let d = 0; d <= L; d += 0.5) {
+        const x = w.x1 + ux * d, y = w.y1 + uy * d;
+        if (!covered(x, y)) { if (!run) run = [d, d]; else run[1] = d; }
+        else if (run) { if (run[1] - run[0] > 1.2) spans.push(run); run = null; }
+      }
+      if (run && run[1] - run[0] > 1.2) { run[1] = L; spans.push(run); }
+      for (const [a, b] of spans) {
+        const mx = w.x1 + ux * (a + b) / 2, my = w.y1 + uy * (a + b) / 2;
+        const m = box(b - a, t2, H, mx, my, z0 + H / 2, M.ext);
+        m.rotation.y = ang; g.add(m);
+        const c = box(b - a, t2 + 0.2, 0.22, mx, my, z0 + H + 0.11, M.cap);
+        c.rotation.y = ang; g.add(c);
+      }
+    }
+  }
   function addBoundary(g, plan, M, cx, cy, ids) {
     if (!ids || !ids.size) return;
     const H = +((($("#v3bwh") || {}).value)) || 6;
@@ -1640,8 +1675,8 @@
     // with stone cladding; arch / railing / jaali / planter / pergola come
     // from the drawings or not at all
     p23: {
-      clad: { material: "stone", from_f: 1, to_f: 2 },
-      arch: { on: false }, railing: { on: false },
+      clad: { material: "paint" },              // no cladding either — the
+      arch: { on: false }, railing: { on: false },   // elevation IS the layout
       jaali: { on: false }, planter: { on: false }, pergola: { on: false },
     },
     plain: {
@@ -2083,6 +2118,10 @@
           }
         }
         topZ = z0 + MUMTY_H + P.slab;
+        // the parapet runs the WHOLE way round, following the storey below's
+        // edge wherever the terrace drawing has no wall of its own
+        const below = ((S.floors || [])[f - 1] && S.floors[f - 1].plan) || base;
+        addTerraceRing(L.walls, plan, below, z0, P, M);
         addFlooring(L.floor, plan, z0);
         addFurniture(L.furn, plan, z0);
         addPipes(L.plumb, plan, z0, H);
