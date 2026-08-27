@@ -545,7 +545,11 @@
     VENT: 0x1b8a3a, STORM: 0x00acc1, ACD: 0xad1457 };
   const STACK3D = { SS: 0xe8590c, WS: 0x2e9e2e, VP: 0x1b8a3a, RWP: 0x00acc1,
     CWD: 0x0d47a1, HWD: 0xd32f2f };
-  function addPipes(g, plan, z0, fh) {
+  function addPipes(g, plan, z0, fh, opts) {
+    opts = opts || {};                 // {floor, shared, dAl, stackTop}
+    const FLR = opts.floor || 0;
+    const dAl = opts.dAl || { x: 0, y: 0 };   // shared items -> this frame
+    const SH = opts.shared || null;
     // MEP: DRAINAGE is UNDERFLOOR (sunk / screed / underground, on its code
     // fall); WATER SUPPLY runs HIGH at ceiling level, concealed, dropping
     // down the wall only at tap points. X-ray sliders make both readable.
@@ -734,6 +738,25 @@
             if (d) rg.add(d);
           }
         }
+        // ONE SYSTEM: this floor's supply line starts at the building's
+        // shared downtake — a short branch ties the run's start to the
+        // nearest CWD / HWD riser at this floor's own band level
+        if (supply && SH && SH.supply.length) {
+          const e0 = P[0];
+          let bst = null;
+          for (const q of SH.supply) {
+            const qx = q.x + dAl.x, qy = q.y + dAl.y;
+            const d = Math.hypot(qx - e0[0], qy - e0[1]);
+            if (d > 0.25 && d < 6.0 && (!bst || d < bst.d)) bst = { d, x: qx, y: qy };
+          }
+          if (bst) {
+            const c2 = cylBetween(e0[0], e0[1], zBase, bst.x, bst.y, zBase, rad, mat);
+            if (c2) rg.add(c2);
+            const ball = new THREE.Mesh(new THREE.SphereGeometry(fitR(rad), 10, 10), mat);
+            ball.position.set(bst.x, zBase, -bst.y);
+            rg.add(ball);
+          }
+        }
         if (supply) supplies.push({ P, z: zBase, rad, mat, sys: r.system, dia });
         g.add(rg);
         continue;
@@ -779,8 +802,9 @@
       t = Math.max(0, Math.min(1, t));
       return [a[0] + vx * t, a[1] + vy * t, t];
     };
-    const stacksXY = (plan.plumb || []).filter(p =>
-      p.code === "SS" || p.code === "WS" || p.code === "RWP");
+    const stacksXY = (FLR > 0 && SH ? SH.drains : (plan.plumb || [])
+      .filter(p => p.code === "SS" || p.code === "WS" || p.code === "RWP"))
+      .map(p2 => ({ x: p2.x + dAl.x, y: p2.y + dAl.y, code: p2.code }));
     const tied = new Set();          // junctions already fitted, no doubling
     for (const a of drains) {
       const endIdx = [0, a.P.length - 1];
@@ -788,9 +812,10 @@
         const e = a.P[ei], ez = a.zs[ei];
         // nearest STACK first — a branch always prefers its stack
         let best = null;
+        const reach = FLR > 0 ? 5.0 : 2.2;   // upstairs reaches its riser
         for (const s of stacksXY) {
           const d = Math.hypot(s.x - e[0], s.y - e[1]);
-          if (d > 0.25 && d < 2.2 && (!best || d < best.d))
+          if (d > 0.25 && d < reach && (!best || d < best.d))
             best = { d, x: s.x, y: s.y, z: ez, stack: true };
         }
         if (!best) {
@@ -893,6 +918,11 @@
     // a stack never rises above the floor it serves in this view
     for (const p of (plan.plumb || [])) {
       const sc = STACK3D[p.code];
+      // an upper floor has NO stacks and NO chambers of its own — the
+      // building's risers and chambers live in the ground floor's layout;
+      // only the floor's own traps (nahani etc.) stay
+      if (FLR > 0 && (sc != null || /IC|GT|CO|UGT|PUMP|OHT/i.test(p.code || "")))
+        continue;
       const sg = new THREE.Group();
       sg.userData.edit = { kind: "plumb", ref: p, plan };
       if (sc != null) {
@@ -901,12 +931,15 @@
         // tank DOWN to the ceiling distribution; the vent rises above roof;
         // soil / waste / rain go from the sunk down to the drain — a water
         // pipe never dives into the drainage zone
+        // the GROUND floor's risers serve the WHOLE building — they rise to
+        // the top wet floor, not just this storey
+        const topZ2 = opts.stackTop != null ? opts.stackTop : z0 + fh;
         let zt, zb;
-        if (p.code === "CWD" || p.code === "HWD") { zt = z0 + fh + 0.6; zb = z0 + fh - 0.9; }
-        else if (p.code === "VP") { zt = z0 + fh + 1.0; zb = z0 - 0.25; }
-        else if (p.code === "SS") { zt = z0 - 0.15; zb = -2.42; }
-        else if (p.code === "WS") { zt = z0 - 0.15; zb = -1.52; }
-        else { zt = z0 - 0.15; zb = -0.50; }
+        if (p.code === "CWD" || p.code === "HWD") { zt = topZ2 + 0.6; zb = z0 + fh - 1.3; }
+        else if (p.code === "VP") { zt = topZ2 + 1.0; zb = z0 - 0.25; }
+        else if (p.code === "SS") { zt = topZ2 - fh - 0.15; zb = -2.42; }
+        else if (p.code === "WS") { zt = topZ2 - fh - 0.15; zb = -1.52; }
+        else { zt = topZ2 - fh - 0.15; zb = -0.50; }
         const srad = Math.max(0.075,
           ((+p.dia_mm || (p.code === "SS" ? 110 : p.code === "VP" ? 75 : 63)) * MM) / 2);
         const st = cylBetween(p.x, p.y, zt, p.x, p.y, zb, srad, mat);
@@ -2094,6 +2127,14 @@
       && !OPEN_AIR.test(r.name || "")
       && !/pergola|planter|shaft|o\.?\s?t\.?\s?s/i.test(r.name || "");
     const MUMTY_H = 2450 * MM + 0.3;
+    // the building's ONE plumbing system: the ground floor's risers, shared
+    // by every storey (ground frame = frame 0, aligned)
+    const SHARED_PLUMB = {
+      drains: (base.plumb || []).filter(p =>
+        p.code === "SS" || p.code === "WS" || p.code === "RWP"),
+      supply: (base.plumb || []).filter(p =>
+        p.code === "CWD" || p.code === "HWD"),
+    };
     let topZ = P.plinth;
     for (let f = 0; f < P.floors; f++) {
       const plan = ((S.floors || [])[f] && S.floors[f].plan) || base;
@@ -2207,7 +2248,12 @@
         addRoomParapets(L.walls, plan, z0, P, M);
         addFlooring(L.floor, plan, z0);
         addFurniture(L.furn, plan, z0);
-        addPipes(L.plumb, plan, z0, H);
+        addPipes(L.plumb, plan, z0, H, {
+        floor: f,
+        dAl: { x: -(FL_ALIGN[f] || { x: 0 }).x, y: -(FL_ALIGN[f] || { y: 0 }).y },
+        shared: SHARED_PLUMB,
+        stackTop: P.plinth + (P.floors - (TERR_FLOOR ? 1 : 0)) * P.fh,
+      });
         addElec(L.elec, plan, z0, MUMTY_H);
         continue;                       // no outline slab, auto-mumty or stair
       }
