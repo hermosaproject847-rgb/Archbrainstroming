@@ -140,6 +140,19 @@ def login_bg():
     return _no_cache(static_file("login-bg.jpg", root=UI))
 
 
+@web.get("/favicon.ico")
+def favicon():
+    # Google fetches /favicon.ico on every site; it must be PUBLIC and an
+    # image — behind the login redirect it received HTML, hence the globe
+    return static_file("appicon.png", root=UI, mimetype="image/png")
+
+
+@web.get("/robots.txt")
+def robots():
+    response.content_type = "text/plain; charset=utf-8"
+    return "User-agent: *\nAllow: /\n"
+
+
 @web.get("/appicon.png")
 def appicon():
     return static_file("appicon.png", root=UI)
