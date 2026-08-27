@@ -689,7 +689,10 @@
       const P0 = r.pts || []; if (P0.length < 2) continue;
       const lk = laneIdx.get(r) || 0;      // clash colour: lane AND level
       const sub = subLane(lk);             // its own clash-free side lane
-      const P = offsetPoly(P0, (LANE[r.system] || 0) + sub);
+      // pipes run ON THE LAYOUT LINE - real services follow the drawing;
+      // clashes are separated by LEVEL (system bands + per-run steps), never
+      // by sliding a pipe sideways off its route into the room
+      const P = P0.map(p => [p[0], p[1]]);
       const col = PIPE3D[r.system] || 0x888888;
       const mat = new THREE.MeshLambertMaterial({ color: col });
       const dia = +r.dia_mm || 50;
@@ -713,7 +716,7 @@
         const zBase = (isACD ? z0 + 7.1
           : r.system === "HW" ? z0 + fh - 1.05
           : r.system === "VENT" ? z0 + fh - 0.50
-          : z0 + fh - 1.62) - lk * 0.17;    // clashing runs step clear too
+          : z0 + fh - 1.62) - lk * 0.28;    // clashing runs step clear too
         const fHi = isACD ? 1 / 50 : 0;
         for (let i = 0; i < P.length - 1; i++) {
           const zA = zBase - cum[i] * fHi, zB = zBase - cum[i + 1] * fHi;
@@ -770,7 +773,7 @@
       // two runs of the same system clear each other as well (max 0.10 ft,
       // which is what the band header leaves free)
       const sysDz = band.dz + (0.26 - Math.min(0.26, rad)) / 0.18 * 0.06
-        + (lk % 4) * 0.34;              // clashing runs step clear too
+        + (lk % 4) * 0.30;              // clashing runs step clear too
       for (let i = 0; i < P.length - 1; i++) {
         const b = z0 + sysDz;
         // never deeper than just under the ground — long falls are capped
