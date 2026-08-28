@@ -338,7 +338,8 @@
         const land = Math.min(Math.max(+s.landing_size || 3, 2.5), W * 0.45);
         const runLen = W - land;
         const n1 = +s.steps_f1 || 8, n2 = +s.steps_f2 || n1;
-        const nm = typ === "U3" ? Math.max(1, +s.steps_f3 || 2) : 0;
+        const nm = typ === "U3" ? Math.max(1, +s.steps_f3 || 2)
+          : Math.max(0, +s.winders || 0);          // U: winders make the turn
         const fw2 = nm > 0 ? Math.min(4.0, B * 0.34) : B / 2;   // band width
         const tot = Math.max(1, n1 + n2 + nm);
         const z1 = z0 + rise * n1 / tot;
@@ -349,11 +350,62 @@
         // flight 1 — top band, near → far
         flight(uNear, runLen, dirUp, vTop, fw2, z0, z1, n1);
         rail(uNear, dirUp > 0 ? runLen : land, vTop + 0.08, z0, z1);
-        // landing 1 — far end, TOP corner
-        landing(uFarL, land, vTop, fw2, z1);
-        if (nm > 0) {
-          // middle flight: DOWN the landing column from the top landing to the
-          // bottom landing (across the well span), exactly as drawn
+        // landing 1 — far end, TOP corner (skipped when the fan turns there)
+        if (!(typ === "U" && nm > 0)) landing(uFarL, land, vTop, fw2, z1);
+        if (typ === "U" && nm > 0) {
+          // FAN WINDERS through the turn column, exactly as the plan draws
+          // them: wedge treads radiating about the WELL CORNER pivot
+          const u0c = uFarL, u1c = dirUp > 0 ? W : land; // the turn column (u)
+          const uIn = dirUp > 0 ? u0c : land;            // its inner (well) edge
+          const uOut = dirUp > 0 ? u1c : 0;
+          const pv = [uIn, B / 2];                       // pivot on the well edge
+          const rect = [Math.min(uIn, uOut), 0, Math.max(uIn, uOut), B];
+          const castHit = th => {                        // ray -> rect boundary
+            const dx = Math.cos(th) * (dirUp > 0 ? 1 : -1), dy = Math.sin(th);
+            let t = 1e9;
+            if (dx > 1e-9) t = Math.min(t, (rect[2] - pv[0]) / dx);
+            if (dx < -1e-9) t = Math.min(t, (rect[0] - pv[0]) / dx);
+            if (dy > 1e-9) t = Math.min(t, (rect[3] - pv[1]) / dy);
+            if (dy < -1e-9) t = Math.min(t, (rect[1] - pv[1]) / dy);
+            return [pv[0] + dx * t, pv[1] + dy * t];
+          };
+          const per = q => {                             // walk order round rect
+            const [ax, ay, bx2, by2] = rect;
+            if (Math.abs(q[1] - by2) < 1e-6) return (dirUp > 0 ? q[0] - ax : bx2 - q[0]);
+            const wRect = bx2 - ax;
+            if (dirUp > 0 ? Math.abs(q[0] - bx2) < 1e-6 : Math.abs(q[0] - ax) < 1e-6)
+              return wRect + (by2 - q[1]);
+            return wRect + (by2 - ay) + (dirUp > 0 ? bx2 - q[0] : q[0] - ax);
+          };
+          const corners = dirUp > 0
+            ? [[rect[2], rect[3]], [rect[2], rect[1]]]
+            : [[rect[0], rect[3]], [rect[0], rect[1]]];
+          for (let i = 0; i < nm; i++) {
+            const a1 = Math.PI / 2 - Math.PI * i / nm;   // +90 deg .. -90 deg
+            const a2 = Math.PI / 2 - Math.PI * (i + 1) / nm;
+            const h1 = castHit(a1), h2 = castHit(a2);
+            const poly = [pv, h1];
+            for (const c of corners)
+              if (per(c) > per(h1) + 1e-6 && per(c) < per(h2) - 1e-6) poly.push(c);
+            poly.push(h2);
+            const zTop = z1 + (z2 - z1) * (i + 1) / nm;
+            const thk = Math.min(zTop - z0 + 0.01, ((z2 - z1) / nm) * 2.2);
+            const sh = new THREE.Shape();
+            poly.forEach((q, k2) => {
+              const wx = alongX ? s.x + q[0] : s.x + q[1];
+              const wy = alongX ? s.y + q[1] : s.y + q[0];
+              if (k2 === 0) sh.moveTo(wx, wy); else sh.lineTo(wx, wy);
+            });
+            const geo = new THREE.ExtrudeGeometry(sh, { depth: thk, bevelEnabled: false });
+            const m = new THREE.Mesh(geo, M.step);
+            m.rotation.x = -Math.PI / 2;                 // shape plane -> floor
+            m.position.y = zTop - thk;
+            g.add(m);
+          }
+          rail(dirUp > 0 ? W - 0.15 : 0.15, dirUp > 0 ? W - 0.15 : 0.15,
+            vTop, z1, z2);
+        } else if (nm > 0) {
+          // U3 middle flight: DOWN the landing column, exactly as drawn
           const span = vTop - fw2;                   // between the two landings
           for (let i = 0; i < nm; i++) {
             const zTop = z1 + (z2 - z1) * (i + 1) / nm;
@@ -363,8 +415,8 @@
           rail(dirUp > 0 ? W - 0.15 : 0.15, dirUp > 0 ? W - 0.15 : 0.15,
             vTop, z1, z2);
         }
-        // landing 2 — far end, BOTTOM corner
-        landing(uFarL, land, vBot, fw2, z2);
+        // landing 2 — far end, BOTTOM corner (the fan already reached z2)
+        if (!(typ === "U" && nm > 0)) landing(uFarL, land, vBot, fw2, z2);
         // return flight — bottom band, far → near
         flight(dirUp > 0 ? runLen : land, runLen, -dirUp, vBot, fw2, z2, z0 + rise, n2);
         rail(dirUp > 0 ? runLen : land, uNear, fw2 - 0.08, z2, z0 + rise);
