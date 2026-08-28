@@ -3223,6 +3223,17 @@
     addEventListener("resize", resize);
 
     window.rebuild3D = () => { if (open) rebuild(); };
+    window.__v3wedges = () => {
+      const out = [];
+      for (const set of FL) if (set) set.stairs.traverse(o => {
+        if (o.isMesh && o.geometry && o.geometry.type === "ExtrudeGeometry") {
+          const bb = new THREE.Box3().setFromObject(o);
+          out.push([+bb.min.x.toFixed(1), +bb.min.y.toFixed(1), +bb.min.z.toFixed(1),
+                    +bb.max.x.toFixed(1), +bb.max.y.toFixed(1), +bb.max.z.toFixed(1)]);
+        }
+      });
+      return out;
+    };
     window.__v3dump = () => {
       const out = {};
       for (const k in G) {
