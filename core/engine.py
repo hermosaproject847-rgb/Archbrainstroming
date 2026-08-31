@@ -485,7 +485,15 @@ def draw_stairs(plan: Plan, dl: DrawList) -> None:
             # are on this level - the return flight, the strip and the well
             # belong to the floor above and are not drawn here
             g = dict(g)
-            fl0 = g["flights"][0]
+            fl0 = dict(g["flights"][0])
+            # the ground sheet's rising band lies against the LOWER wall (the
+            # near band); the far band and the well belong to the floor above
+            _rects = [f2["rect"] for f2 in g["flights"]]
+            if fl0["axis"] == "x":
+                _near = min(_rects, key=lambda r: r[1])
+            else:
+                _near = min(_rects, key=lambda r: r[0])
+            fl0["rect"] = _near
             g["flights"] = [fl0]
             g["well"] = None
             lx, ly, lw, lh = g["landing"]
