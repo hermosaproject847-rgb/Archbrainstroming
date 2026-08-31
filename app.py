@@ -356,6 +356,17 @@ class Api:
         except Exception as e:
             return self._fail(e)
 
+    def stair_geoms(self, plan: dict) -> dict:
+        """The EXACT stair geometry the 2D sheet draws (core.stairs.build):
+        flight rects with step numbers, the landing, the winder lines and the
+        well - so the 3D builds the same stair, not a re-derivation of it."""
+        try:
+            from core import model, stairs as _stairs
+            p = model.Plan.from_dict(plan)
+            return {"ok": True, "geoms": [_stairs.build(s) for s in p.stairs]}
+        except Exception as e:
+            return self._fail(e)
+
     def furnish(self, plan: dict) -> dict:
         """Lay out furniture over the finished floor plan."""
         try:

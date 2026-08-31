@@ -254,6 +254,63 @@
   /* ----------------------------------------------- staircase (true U/U3) */
   function addStairs(g, plan, z0, rise, M) {
     for (const s of (plan.stairs || [])) {
+      if (s._g3 && (s._g3.flights || []).length) {
+        // ======= EXACT: the sheet's own geometry, level by step NUMBER =====
+        const g3 = s._g3;
+        let minN = 1e9, maxN = -1e9, flightSteps = 0;
+        for (const fl of g3.flights) {
+          minN = Math.min(minN, +fl.first || 1);
+          maxN = Math.max(maxN, (+fl.first || 1) + (fl.steps | 0) - 1);
+          flightSteps += (fl.steps | 0);
+        }
+        const tot = Math.max(1, maxN - minN + 1);
+        const riser = rise / tot;
+        const zOf = k => z0 + riser * (k - minN + 1);
+        const plate = (x, y, w2, h2, zTop) => {
+          const thk = Math.min(zTop - z0 + 0.01, riser * 2.2);
+          g.add(box(w2, h2, thk, x + w2 / 2, y + h2 / 2, zTop - thk / 2, M.step));
+        };
+        // FLIGHTS: the sheet's strips, each at its own number's level
+        for (const fl of g3.flights) {
+          const [fx, fy, fw2, fh2] = fl.rect;
+          const n = Math.max(2, fl.steps | 0);
+          for (let j = 0; j < n; j++) {
+            const num = fl.dir > 0 ? (+fl.first + j) : (+fl.first + (n - 1 - j));
+            if (fl.axis === "x") plate(fx + j * fw2 / n, fy, fw2 / n, fh2, zOf(num));
+            else plate(fx, fy + j * fh2 / n, fw2, fh2 / n, zOf(num));
+          }
+        }
+        // LANDING, split by the WINDER LINES exactly as drawn; the strips
+        // climb from the lower flight's side, and when there are more strips
+        // than risers the middle strips SHARE a level - the landing between
+        // the fan treads, exactly as the plan reads
+        const lands = g3.landings || (g3.landing ? [g3.landing] : []);
+        for (const ld of lands) {
+          const [lx, ly, lw, lh] = ld;
+          const ws = (g3.winders || []).filter(w2 =>
+            w2[0] >= lx - 0.05 && w2[0] <= lx + lw + 0.05 &&
+            w2[1] >= ly - 0.05 && w2[1] <= ly + lh + 0.05);
+          const horiz = ws.length ? Math.abs(ws[0][1] - ws[0][3]) < 1e-4 : lw >= lh;
+          const cuts = ws.map(w2 => horiz ? w2[1] : w2[0]).sort((a, b) => a - b);
+          const eds = horiz ? [ly, ...cuts, ly + lh] : [lx, ...cuts, lx + lw];
+          const Sn = Math.max(1, eds.length - 1);
+          const f0 = g3.flights.reduce((a, b) => (+a.first <= +b.first ? a : b));
+          const c0 = horiz ? f0.rect[1] + f0.rect[3] / 2 : f0.rect[0] + f0.rect[2] / 2;
+          const fromLow = Math.abs(c0 - eds[0]) < Math.abs(c0 - eds[eds.length - 1]);
+          const lastBefore = (+f0.first || 1) + (f0.steps | 0) - 1;
+          const R = Math.max(1, tot - flightSteps);
+          for (let i2 = 0; i2 < Sn; i2++) {
+            const ord = fromLow ? i2 : Sn - 1 - i2;
+            const a = eds[ord], b = eds[ord + 1];
+            const up = Math.max(1, Math.min(R, Math.round(((i2 + 1) * R) / Sn)));
+            const z = zOf(lastBefore + up);
+            if (horiz) plate(lx, a, lw, b - a, z);
+            else plate(a, ly, b - a, lh, z);
+          }
+        }
+        // the WELL is a void - nothing is built there (the sheet's X)
+        continue;
+      }
       const alongX = (s.run_axis || "x") === "x";
       const W = alongX ? s.w : s.h;
       const B = alongX ? s.h : s.w;
@@ -2534,8 +2591,20 @@
     camera.updateProjectionMatrix();
   }
 
-  function openViewer() {
+  async function fetchStairGeoms() {
+    for (const fl of (S.floors || [])) {
+      const p = fl && fl.plan;
+      if (!p || !(p.stairs || []).length) continue;
+      try {
+        const r = await api().stair_geoms(p);
+        if (r && r.ok && r.geoms)
+          r.geoms.forEach((g2, i) => { if (p.stairs[i]) p.stairs[i]._g3 = g2; });
+      } catch (e) { /* offline: the fallback path still draws something */ }
+    }
+  }
+  async function openViewer() {
     if (!S.plan) { status("Pehle plan generate/khol karein"); return; }
+    await fetchStairGeoms();      // the 2D sheet's own stair geometry, exact
     $("#view3d").classList.remove("hidden");
     const canvas = $("#v3canvas");
     if (!renderer) {
