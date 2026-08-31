@@ -121,6 +121,9 @@ class Hatch:
     kind: str = "diag45"           # diag45|diag135|concrete|rubble|pebble
     step: float = 0.28
     layer: str = "HATCH"
+    phase: float | None = None     # line lattice anchor (x for vlines, y for
+                                   # hlines) so the grid starts at the tiling
+                                   # ORIGIN, not at the region's bbox
 
 
 @dataclass
@@ -222,14 +225,15 @@ class DrawList:
         self.fill([(x, y), (x + w, y), (x + w, y + h), (x, y + h)],
                   color=color, layer=layer)
 
-    def hatch(self, loops, kind="diag45", step=0.28, layer="HATCH"):
+    def hatch(self, loops, kind="diag45", step=0.28, layer="HATCH",
+              phase=None):
         """A hatched region. `loops` is one polygon [(x,y),…] or a list of such
         loops (outer first, holes after)."""
         if loops and isinstance(loops[0][0], (int, float)):
             loops = [loops]                       # a single polygon was passed
         loops = [lp for lp in loops if len(lp) >= 3]
         if loops:
-            self.items.append(Hatch(loops, kind, step, layer))
+            self.items.append(Hatch(loops, kind, step, layer, phase))
 
     def arrow(self, x1, y1, x2, y2, layer="STAIR", head=0.45):
         self.line(x1, y1, x2, y2, layer)

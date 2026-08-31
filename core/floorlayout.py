@@ -246,11 +246,36 @@ def draw(plan: Plan, dl: DrawList) -> None:
         ay = F.cut_pieces(gy1 - gy0, rep.tile_h, rep.spacer_mm)
         entry = _entry_point(plan, grp[0][1]) if (rep.start or "") == "entry" else None
         origin = _origin(gx0, gy0, gx1, gy1, rep, ax, ay, entry)
-        for i, (s, room, clear) in enumerate(grp):
-            # skirting is ROOM-WISE (each room its own run, broken at doorways),
-            # never one continuous line across rooms
+        if len(grp) > 1:
+            # a CONTINUOUS region: one grid and one skirting run over the
+            # union of the floors PLUS the open-archway reveals, so the joints
+            # and the skirting line run THROUGH the opening — never broken
+            # into per-room pieces that stop dead at the jamb
+            from shapely.ops import unary_union
+            reveals = [rv for rv in _open_reveals(plan)
+                       if sum(1 for *_x, c in grp if rv.intersects(c)) >= 2]
+            region = unary_union([c for *_x, c in grp] + reveals)
+            area = region.buffer(-0.02)
+            if area.is_empty:
+                area = region
+            Tx = max(rep.tile_w, 1.0) / FT_MM
+            Ty = max(rep.tile_h, 1.0) / FT_MM
+            Mx, My = Tx + rep.spacer_mm / FT_MM, Ty + rep.spacer_mm / FT_MM
+            for loops in _area_loops(area):
+                dl.hatch(loops, kind="vlines", step=Mx, layer="FLR-GRID",
+                         phase=origin[0])
+                dl.hatch(loops, kind="hlines", step=My, layer="FLR-GRID",
+                         phase=origin[1])
+            if rep.skirting_mm > 0:
+                _skirting(dl, plan, region, cut_open=False)
+            for i, (s, room, clear) in enumerate(grp):
+                _draw_room(plan, room, clear, s, dl, origin=origin,
+                           draw_start=(i == 0), draw_skirt=False,
+                           draw_grid=False)
+        else:
+            s, room, clear = grp[0]
             _draw_room(plan, room, clear, s, dl, origin=origin,
-                       draw_start=(i == 0), draw_skirt=(s.skirting_mm > 0))
+                       draw_start=True, draw_skirt=(s.skirting_mm > 0))
 
 
 def _union_find(n, connected):
@@ -360,14 +385,38 @@ def _interface(A, B):
     return ("v", coord, max(ay0, by0), min(ay1, by1))
 
 
-def _door_gaps(plan):
+def _open_reveals(plan):
+    """The wall-thickness rectangles of the OPEN (archway) openings — the floor
+    runs straight through these, so a continuous region includes them."""
+    from shapely.geometry import LineString
+    out = []
+    for o in plan.openings:
+        if getattr(o, "type", "") != "open":
+            continue
+        w = plan.wall(o.wall_id)
+        if w is None:
+            continue
+        try:
+            a = w.point_at(o.pos)
+            b = w.point_at(o.pos + o.width)
+        except Exception:
+            continue
+        half = (float(w.thickness_in or 4.5) / 12.0) / 2.0
+        out.append(LineString([a, b]).buffer(half + 0.1, cap_style=2))
+    return out
+
+
+def _door_gaps(plan, cut_open=True):
     """A buffered shape covering every DOOR/gate/open opening — the skirting is
-    cut wherever it would cross a doorway (skirting never runs across a door)."""
+    cut wherever it would cross a doorway (skirting never runs across a door).
+    With cut_open=False the archways are left alone (a continuous region's
+    skirting WRAPS through them instead of stopping dead)."""
     from shapely.geometry import LineString
     from shapely.ops import unary_union
     spans = []
     for o in plan.openings:
-        if not (getattr(o, "is_door", False) or o.type in ("gate", "open")):
+        kinds = ("gate", "open") if cut_open else ("gate",)
+        if not (getattr(o, "is_door", False) or o.type in kinds):
             continue                              # windows keep skirting (sill above)
         w = plan.wall(o.wall_id)
         if w is None:
@@ -383,12 +432,12 @@ def _door_gaps(plan):
     return unary_union(spans) if spans else None
 
 
-def _skirting(dl, plan, clear) -> None:
+def _skirting(dl, plan, clear, cut_open=True) -> None:
     """Skirting round THIS room's floor (room-wise), BROKEN at every doorway."""
     inner = clear.buffer(-0.12)
     if inner.is_empty:
         return
-    gaps = _door_gaps(plan)
+    gaps = _door_gaps(plan, cut_open=cut_open)
     geoms = inner.geoms if inner.geom_type == "MultiPolygon" else [inner]
     for g in geoms:
         line = g.exterior
@@ -405,7 +454,7 @@ def _skirting(dl, plan, clear) -> None:
 
 
 def _draw_room(plan, room, clear, s, dl, origin=None, draw_start=True,
-               draw_skirt=True) -> None:
+               draw_skirt=True, draw_grid=True) -> None:
     x0, y0, x1, y1 = clear.bounds
     Tx = max(s.tile_w, 1.0) / FT_MM
     Ty = max(s.tile_h, 1.0) / FT_MM
@@ -434,9 +483,12 @@ def _draw_room(plan, room, clear, s, dl, origin=None, draw_start=True,
 
     # tile joints (spacer grid) as GROUPED hatch objects (one vertical + one
     # horizontal per floor polygon), never hundreds of loose lines
-    for loops in _area_loops(area):
-        dl.hatch(loops, kind="vlines", step=Mx, layer="FLR-GRID")
-        dl.hatch(loops, kind="hlines", step=My, layer="FLR-GRID")
+    if draw_grid:
+        for loops in _area_loops(area):
+            dl.hatch(loops, kind="vlines", step=Mx, layer="FLR-GRID",
+                     phase=ox)
+            dl.hatch(loops, kind="hlines", step=My, layer="FLR-GRID",
+                     phase=oy)
 
     # the START POINT marker — anchored at the DOORWAY (you tile from where you
     # walk in). No door → the start corner from the rule. Always snapped to the

@@ -84,9 +84,11 @@ def _diag_lines(dl, loops, layer, step, slope):
         d += step
 
 
-def _ortho_lines(dl, loops, layer, step, vertical):
+def _ortho_lines(dl, loops, layer, step, vertical, phase=None):
     """Vertical (or horizontal) parallel lines at `step` spacing, clipped to the
-    region polygon — the preview expansion of the tile-joint / plank hatch."""
+    region polygon — the preview expansion of the tile-joint / plank hatch.
+    `phase` anchors the lattice at the tiling origin so neighbouring rooms'
+    grids LINE UP instead of each starting at its own bbox edge."""
     x0, y0, x1, y1 = _bbox(loops)
     poly = _poly(loops)
     step = max(step, 1e-3)
@@ -108,12 +110,12 @@ def _ortho_lines(dl, loops, layer, step, vertical):
             dl.line(a[0], a[1], b[0], b[1], layer=layer)
 
     if vertical:
-        v = x0
+        v = x0 if phase is None else x0 + ((phase - x0) % step)
         while v <= x1 + 1e-6:
             seg((v, y0 - 1), (v, y1 + 1))
             v += step
     else:
-        v = y0
+        v = y0 if phase is None else y0 + ((phase - y0) % step)
         while v <= y1 + 1e-6:
             seg((x0 - 1, v), (x1 + 1, v))
             v += step
@@ -200,8 +202,10 @@ def render_preview(dl, hatch):
         _diag_lines(dl, hatch.loops, hatch.layer, hatch.step, 1)
         _diag_lines(dl, hatch.loops, hatch.layer, hatch.step, -1)
     elif k == "vlines":
-        _ortho_lines(dl, hatch.loops, hatch.layer, hatch.step, True)
+        _ortho_lines(dl, hatch.loops, hatch.layer, hatch.step, True,
+                     getattr(hatch, "phase", None))
     elif k == "hlines":
-        _ortho_lines(dl, hatch.loops, hatch.layer, hatch.step, False)
+        _ortho_lines(dl, hatch.loops, hatch.layer, hatch.step, False,
+                     getattr(hatch, "phase", None))
     else:
         _diag_lines(dl, hatch.loops, hatch.layer, hatch.step, 1)

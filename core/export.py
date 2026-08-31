@@ -269,7 +269,8 @@ def _grid_block(msp, it: Hatch, P, s):
         x0, y0, x1, y1 = poly.bounds
         vert = (it.kind == "vlines")
         lo, hi = (x0, x1) if vert else (y0, y1)
-        v = lo
+        ph = getattr(it, "phase", None)
+        v = lo if ph is None else lo + ((ph - lo) % step)
         while v <= hi + 1e-9:
             seg = (LineString([(v, y0 - 1), (v, y1 + 1)]) if vert
                    else LineString([(x0 - 1, v), (x1 + 1, v)]))
