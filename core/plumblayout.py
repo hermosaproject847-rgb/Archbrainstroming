@@ -346,8 +346,10 @@ def _stacks(plan, pts, runs, soil_out, waste_out, add, pipe):
         sx, sy = soil_out[0][0]
         st = add("SS", sx, sy, soil_out[0][1], "SOIL", P.D_SOIL, tag="SS-1")
         add("CO", sx + 0.8, sy, soil_out[0][1], "SOIL", P.D_SOIL, tag="CO-1")
-        vp = add("VP", sx, sy + 1.1, soil_out[0][1], "VENT", P.D_VENT,
-                 tag="VP-1")
+        _bx0, _bx1, _by0, _by1 = _bounds(plan)
+        vp = add("VP", min(max(sx, _bx0 + 0.3), _bx1 - 0.3),
+                 min(max(sy + 1.1, _by0 + 0.3), _by1 - 0.3),
+                 soil_out[0][1], "VENT", P.D_VENT, tag="VP-1")
         pipe("VENT", [(st.x, st.y), (vp.x, vp.y)], P.D_VENT,
              "vent stack, 600 above terrace with a cowl")
         for (cx, cy), rn in soil_out[1:]:
@@ -598,19 +600,46 @@ def _supply(plan, pts, runs, side, add, pipe):
     lift = 9.0                     # UG invert to OHT inlet, single storey + OHT
     pm = P.pump(tk["oht_l"], lift)
 
-    # the UG tank goes in the OPPOSITE yard to the drainage — NBC keeps a
-    # potable tank away from the sewer line
+    porch = _porch(plan)
     tside = "E" if side == "W" else "W"
-    tx, ty = _yard(plan, y0 + (y1 - y0) * 0.30, tside, 4.2)
+    if porch is not None:
+        # ROW-HOUSE rule: nothing outside the plot line. The UG tank and the
+        # pump sit IN THE PORCH on its house side (clear of the chamber line
+        # at the road front); the OHT sits above the stair / mumty.
+        px0, py0 = porch.x, porch.y
+        px1, py1 = porch.x + porch.w, porch.y + porch.h
+        d_ = {"S": abs(py0 - y0), "N": abs(y1 - py1),
+              "W": abs(px0 - x0), "E": abs(x1 - px1)}
+        front = min(d_, key=d_.get)
+        if front in ("S", "N"):
+            ty = (py1 - 1.5) if front == "S" else (py0 + 1.5)
+            tx = px0 + 1.8
+            px_, py_ = min(px1 - 1.5, tx + 3.0), ty
+        else:
+            tx = (px1 - 1.5) if front == "W" else (px0 + 1.5)
+            ty = py0 + 1.8
+            px_, py_ = tx, min(py1 - 1.5, ty + 3.0)
+        st = plan.stairs[0] if getattr(plan, "stairs", None) else None
+        ohx = getattr(st, "x", None) if st is not None else None
+        if ohx is not None:
+            ohx = st.x + getattr(st, "w", 0) / 2
+            ohy = st.y + getattr(st, "h", 0) / 2
+        else:
+            ohx, ohy = (x0 + x1) / 2, (y0 + y1) / 2
+    else:
+        # the UG tank goes in the OPPOSITE yard to the drainage — NBC keeps a
+        # potable tank away from the sewer line
+        tx, ty = _yard(plan, y0 + (y1 - y0) * 0.30, tside, 4.2)
+        px_, py_ = _yard(plan, y0 + (y1 - y0) * 0.30 + 3.2, tside, 4.2)
+        ohx, ohy = _yard(plan, y1 - 2.0, tside, 4.2)
     add("UGT", tx, ty, "", "CW", P.D_CW_MAIN)
-    px, py = _yard(plan, y0 + (y1 - y0) * 0.30 + 3.2, tside, 4.2)
-    add("PUMP", px, py, "", "CW", P.D_CW_MAIN)
-    pipe("CW", [(tx, ty), (px, py)], P.D_CW_MAIN, "UG tank to the pump")
-
-    ohx, ohy = _yard(plan, y1 - 2.0, tside, 4.2)
+    add("PUMP", px_, py_, "", "CW", P.D_CW_MAIN)
+    pipe("CW", [(tx, ty), (px_, py_)], P.D_CW_MAIN, "UG tank to the pump")
     add("OHT", ohx, ohy, "", "CW", P.D_CW_MAIN)
-    pipe("CW", [(px, py), (px, ohy), (ohx, ohy)], P.D_CW_MAIN,
-         "pump delivery riser to the OHT, NRV at delivery")
+    pipe("CW", [(px_, py_), (px_, ohy), (ohx, ohy)], P.D_CW_MAIN,
+         "pump delivery riser to the OHT, NRV at delivery"
+         + (" — riser up in the porch, run at terrace level"
+            if porch is not None else ""))
 
     # THE DOWN-TAKE RUNS OUTSIDE THE BUILDING, never through a bedroom. Each
     # wet room is fed by a riser (CWD-k) just outside its OWN nearest external
@@ -624,7 +653,12 @@ def _supply(plan, pts, runs, side, add, pipe):
             groups[id(_room_of(plan, q.x, q.y))].append(q)
 
     top = y1 + 3.0                       # the outside feed runs above the roof
-    d = 1.0
+    # ROW-HOUSE rule: the neighbours abut the walls, so a riser 1 ft OUTSIDE
+    # the wall is on their land — with a porch on the plan the risers sit
+    # just INSIDE the wall and the OHT feed runs at TERRACE level instead of
+    # looping outside the plot line.
+    d = 1.0 if porch is None else -0.35
+    hd = d + 0.7 if porch is None else d - 0.65
     ri = 0
     internal = 0
     for qs in groups.values():
@@ -639,9 +673,14 @@ def _supply(plan, pts, runs, side, add, pipe):
         rx, ry = _riser_point(plan, s, cx, cy, d)
         ri += 1
         add("CWD", rx, ry, "", "CW", P.D_CW_DOWN, tag=f"CWD-{ri}")
-        # OHT -> this riser, entirely outside: up over the roof, across, down
-        pipe("CW", [(ohx, ohy), (ohx, top), (rx, top), (rx, ry)],
-             P.D_CW_DOWN, "cold water down-take, outside the building")
+        if porch is None:
+            # OHT -> this riser, entirely outside: over the roof, across, down
+            pipe("CW", [(ohx, ohy), (ohx, top), (rx, top), (rx, ry)],
+                 P.D_CW_DOWN, "cold water down-take, outside the building")
+        else:
+            pipe("CW", [(ohx, ohy), (ohx, ry), (rx, ry)], P.D_CW_DOWN,
+                 "cold water feed at TERRACE level to the down-take riser "
+                 "— inside the plot line")
 
         def branch(system, riser_xy, q, dia):
             rxx, ryy = riser_xy
@@ -659,7 +698,7 @@ def _supply(plan, pts, runs, side, add, pipe):
         if hwq:
             sh = next((q for q in qs if q.code == "SH"), hwq[0])
             g = add("GY", sh.x, sh.y - 1.4, sh.room, "HW", P.D_HW_DOWN)
-            hx, hy = _riser_point(plan, s, cx, cy, d + 0.7)
+            hx, hy = _riser_point(plan, s, cx, cy, hd)
             add("HWD", hx, hy, "", "HW", P.D_HW_DOWN, tag=f"HWD-{ri}")
             branch("CW", (rx, ry), g, P.D_CW_BRANCH)   # cold feed to geyser
             pipe("HW", [(g.x, g.y), (hx, hy)], P.D_HW_DOWN,
@@ -690,8 +729,15 @@ def _supply(plan, pts, runs, side, add, pipe):
                  f"{tk['oht_dims'][2]} m, 300 mm freeboard.")
     notes.append(f"Pump {pm['q_lpm']:.0f} LPM @ {pm['head_m']:.0f} m — "
                  f"{pm['hp']} HP, float switches both ends, NRV at delivery.")
-    notes.append("UG tank set in the opposite yard to the drainage, clear of "
-                 "the chamber line — a potable tank is never beside a sewer.")
+    if porch is not None:
+        notes.append(f"Row-house plot: UG tank and pump IN THE {porch.name}, "
+                     "on its house side clear of the chamber line; OHT above "
+                     "the stair / mumty; every supply run stays inside the "
+                     "plot line — a potable tank is never beside a sewer.")
+    else:
+        notes.append("UG tank set in the opposite yard to the drainage, clear "
+                     "of the chamber line — a potable tank is never beside a "
+                     "sewer.")
 
     return {"demand": demand, "tanks": tk, "pump": pm,
             "floor_sqm": round(floor_sqm, 1),
@@ -736,11 +782,20 @@ def _storm(plan, pts, runs, side, calc, add, pipe):
         add("KH", cxr, cyr, r.name, "STORM", P.D_RWP, tag=f"KH-{k}")
         rp = add("RWP", cxr, cyr + 0.9, r.name, "STORM", P.D_RWP,
                  tag=f"RWP-{k}")
-        # drop to grade at the nearest outside edge — never into the sewer
-        ex = r.x - 1.4 if abs(r.x - _bounds(plan)[0]) < abs(
-            _bounds(plan)[1] - (r.x + r.w)) else r.x + r.w + 1.4
-        pipe("STORM", [(rp.x, rp.y), (ex, rp.y)], P.D_RWP,
-             "RWP over a grating to the storm channel — never the sewer")
+        # drop to grade at the nearest outside edge — never into the sewer.
+        # Row-house plot (porch present): the spout stays INSIDE the plot
+        # line, discharging at the terrace edge to the front storm channel.
+        if _porch(plan) is not None:
+            ex = r.x + 0.35 if abs(r.x - _bounds(plan)[0]) < abs(
+                _bounds(plan)[1] - (r.x + r.w)) else r.x + r.w - 0.35
+            pipe("STORM", [(rp.x, rp.y), (ex, rp.y)], P.D_RWP,
+                 "RWP over a grating inside the plot to the front storm "
+                 "channel — never the sewer")
+        else:
+            ex = r.x - 1.4 if abs(r.x - _bounds(plan)[0]) < abs(
+                _bounds(plan)[1] - (r.x + r.w)) else r.x + r.w + 1.4
+            pipe("STORM", [(rp.x, rp.y), (ex, rp.y)], P.D_RWP,
+                 "RWP over a grating to the storm channel — never the sewer")
         made += 1
     notes.append(f"{n} rain-water pipes {P.D_RWP}Ø on the "
                  f"{', '.join(sorted({r.name for r in opens[:2]}))} "
@@ -767,9 +822,29 @@ def _ac_drains(plan, pts, runs, nts, add, pipe):
 
 
 def _garden(plan, pts, add):
-    """§2 — a bib cock every 15-20 m round the periphery."""
+    """§2 — a bib cock every 15-20 m round the periphery. On a row-house plot
+    (porch present) the periphery IS the porch, so both taps sit there."""
     notes = []
     x0, x1, y0, y1 = _bounds(plan)
+    porch = _porch(plan)
+    if porch is not None:
+        px0, py0 = porch.x, porch.y
+        px1, py1 = porch.x + porch.w, porch.y + porch.h
+        d_ = {"S": abs(py0 - y0), "N": abs(y1 - py1),
+              "W": abs(px0 - x0), "E": abs(x1 - px1)}
+        front = min(d_, key=d_.get)
+        if front in ("S", "N"):
+            gy = (py0 + 0.8) if front == "S" else (py1 - 0.8)
+            spots = [(px0 + 1.0, gy), (px1 - 1.0, gy)]
+        else:
+            gx = (px0 + 0.8) if front == "W" else (px1 - 0.8)
+            spots = [(gx, py0 + 1.0), (gx, py1 - 1.0)]
+        for i, (gx, gy) in enumerate(spots, start=1):
+            add("GBC", gx, gy, porch.name, "CW", P.D_CW_TAIL, tag=f"GBC-{i}")
+        notes.append(f"2 garden bib cocks at {P.FIXTURES['GBC'][1]} mm in the "
+                     f"{porch.name} — the only open ground on a row-house "
+                     "plot; both inside the plot line.")
+        return notes
     per_m = 2 * ((x1 - x0) + (y1 - y0)) * 0.3048
     n = max(2, int(per_m / P.GARDEN_TAP_SPACING_M))
     spots = [(x0 - 1.2, y0 + (y1 - y0) * (i + 0.5) / max(1, n // 2))
