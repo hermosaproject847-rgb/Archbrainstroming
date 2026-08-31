@@ -264,70 +264,62 @@ def _winders(landing, well, axis, d, n, style="straight"):
 
 
 def _winder_geo(landing, well, axis, d, n, last_before, first_after):
-    """Lines + tread polygons + step numbers for the turn. The polygons cover
-    the whole turn column: the outer parts belong to the flights' end treads
-    (last_before / first_after), the middle ones are the winders."""
+    """Lines + tread polygons + numbers for the turn, exactly as the office
+    sheets draw it: the two diagonals run from the WELL'S CORNERS to the
+    stair's outer corners, with the well-line strip between them."""
     if n <= 0 or well is None or landing is None:
         return [], [], []
     lx, ly, lw, lh = landing
     wx, wy, ww, wh = well
 
     if axis == "x":
-        xI = lx if d > 0 else lx + lw          # inner edge (the well ends here)
-        xO = lx + lw if d > 0 else lx          # outer edge (the far wall)
+        xI = lx if d > 0 else lx + lw          # the well ends here
+        xO = lx + lw if d > 0 else lx          # the outer wall
         cy0, cy1 = wy, wy + wh                 # the well band
-        P = (xI, (cy0 + cy1) / 2.0)
-        CT, CB = (xO, ly + lh), (xO, ly)       # outer top / bottom corners
-        eT0, eT1 = (xI, cy1), (xO, cy1)        # strip top edge
-        eB0, eB1 = (xI, cy0), (xO, cy0)        # strip bottom edge
+        WT, WB = (xI, cy1), (xI, cy0)          # the well's two corners
+        CT, CB = (xO, ly + lh), (xO, ly)       # the stair's outer corners
+        eT1, eB1 = (xO, cy1), (xO, cy0)        # strip ends at the outer wall
         top_in, bot_in = (xI, ly + lh), (xI, ly)
     else:
         yI = ly if d > 0 else ly + lh
         yO = ly + lh if d > 0 else ly
         cx0, cx1 = wx, wx + ww
-        P = ((cx0 + cx1) / 2.0, yI)
+        WT, WB = (cx1, yI), (cx0, yI)
         CT, CB = (lx + lw, yO), (lx, yO)
-        eT0, eT1 = (cx1, yI), (cx1, yO)
-        eB0, eB1 = (cx0, yI), (cx0, yO)
+        eT1, eB1 = (cx1, yO), (cx0, yO)
         top_in, bot_in = (lx + lw, yI), (lx, yI)
 
     lines, polys, nums = [], [], []
     if n == 1:
-        # a single winder: one corner diagonal, the wedge below it
-        lines.append((P[0], P[1], CT[0], CT[1]))
-        polys.append([top_in, CT, P]); nums.append(last_before)
-        polys.append([P, CT, CB, bot_in]); nums.append(last_before + 1)
+        # a single winder: one full diagonal, the wedge below it
+        lines.append((top_in[0], top_in[1], CB[0], CB[1]))
+        polys.append([top_in, CT, CB]); nums.append(last_before)
+        polys.append([top_in, CB, bot_in]); nums.append(last_before + 1)
         return lines, polys, nums
 
-    # two diagonals to the outer corners
-    lines.append((P[0], P[1], CT[0], CT[1]))
-    lines.append((P[0], P[1], CB[0], CB[1]))
-    # the strip in line with the well (drawn when it holds a tread)
+    # the two corner diagonals, each from ITS OWN well corner
+    lines.append((WT[0], WT[1], CT[0], CT[1]))
+    lines.append((WB[0], WB[1], CB[0], CB[1]))
     if n >= 3:
-        lines.append((eT0[0], eT0[1], eT1[0], eT1[1]))
-        lines.append((eB0[0], eB0[1], eB1[0], eB1[1]))
+        # the strip: the well's own edge lines carried to the outer wall
+        lines.append((WT[0], WT[1], eT1[0], eT1[1]))
+        lines.append((WB[0], WB[1], eB1[0], eB1[1]))
 
-    # ---- polygons, walked from the upper flight round to the lower one
-    polys.append([top_in, CT, P]); nums.append(last_before)          # flight end
+    # ---- tread polygons, upper flight round to the lower one
+    polys.append([WT, top_in, CT]); nums.append(last_before)      # 32 extension
     if n >= 3:
-        polys.append([P, CT, eT1, eT0]); nums.append(last_before + 1)   # fan
-        # the straight strip: one tread (or split into n-2 equal treads)
-        strips = max(1, n - 2)
+        polys.append([WT, CT, eT1]); nums.append(last_before + 1)     # fan 33
+        strips = max(1, n - 2)                                        # strip 34
         for i in range(strips):
-            t0 = i / strips; t1 = (i + 1) / strips
-            if axis == "x":
-                a0 = (xI + (xO - xI) * 0, cy1); a1 = (xO, cy1)
-                polys.append([(min(xI, xO), cy0), (max(xI, xO), cy0),
-                              (max(xI, xO), cy1), (min(xI, xO), cy1)])
-            else:
-                polys.append([(cx0, min(yI, yO)), (cx1, min(yI, yO)),
-                              (cx1, max(yI, yO)), (cx0, max(yI, yO))])
-            nums.append(last_before + 1 + 1 + i)
-        polys.append([P, eB0, eB1, CB]); nums.append(last_before + n)   # fan
-    else:                                    # n == 2: two fans meet at the well line
-        polys.append([P, CT, eT1]); nums.append(last_before + 1)
-        polys.append([P, eB1, CB]); nums.append(last_before + 2)
-    polys.append([P, CB, bot_in]); nums.append(first_after)          # flight start
+            polys.append([WT, eT1, eB1, WB])
+            nums.append(last_before + 2 + i)
+        polys.append([WB, eB1, CB]); nums.append(last_before + n)     # fan 35
+    else:                                          # n == 2: fans meet mid-strip
+        polys.append([WT, CT, eT1, ((WT[0] + eB1[0]) / 2, (WT[1] + eB1[1]) / 2)])
+        nums.append(last_before + 1)
+        polys.append([WB, ((WT[0] + eB1[0]) / 2, (WT[1] + eB1[1]) / 2), eB1, CB])
+        nums.append(last_before + 2)
+    polys.append([WB, CB, bot_in]); nums.append(first_after)      # 36 extension
     return lines, polys, nums
 
 
