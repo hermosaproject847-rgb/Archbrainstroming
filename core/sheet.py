@@ -100,9 +100,14 @@ def compose(plan: Plan, dl: DrawList, sheet: str = "A3",
                      it.angle, it.halign, it.valign, it.bold)
         elif isinstance(it, Hatch):
             # scale the boundary AND the pattern step together so the pattern
-            # keeps its density at any sheet scale
+            # keeps its density at any sheet scale — and carry the lattice
+            # anchor through the same transform so the grid stays aligned
+            ph = getattr(it, "phase", None)
+            if ph is not None:
+                ph = ph * k + (ox if it.kind == "vlines" else oy)
             out.hatch([[(p[0] * k + ox, p[1] * k + oy) for p in lp]
-                       for lp in it.loops], it.kind, it.step * k, it.layer)
+                       for lp in it.loops], it.kind, it.step * k, it.layer,
+                      phase=ph)
 
     sheetformat.draw(out, plan, W, H, f"1:{int(denom)}",
                      sheet.upper(), _drawing_title(plan, schedule))

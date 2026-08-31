@@ -511,23 +511,27 @@ def _draw_room(plan, room, clear, s, dl, origin=None, draw_start=True,
             ax, ay = ep[0], ep[1]
         else:
             ax, ay = ox, oy
-        # the marker must sit ON the drawn grid: pick the grid CELL nearest
-        # the anchor whose whole tile lies INSIDE the floor polygon — never
-        # a clamped rect floating off the joints or poking past a wall
+        # the marker must sit ON the drawn grid: mark the ACTUAL CELL of the
+        # lattice (between joint lines / room edges — a cut tile in a room
+        # smaller than the module) nearest the anchor and inside the floor —
+        # never a nominal full-size rect straddling the lines
         from shapely.geometry import box as _box
-        cand_x = [v for v in xs if v >= x0 - 1e-6 and v + Tx <= x1 + 1e-6]
-        cand_y = [v for v in ys if v >= y0 - 1e-6 and v + Ty <= y1 + 1e-6]
-        pairs = sorted(((vx, vy) for vx in cand_x for vy in cand_y),
-                       key=lambda p: (p[0] - ax) ** 2 + (p[1] - ay) ** 2)
+        bx = sorted(set([round(x0, 4), round(x1, 4)]
+                        + [v for v in xs if x0 - 1e-6 <= v <= x1 + 1e-6]))
+        by = sorted(set([round(y0, 4), round(y1, 4)]
+                        + [v for v in ys if y0 - 1e-6 <= v <= y1 + 1e-6]))
+        cells_x = [(a, b) for a, b in zip(bx, bx[1:]) if b - a > 0.25]
+        cells_y = [(a, b) for a, b in zip(by, by[1:]) if b - a > 0.25]
+        pairs = sorted(((cx2, cy2) for cx2 in cells_x for cy2 in cells_y),
+                       key=lambda p: ((p[0][0] + p[0][1]) / 2 - ax) ** 2
+                                     + ((p[1][0] + p[1][1]) / 2 - ay) ** 2)
         ok = clear.buffer(0.05)
-        best = next(((vx, vy) for vx, vy in pairs
-                     if ok.contains(_box(vx, vy, vx + Tx, vy + Ty))), None)
-        if best is None:                    # tiny room: nearest cell, clamped
-            sx = min(max(pairs[0][0] if pairs else ox, x0), max(x0, x1 - Tx))
-            sy = min(max(pairs[0][1] if pairs else oy, y0), max(y0, y1 - Ty))
-        else:
-            sx, sy = best
-        _start_tile(dl, sx, sy, sx + Tx, sy + Ty)
+        best = next(((cx2, cy2) for cx2, cy2 in pairs
+                     if ok.contains(_box(cx2[0], cy2[0], cx2[1], cy2[1]))),
+                    pairs[0] if pairs else None)
+        if best is not None:
+            (sx, ex), (sy, ey) = best
+            _start_tile(dl, sx, sy, ex, ey)
 
     # skirting run round the room's own floor (skip 0 = dado; a merged region
     # draws its skirting once, round the whole outline, instead)

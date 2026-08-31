@@ -266,9 +266,12 @@ class DrawList:
                 out.text(it.x + dx, it.y + dy, it.s, it.h, it.layer,
                          it.angle, it.halign, it.valign, it.bold)
             elif isinstance(it, Hatch):
+                ph = getattr(it, "phase", None)
+                if ph is not None:              # move the lattice anchor too
+                    ph = ph + (dx if it.kind == "vlines" else dy)
                 out.items.append(Hatch(
                     [[(p[0] + dx, p[1] + dy) for p in lp] for lp in it.loops],
-                    it.kind, it.step, it.layer))
+                    it.kind, it.step, it.layer, ph))
         return out
 
     # -- bounds ----------------------------------------------------------
