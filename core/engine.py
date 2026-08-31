@@ -494,7 +494,7 @@ def draw_stairs(plan: Plan, dl: DrawList) -> None:
                         layer="TEXT-SUB",
                         angle=0 if lw >= lh else 90)
 
-        for f in g["flights"]:
+        for fi, f in enumerate(g["flights"]):
             fx, fy, fw, fh = f["rect"]
             dl.rect(fx, fy, fw, fh, layer="STAIR")
             n = max(2, int(f["steps"]))
@@ -506,10 +506,24 @@ def draw_stairs(plan: Plan, dl: DrawList) -> None:
                 step = fh / n
                 for i in range(1, n):
                     dl.line(fx, fy + i * step, fx + fw, fy + i * step, layer="STAIR")
-            _number_steps(dl, f)
+            # with a winder turn the flight keeps only its OUTER number —
+            # the turn-side numbers sit on the tread polygons below
+            if g.get("winder_polys"):
+                _number_steps(dl, f, only=("first" if fi == 0 else "last"))
+            else:
+                _number_steps(dl, f)
 
         for (x1, y1, x2, y2) in g["winders"]:
             dl.line(x1, y1, x2, y2, layer="STAIR")
+        # every number through the turn sits on its own tread, as the sheet
+        # writes them (32 / 33 / 34 / 35 / 36 in the winder column)
+        for poly, num in zip(g.get("winder_polys") or [],
+                             g.get("winder_nums") or []):
+            if not num:
+                continue
+            cx = sum(pt[0] for pt in poly) / len(poly)
+            cy = sum(pt[1] for pt in poly) / len(poly)
+            dl.text(cx, cy, str(num), h=0.34, layer="TEXT-SUB")
 
         if g["well"]:
             wx, wy, ww, wh = g["well"]
@@ -568,8 +582,10 @@ def draw_steps(plan: Plan, dl: DrawList) -> None:
             dl.text(cx, s.y - 0.6, s.label, h=0.4, layer="TEXT-SUB")
 
 
-def _number_steps(dl: DrawList, f: dict) -> None:
-    """Write the sketch's own step numbers at each end of a flight."""
+def _number_steps(dl: DrawList, f: dict, only: str | None = None) -> None:
+    """Write the sketch's own step numbers at the ends of a flight. With a
+    winder turn only the OUTER end keeps its number here (`only`) — the
+    turn-side numbers are written on the tread polygons instead."""
     first = int(f.get("first") or 0)
     if first <= 0:
         return
@@ -580,8 +596,10 @@ def _number_steps(dl: DrawList, f: dict) -> None:
     else:
         lo, hi = (x + w / 2, y + 0.35), (x + w / 2, y + h - 0.35)
     a, b = (lo, hi) if f["dir"] > 0 else (hi, lo)
-    dl.text(a[0], a[1], str(first), h=0.34, layer="TEXT-SUB")
-    dl.text(b[0], b[1], str(last), h=0.34, layer="TEXT-SUB")
+    if only != "last":
+        dl.text(a[0], a[1], str(first), h=0.34, layer="TEXT-SUB")
+    if only != "first":
+        dl.text(b[0], b[1], str(last), h=0.34, layer="TEXT-SUB")
 
 
 def draw_rooms(plan: Plan, dl: DrawList) -> None:
