@@ -280,6 +280,26 @@
             else plate(fx, fy + j * fh2 / n, fw2, fh2 / n, zOf(num));
           }
         }
+        // WINDER POLYGONS from the sheet itself: each tread is extruded at
+        // the level its step NUMBER dictates — the two corner fans, the
+        // straight strip between them, and the flight-end extensions
+        if ((g3.winder_polys || []).length) {
+          g3.winder_polys.forEach((poly, pi) => {
+            const num = (g3.winder_nums || [])[pi] || minN;
+            const zTop = zOf(num);
+            const thk = Math.min(zTop - z0 + 0.01, riser * 2.2);
+            const sh = new THREE.Shape();
+            poly.forEach((q, k2) => {
+              if (k2 === 0) sh.moveTo(q[0], q[1]); else sh.lineTo(q[0], q[1]);
+            });
+            const geo = new THREE.ExtrudeGeometry(sh, { depth: thk, bevelEnabled: false });
+            const m = new THREE.Mesh(geo, M.step);
+            m.rotation.x = -Math.PI / 2;         // shape (x,planY) -> floor
+            m.position.y = zTop - thk;           // extrude rises to the tread top
+            g.add(m);
+          });
+          continue;
+        }
         // LANDING, split by the WINDER LINES exactly as drawn; the strips
         // climb from the lower flight's side, and when there are more strips
         // than risers the middle strips SHARE a level - the landing between

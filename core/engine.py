@@ -482,8 +482,11 @@ def draw_stairs(plan: Plan, dl: DrawList) -> None:
         g = stairs.build(s)
 
         # a three-flight stair has two landings; the others have one
-        for (lx, ly, lw, lh) in (g.get("landings")
-                                 or ([g["landing"]] if g["landing"] else [])):
+        # the office sheets draw NO landing box when the turn is winders —
+        # the diagonals and the well-line strip ARE the turn
+        for (lx, ly, lw, lh) in ([] if g.get("winder_polys")
+                                 else (g.get("landings")
+                                 or ([g["landing"]] if g["landing"] else []))):
             dl.rect(lx, ly, lw, lh, layer="STAIR")
             if g.get("landings"):
                 # name them: a landing is not a step, and its size is its own
