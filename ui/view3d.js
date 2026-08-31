@@ -353,15 +353,17 @@
         // landing 1 — far end, TOP corner (skipped when the fan turns there)
         if (!(typ === "U" && nm > 0)) landing(uFarL, land, vTop, fw2, z1);
         if (typ === "U" && nm > 0) {
-          // FAN WINDERS through the turn column, exactly as the plan draws
-          // them: wedge treads radiating about the WELL CORNER pivot
+          // FAN WINDERS exactly as the plan draws them: the diagonals
+          // converge at the OUTER EDGE MIDPOINT, so the turn reads
+          // fan tread (33) — straight landing band (34) — fan tread (35)
           const u0c = uFarL, u1c = dirUp > 0 ? W : land; // the turn column (u)
-          const uIn = dirUp > 0 ? u0c : land;            // its inner (well) edge
-          const uOut = dirUp > 0 ? u1c : 0;
-          const pv = [uIn, B / 2];                       // pivot on the well edge
-          const rect = [Math.min(uIn, uOut), 0, Math.max(uIn, uOut), B];
+          const rect = [Math.min(u0c, u1c), 0, Math.max(u0c, u1c), B];
+          const outerU = dirUp > 0 ? rect[2] : rect[0];  // far outer edge
+          const innerU = dirUp > 0 ? rect[0] : rect[2];  // the well side
+          const inward = dirUp > 0 ? -1 : 1;             // rays point inward
+          const pv = [outerU, B / 2];                    // the plan's pivot
           const castHit = th => {                        // ray -> rect boundary
-            const dx = Math.cos(th) * (dirUp > 0 ? 1 : -1), dy = Math.sin(th);
+            const dx = Math.cos(th) * inward, dy = Math.sin(th);
             let t = 1e9;
             if (dx > 1e-9) t = Math.min(t, (rect[2] - pv[0]) / dx);
             if (dx < -1e-9) t = Math.min(t, (rect[0] - pv[0]) / dx);
@@ -369,17 +371,15 @@
             if (dy < -1e-9) t = Math.min(t, (rect[1] - pv[1]) / dy);
             return [pv[0] + dx * t, pv[1] + dy * t];
           };
-          const per = q => {                             // walk order round rect
-            const [ax, ay, bx2, by2] = rect;
-            if (Math.abs(q[1] - by2) < 1e-6) return (dirUp > 0 ? q[0] - ax : bx2 - q[0]);
-            const wRect = bx2 - ax;
-            if (dirUp > 0 ? Math.abs(q[0] - bx2) < 1e-6 : Math.abs(q[0] - ax) < 1e-6)
-              return wRect + (by2 - q[1]);
-            return wRect + (by2 - ay) + (dirUp > 0 ? bx2 - q[0] : q[0] - ax);
+          // walk the boundary from the pivot's top side, along the top edge
+          // inward, down the WELL edge, and back along the bottom edge
+          const per = q => {
+            const wRect = rect[2] - rect[0], hRect = rect[3] - rect[1];
+            if (Math.abs(q[1] - rect[3]) < 1e-6) return Math.abs(q[0] - outerU);
+            if (Math.abs(q[0] - innerU) < 1e-6) return wRect + (rect[3] - q[1]);
+            return wRect + hRect + Math.abs(q[0] - innerU);
           };
-          const corners = dirUp > 0
-            ? [[rect[2], rect[3]], [rect[2], rect[1]]]
-            : [[rect[0], rect[3]], [rect[0], rect[1]]];
+          const corners = [[innerU, rect[3]], [innerU, rect[1]]];
           for (let i = 0; i < nm; i++) {
             const a1 = Math.PI / 2 - Math.PI * i / nm;   // +90 deg .. -90 deg
             const a2 = Math.PI / 2 - Math.PI * (i + 1) / nm;
