@@ -244,10 +244,20 @@ def design(plan_dict: dict) -> tuple[dict, list[str]]:
             add("HF", wx + dxy[0] * 0.85, wy + dxy[1] * 0.85, rn, "CW",
                 P.D_CW_TAIL)
             soil_out.append(((wc.centre), rn))
-            # §5 — a nahani trap NEAR every WC, in the dry area (unless the
-            # shower already put one in this room)
+            # §5 + user rule — the nahani trap sits BESIDE the WC, to its
+            # LEFT (facing the wall), 1500 mm off the wall — never on top of
+            # the WC (unless the shower already put one in this room)
             if shower is None and shower_xy is None:
-                nx, ny, _s = _snap_wall(clear, *wc.centre, 1.4)
+                perp = {"N": (0, -1), "S": (0, 1),
+                        "E": (-1, 0), "W": (1, 0)}[side]      # into the room
+                left = {"N": (-1, 0), "S": (1, 0),
+                        "E": (0, 1), "W": (0, -1)}[side]      # WC's left
+                off = 1500.0 / 304.8                          # 1500 mm
+                nx = wx + perp[0] * off + left[0] * 2.0
+                ny = wy + perp[1] * off + left[1] * 2.0
+                bx0, by0, bx1, by1 = clear.bounds
+                nx = min(max(nx, bx0 + 0.4), bx1 - 0.4)
+                ny = min(max(ny, by0 + 0.4), by1 - 0.4)
                 nt = add("NT", nx, ny, rn, "WASTE", P.D_WASTE_BRANCH)
                 nts.append(nt)
 
