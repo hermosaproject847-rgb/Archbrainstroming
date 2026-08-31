@@ -486,14 +486,36 @@ def draw_stairs(plan: Plan, dl: DrawList) -> None:
             # belong to the floor above and are not drawn here
             g = dict(g)
             fl0 = dict(g["flights"][0])
-            # the ground sheet's rising band lies against the LOWER wall (the
-            # near band); the far band and the well belong to the floor above
-            _rects = [f2["rect"] for f2 in g["flights"]]
+            # measured off the sheet: the rising band keeps its own (far)
+            # position but its LOWER edge sits ON the wall face below it -
+            # snap it down when a wall face lies within 0.6 ft
+            fx0, fy0, fw0, fh0 = fl0["rect"]
             if fl0["axis"] == "x":
-                _near = min(_rects, key=lambda r: r[1])
+                best = None
+                for w2 in plan.walls:
+                    if abs(w2.y1 - w2.y2) > 0.05:
+                        continue
+                    face = w2.y1 + (float(w2.thickness_in or 4.5) / 12.0) / 2.0
+                    dgap = fy0 - face
+                    if 0.02 < dgap < 0.6 and (best is None or dgap < best):
+                        lo, hi = min(w2.x1, w2.x2), max(w2.x1, w2.x2)
+                        if hi > fx0 + 0.5 and lo < fx0 + fw0 - 0.5:
+                            best = dgap
+                if best:
+                    fl0["rect"] = (fx0, fy0 - best, fw0, fh0)
             else:
-                _near = min(_rects, key=lambda r: r[0])
-            fl0["rect"] = _near
+                best = None
+                for w2 in plan.walls:
+                    if abs(w2.x1 - w2.x2) > 0.05:
+                        continue
+                    face = w2.x1 + (float(w2.thickness_in or 4.5) / 12.0) / 2.0
+                    dgap = fx0 - face
+                    if 0.02 < dgap < 0.6 and (best is None or dgap < best):
+                        lo, hi = min(w2.y1, w2.y2), max(w2.y1, w2.y2)
+                        if hi > fy0 + 0.5 and lo < fy0 + fh0 - 0.5:
+                            best = dgap
+                if best:
+                    fl0["rect"] = (fx0 - best, fy0, fw0, fh0)
             g["flights"] = [fl0]
             g["well"] = None
             lx, ly, lw, lh = g["landing"]
