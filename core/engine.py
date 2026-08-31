@@ -550,15 +550,36 @@ def draw_stairs(plan: Plan, dl: DrawList) -> None:
                                           + int(fl0["steps"]) - 1)
             # the turn column sits IN LINE WITH THE BAND - the band's own
             # height, never the full landing running through the rooms below
+            def _face_beyond(coord, horiz, lo, hi):
+                # nearest wall face just beyond `coord` (within 0.6 ft) that
+                # actually spans the column - the sheet runs the column to it
+                best = None
+                for w2 in plan.walls:
+                    if horiz != (abs(w2.y1 - w2.y2) < 0.05):
+                        continue
+                    c = w2.y1 if horiz else w2.x1
+                    t2 = (float(w2.thickness_in or 4.5) / 12.0) / 2.0
+                    span0 = min(w2.x1, w2.x2) if horiz else min(w2.y1, w2.y2)
+                    span1 = max(w2.x1, w2.x2) if horiz else max(w2.y1, w2.y2)
+                    if span1 < lo + 0.3 or span0 > hi - 0.3:
+                        continue
+                    face = c - t2 if c > coord else c + t2
+                    d2 = abs(face - coord)
+                    if 0.02 < d2 < 0.6 and (best is None or d2 < abs(best - coord)):
+                        best = face
+                return best if best is not None else coord
             if fl0["axis"] == "x":
                 cx0, cx1, cy0, cy1 = lx, lx + lw, fy, fy + fh
+                # the column runs up to the wall face (the band stays 3'-3")
+                cyT = _face_beyond(cy1, True, cx0, cx1)
+                cyB = cy0
                 if fl0["dir"] > 0:
                     ti, cb = (cx0, cy1), (cx1, cy0)
-                    ext = [(cx0, cy1), (cx1, cy1), (cx1, cy0)]
+                    ext = [(cx0, cy1), (cx0, cyT), (cx1, cyT), (cx1, cy0)]
                     wed = [(cx0, cy1), (cx1, cy0), (cx0, cy0)]
                 else:
                     ti, cb = (cx1, cy1), (cx0, cy0)
-                    ext = [(cx1, cy1), (cx0, cy1), (cx0, cy0)]
+                    ext = [(cx1, cy1), (cx1, cyT), (cx0, cyT), (cx0, cy0)]
                     wed = [(cx1, cy1), (cx0, cy0), (cx1, cy0)]
             else:
                 cx0, cx1, cy0, cy1 = fx, fx + fw, ly, ly + lh
