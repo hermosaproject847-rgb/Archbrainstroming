@@ -255,9 +255,13 @@ def design(plan_dict: dict) -> tuple[dict, list[str]]:
             bx, by, _s = place(basin, 0.30)
             add("BAC", bx, by, rn, "CW", P.D_CW_TAIL)
             add("BBT", bx, by - 0.55, rn, "WASTE", 32)
-            if nts:
-                near = min(nts, key=lambda t: math.dist((t.x, t.y),
-                                                        basin.centre))
+            near = min(nts, key=lambda t: math.dist((t.x, t.y),
+                                                    basin.centre)) if nts \
+                else None
+            # SHORTEST-ROUTE rule: join a trap only when it is genuinely
+            # near (same room) — never run a basin waste across the house
+            if near is not None and math.dist((near.x, near.y),
+                                              basin.centre) <= 8.0:
                 pipe("WASTE", [(bx, by - 0.55), (near.x, near.y)], 32,
                      "basin bottle trap to the nahani trap")
             else:
@@ -376,11 +380,28 @@ def _stacks(plan, pts, runs, soil_out, waste_out, add, pipe):
                      P.D_WASTE_STACK, tag="WS-1")
         add("CO", ws.x + 0.8, ws.y, ws.room, "WASTE",
             P.D_WASTE_STACK, tag="CO-2")
-        for t in waste_out:
-            pipe("WASTE", [(t.x, t.y), (ws.x, ws.y)], P.D_WASTE_STACK,
-                 "nahani trap to the waste stack")
-        notes.append("Waste stack WS-1 75 collects the nahani traps; "
-                     "cleanout CO-2 at its base.")
+        # SHORTEST-ROUTE rule: each trap joins the NEAREST point already on
+        # the waste line (a tee at that trap), not the stack directly — the
+        # kitchen's waste tees into the adjacent toilet's line instead of
+        # running the length of the house on its own pipe.
+        nodes = [(ws.x, ws.y)]
+        rem = list(waste_out)
+        while rem:
+            bt, bn, bd = None, None, 1e18
+            for t in rem:
+                for n in nodes:
+                    # pipes run orthogonally, so the REAL run length is the
+                    # Manhattan distance, not the crow-fly one
+                    dd = abs(t.x - n[0]) + abs(t.y - n[1])
+                    if dd < bd:
+                        bt, bn, bd = t, n, dd
+            pipe("WASTE", [(bt.x, bt.y), bn], P.D_WASTE_STACK,
+                 "nahani trap tees into the nearest waste line")
+            nodes.append((bt.x, bt.y))
+            rem.remove(bt)
+        notes.append("Waste stack WS-1 75 collects the nahani traps — each "
+                     "trap tees into the nearest waste line (shortest "
+                     "route); cleanout CO-2 at its base.")
     if site is not None and (soil_out or waste_out):
         notes.append("Row-house rule: both stacks drop AGAINST THE WALL by "
                      f"the {site['porch'].name}, to one side clear of the "
