@@ -313,7 +313,29 @@ def _open_between(plan, A, B) -> bool:
         elif axis == "h" and abs(w.y1 - w.y2) < 0.06 and abs(w.y1 - coord) < 0.6:
             covered += max(0.0, min(max(w.x1, w.x2), hi)
                            - max(min(w.x1, w.x2), lo))
-    return covered < 0.4 * span            # <40% walled = open
+    # an OPEN opening (archway, no shutter) in a wall along the boundary is a
+    # connection too — the floor runs straight through it, so subtract its span
+    open_len = 0.0
+    for o in plan.openings:
+        if getattr(o, "type", "") != "open":
+            continue
+        w = plan.wall(o.wall_id)
+        if w is None:
+            continue
+        try:
+            a = w.point_at(o.pos)
+            b = w.point_at(o.pos + o.width)
+        except Exception:
+            continue
+        if axis == "v" and abs(a[0] - coord) < 0.6 and abs(b[0] - coord) < 0.6:
+            open_len += max(0.0, min(max(a[1], b[1]), hi)
+                            - max(min(a[1], b[1]), lo))
+        elif axis == "h" and abs(a[1] - coord) < 0.6 and abs(b[1] - coord) < 0.6:
+            open_len += max(0.0, min(max(a[0], b[0]), hi)
+                            - max(min(a[0], b[0]), lo))
+    covered = max(0.0, covered - open_len)
+    # open when mostly unwalled, OR when a real archway (>= 3 ft) joins them
+    return covered < 0.4 * span or open_len >= 3.0
 
 
 def _interface(A, B):
@@ -422,12 +444,21 @@ def _draw_room(plan, room, clear, s, dl, origin=None, draw_start=True,
     if draw_start:
         xs = _lines_from(ox, Mx, x0, x1)
         ys = _lines_from(oy, My, y0, y1)
-        ep = _entry_point(plan, room)
-        if ep is not None:
+        # the marker FOLLOWS the start rule: entry -> doorway, corner-* ->
+        # that corner, symmetry -> the grid origin (first full tile). The old
+        # code anchored to the doorway whenever a door existed, so changing
+        # the start never moved the hatch.
+        rule = s.start or "symmetry"
+        ep = _entry_point(plan, room) if rule in ("entry", "symmetry") else None
+        if rule == "entry" and ep is not None:
+            ax, ay = ep[0], ep[1]
+        elif rule.startswith("corner"):
+            ax = (x1 - Tx) if rule in ("corner-se", "corner-ne") else x0
+            ay = (y1 - Ty) if rule in ("corner-nw", "corner-ne") else y0
+        elif ep is not None:                 # symmetry with a door: walk-in tile
             ax, ay = ep[0], ep[1]
         else:
-            ax = ox if (s.start or "").startswith("corner") else x0 + 0.01
-            ay = oy if (s.start or "").startswith("corner") else y0 + 0.01
+            ax, ay = ox, oy
         sx = min(xs, key=lambda v: abs(v - ax)) if xs else ox
         sy = min(ys, key=lambda v: abs(v - ay)) if ys else oy
         # clamp so the whole start tile sits inside the room floor
