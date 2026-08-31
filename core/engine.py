@@ -479,7 +479,26 @@ def draw_stairs(plan: Plan, dl: DrawList) -> None:
     """Straight / L / U stairs, with the landing, winders, well and UP-DN
     arrows all derived from the typology by core.stairs."""
     for s in plan.stairs:
-        g = stairs.build(s)
+        g = stairs.build(stairs.clip_to_walls(s, plan))
+        if not s.show_dn and g.get("winder_polys"):
+            # GROUND-FLOOR sheet: only the rising flight and the first winder
+            # are on this level - the return flight, the strip and the well
+            # belong to the floor above and are not drawn here
+            g = dict(g)
+            fl0 = g["flights"][0]
+            g["flights"] = [fl0]
+            g["well"] = None
+            g["winder_polys"] = g["winder_polys"][:2]
+            g["winder_nums"] = g["winder_nums"][:2]
+            lx, ly, lw, lh = g["landing"]
+            if fl0["axis"] == "x":
+                ti = (lx, ly + lh) if fl0["dir"] > 0 else (lx + lw, ly + lh)
+                cb = (lx + lw, ly) if fl0["dir"] > 0 else (lx, ly)
+            else:
+                ti = (lx + lw, ly) if fl0["dir"] > 0 else (lx + lw, ly + lh)
+                cb = (lx, ly + lh) if fl0["dir"] > 0 else (lx, ly)
+            g["winders"] = [(ti[0], ti[1], cb[0], cb[1])]
+            g["arrows"] = g["arrows"][:1]
 
         # a three-flight stair has two landings; the others have one
         # the office sheets draw NO landing box when the turn is winders —

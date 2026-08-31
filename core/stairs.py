@@ -339,3 +339,34 @@ def _arrows(s, flights, half):
     if half and s.show_dn and len(flights) > 1:
         out.append({**path(flights[1]), "label": s.dn_label or "DN"})
     return out
+
+
+def clip_to_walls(s, plan):
+    """A copy of the stair whose block is pulled back to the INNER FACES of
+    any wall it rides over - the sheet never draws treads across masonry."""
+    import copy
+    c = copy.copy(s)
+    x0, y0, x1, y1 = c.x, c.y, c.x + c.w, c.y + c.h
+    for w in getattr(plan, "walls", []):
+        t = (float(getattr(w, "thickness_in", 4.5) or 4.5) / 12.0) / 2.0 + 0.04
+        if abs(w.y1 - w.y2) < 0.05:                      # horizontal wall
+            lo, hi = min(w.x1, w.x2), max(w.x1, w.x2)
+            if hi < x0 + 0.2 or lo > x1 - 0.2:
+                continue
+            band0, band1 = w.y1 - t, w.y1 + t
+            if band0 < y1 <= band1 + 0.3 and y1 - band0 < 1.2:
+                y1 = band0                               # top edge pulled in
+            if band0 - 0.3 <= y0 < band1 and band1 - y0 < 1.2:
+                y0 = band1                               # bottom edge pulled in
+        elif abs(w.x1 - w.x2) < 0.05:                    # vertical wall
+            lo, hi = min(w.y1, w.y2), max(w.y1, w.y2)
+            if hi < y0 + 0.2 or lo > y1 - 0.2:
+                continue
+            band0, band1 = w.x1 - t, w.x1 + t
+            if band0 < x1 <= band1 + 0.3 and x1 - band0 < 1.2:
+                x1 = band0
+            if band0 - 0.3 <= x0 < band1 and band1 - x0 < 1.2:
+                x0 = band1
+    c.x, c.y = x0, y0
+    c.w, c.h = max(1.0, x1 - x0), max(1.0, y1 - y0)
+    return c

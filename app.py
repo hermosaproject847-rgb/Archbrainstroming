@@ -363,7 +363,9 @@ class Api:
         try:
             from core import model, stairs as _stairs
             p = model.Plan.from_dict(plan)
-            return {"ok": True, "geoms": [_stairs.build(s) for s in p.stairs]}
+            return {"ok": True,
+                    "geoms": [_stairs.build(_stairs.clip_to_walls(s, p))
+                              for s in p.stairs]}
         except Exception as e:
             return self._fail(e)
 
