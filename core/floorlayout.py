@@ -241,10 +241,17 @@ def draw(plan: Plan, dl: DrawList) -> None:
         gy0 = min(c.bounds[1] for _s, _r, c in grp)
         gx1 = max(c.bounds[2] for _s, _r, c in grp)
         gy1 = max(c.bounds[3] for _s, _r, c in grp)
-        rep = grp[0][0]                            # representative spec
+        # the representative spec = the one whose start the user actually SET
+        # (non-default), so editing any room of a continuous region moves the
+        # region's start; ties/none -> the first room
+        rep_i = next((k for k, (s2, _r2, _c2) in enumerate(grp)
+                      if (s2.start or "symmetry") != "symmetry"
+                      or getattr(s2, "start_dx", 0) or getattr(s2, "start_dy", 0)),
+                     0)
+        rep = grp[rep_i][0]
         ax = F.cut_pieces(gx1 - gx0, rep.tile_w, rep.spacer_mm)
         ay = F.cut_pieces(gy1 - gy0, rep.tile_h, rep.spacer_mm)
-        entry = _entry_point(plan, grp[0][1]) if (rep.start or "") == "entry" else None
+        entry = _entry_point(plan, grp[rep_i][1]) if (rep.start or "") == "entry" else None
         origin = _origin(gx0, gy0, gx1, gy1, rep, ax, ay, entry)
         if len(grp) > 1:
             # a CONTINUOUS region: one grid and one skirting run over the
@@ -270,7 +277,7 @@ def draw(plan: Plan, dl: DrawList) -> None:
                 _skirting(dl, plan, region, cut_open=False)
             for i, (s, room, clear) in enumerate(grp):
                 _draw_room(plan, room, clear, s, dl, origin=origin,
-                           draw_start=(i == 0), draw_skirt=False,
+                           draw_start=(i == rep_i), draw_skirt=False,
                            draw_grid=False)
         else:
             s, room, clear = grp[0]

@@ -369,9 +369,112 @@ def _stacks(plan, pts, runs, soil_out, waste_out, add, pipe):
     return notes
 
 
+def _porch(plan: Plan):
+    """The open forecourt. On a row-house plot the neighbours abut the side
+    walls, so there IS no side yard — the porch is the only open ground and
+    the drainage line belongs there."""
+    for key in ("porch", "parking", "court", "yard", "verandah"):
+        for r in plan.rooms:
+            if not getattr(r, "void", False) and key in (r.name or "").lower():
+                return r
+    return None
+
+
+def _drainage_porch(plan, porch, pts, runs, add, pipe):
+    """Row-house drainage (§5, §9): the gully trap, the chambers and the
+    external main all sit IN THE PORCH, and every run takes the SHORTEST
+    orthogonal route there — never a detour round the drawing / dining room."""
+    notes = []
+    x0, x1, y0, y1 = _bounds(plan)
+    px0, py0 = porch.x, porch.y
+    px1, py1 = porch.x + porch.w, porch.y + porch.h
+    # which porch edge sits on the plot boundary = the road front
+    d = {"S": abs(py0 - y0), "N": abs(y1 - py1),
+         "W": abs(px0 - x0), "E": abs(x1 - px1)}
+    front = min(d, key=d.get)
+    horiz = front in ("S", "N")            # the chamber line runs along x
+    line = ((py0 + 1.2) if front == "S" else (py1 - 1.2)) if horiz else \
+           ((px0 + 1.2) if front == "W" else (px1 - 1.2))
+    lo, hi = (px0 + 1.0, px1 - 1.0) if horiz else (py0 + 1.0, py1 - 1.0)
+
+    def on_line(v):
+        v = max(lo, min(hi, v))
+        return (v, line) if horiz else (line, v)
+
+    ss = next((q for q in pts if q.code == "SS"), None)
+    ws = next((q for q in pts if q.code == "WS"), None)
+    chambers = []
+    if ss is not None:
+        icx, icy = on_line(ss.x if horiz else ss.y)
+        ic = add("IC", icx, icy, porch.name, "SOIL", P.D_SOIL)
+        chambers.append(ic)
+        mid = (ss.x, icy) if horiz else (icx, ss.y)
+        pipe("SOIL", [(ss.x, ss.y), mid, (icx, icy)], P.D_SOIL,
+             "soil stack DIRECT to the porch chamber — shortest run")
+    if ws is not None:
+        wv = max(lo, min(hi, (ws.x if horiz else ws.y) + 2.2))
+        if chambers:                        # keep the two chambers apart
+            c0v = chambers[0].x if horiz else chambers[0].y
+            if abs(c0v - wv) < 2.0:
+                wv = c0v - 2.5 if c0v - 2.5 >= lo else c0v + 2.5
+                wv = max(lo, min(hi, wv))
+        gxy = on_line(wv)
+        back = 1.6 if front in ("S", "W") else -1.6
+        gt_xy = (gxy[0], gxy[1] + back) if horiz else (gxy[0] + back, gxy[1])
+        gt = add("GT", gt_xy[0], gt_xy[1], porch.name, "WASTE",
+                 P.D_WASTE_STACK)
+        mid = (ws.x, gt.y) if horiz else (gt.x, ws.y)
+        pipe("WASTE", [(ws.x, ws.y), mid, (gt.x, gt.y)], P.D_WASTE_STACK,
+             "waste stack to the gully trap in the porch — shortest run")
+        ic = add("IC", gxy[0], gxy[1], porch.name, "WASTE", P.D_EXT_DRAIN)
+        chambers.append(ic)
+        pipe("WASTE", [(gt.x, gt.y), (gxy[0], gxy[1])], P.D_EXT_DRAIN,
+             "gully trap to the chamber")
+        notes.append("Two-pipe system: the soil stack enters the chamber "
+                     "directly; only the waste stack passes a gully trap.")
+
+    # the main runs along the porch line, inverts computed, and leaves the
+    # plot through the road front
+    chambers.sort(key=(lambda c: c.x) if horiz else (lambda c: c.y))
+    prev = None
+    for i, c in enumerate(chambers, start=1):
+        c.tag = f"IC-{i}"
+        c.cover_m = 0.0
+        if prev is None:
+            c.invert_m = -0.60
+        else:
+            dd = math.dist((prev.x, prev.y), (c.x, c.y))
+            c.invert_m = P.invert_after(prev.invert_m, dd,
+                                        P.SLOPES[("EXT", 160)])
+            pipe("SOIL", [(prev.x, prev.y), (c.x, c.y)], P.D_EXT_DRAIN,
+                 "external main along the porch")
+        if (c.cover_m - c.invert_m) * 1000 < P.IC_MIN_DEPTH_MM:
+            c.invert_m = c.cover_m - P.IC_MIN_DEPTH_MM / 1000.0
+        depth = (c.cover_m - c.invert_m) * 1000
+        c.note = (f"{P.chamber_size(depth)} chamber, cover {c.cover_m:+.3f}, "
+                  f"invert {c.invert_m:+.3f}")
+        prev = c
+    if prev is not None:
+        out_xy = {"S": (prev.x, y0 - 2.0), "N": (prev.x, y1 + 2.0),
+                  "W": (x0 - 2.0, prev.y), "E": (x1 + 2.0, prev.y)}[front]
+        pipe("SOIL", [(prev.x, prev.y), out_xy], P.D_EXT_DRAIN,
+             "external main out through the road front")
+        notes.append(f"Row-house plot: drainage line in the {porch.name} "
+                     f"(no side yard — the neighbours abut the walls); "
+                     f"external main {P.D_EXT_DRAIN} at "
+                     f"1:{P.SLOPES[('EXT', 160)]:g} leaves through the road "
+                     f"front; last chamber inverts at {prev.invert_m:+.3f} m "
+                     "— the intercepting chamber. VERIFY against the sewer.")
+    return chambers, notes
+
+
 def _drainage(plan, pts, runs, soil_out, waste_out, side, add, pipe):
     """§5, §9 — soil DIRECT to the chamber, waste through a gully trap first.
-    Chambers at every junction and at not more than 30 m, inverts computed."""
+    Chambers at every junction and at not more than 30 m, inverts computed.
+    With a porch on the plan the whole line moves THERE (row-house rule)."""
+    porch = _porch(plan)
+    if porch is not None:
+        return _drainage_porch(plan, porch, pts, runs, add, pipe)
     notes = []
     chambers = []
 
