@@ -340,34 +340,52 @@ def _door_point(plan: Plan, room):
 def _stacks(plan, pts, runs, soil_out, waste_out, add, pipe):
     """§8 — one soil stack, one waste stack, a vent and the down-takes, each
     tagged so vertical continuity is checkable plan to plan, each with a
-    cleanout at its base."""
+    cleanout at its base. On a row-house plot the stacks sit at the FIXED
+    site by the porch wall (`_stack_site`) — the same x,y on every floor, so
+    the first floor's pipes drop exactly onto the ground floor's gully trap
+    and chamber line."""
     notes = []
+    site = _stack_site(plan)
     if soil_out:
-        sx, sy = soil_out[0][0]
-        st = add("SS", sx, sy, soil_out[0][1], "SOIL", P.D_SOIL, tag="SS-1")
-        add("CO", sx + 0.8, sy, soil_out[0][1], "SOIL", P.D_SOIL, tag="CO-1")
+        if site is not None:
+            sx, sy = site["ss"]
+            room0 = site["porch"].name
+        else:
+            (sx, sy), room0 = soil_out[0][0], soil_out[0][1]
+        st = add("SS", sx, sy, room0, "SOIL", P.D_SOIL, tag="SS-1")
+        add("CO", sx + 0.8, sy, room0, "SOIL", P.D_SOIL, tag="CO-1")
         _bx0, _bx1, _by0, _by1 = _bounds(plan)
         vp = add("VP", min(max(sx, _bx0 + 0.3), _bx1 - 0.3),
                  min(max(sy + 1.1, _by0 + 0.3), _by1 - 0.3),
-                 soil_out[0][1], "VENT", P.D_VENT, tag="VP-1")
+                 room0, "VENT", P.D_VENT, tag="VP-1")
         pipe("VENT", [(st.x, st.y), (vp.x, vp.y)], P.D_VENT,
              "vent stack, 600 above terrace with a cowl")
-        for (cx, cy), rn in soil_out[1:]:
+        for (cx, cy), rn in (soil_out if site is not None else soil_out[1:]):
             pipe("SOIL", [(cx, cy), (st.x, st.y)], P.D_SOIL,
                  "WC branch to the soil stack")
         notes.append("Soil stack SS-1 110 with vent VP-1 75 taken 600 above "
                      "the terrace with a cowl; cleanout CO-1 at its base.")
     if waste_out:
-        wx, wy = waste_out[0].x, waste_out[0].y
-        ws = add("WS", wx, wy - 0.9, waste_out[0].room, "WASTE",
-                 P.D_WASTE_STACK, tag="WS-1")
-        add("CO", wx + 0.8, wy - 0.9, waste_out[0].room, "WASTE",
+        if site is not None:
+            wx, wy = site["ws"]
+            ws = add("WS", wx, wy, site["porch"].name, "WASTE",
+                     P.D_WASTE_STACK, tag="WS-1")
+        else:
+            wx, wy = waste_out[0].x, waste_out[0].y
+            ws = add("WS", wx, wy - 0.9, waste_out[0].room, "WASTE",
+                     P.D_WASTE_STACK, tag="WS-1")
+        add("CO", ws.x + 0.8, ws.y, ws.room, "WASTE",
             P.D_WASTE_STACK, tag="CO-2")
         for t in waste_out:
             pipe("WASTE", [(t.x, t.y), (ws.x, ws.y)], P.D_WASTE_STACK,
                  "nahani trap to the waste stack")
         notes.append("Waste stack WS-1 75 collects the nahani traps; "
                      "cleanout CO-2 at its base.")
+    if site is not None and (soil_out or waste_out):
+        notes.append("Row-house rule: both stacks drop AGAINST THE WALL by "
+                     f"the {site['porch'].name}, to one side clear of the "
+                     "entry — the same point on every floor, directly over "
+                     "the gully trap / chamber line.")
     return notes
 
 
@@ -386,62 +404,121 @@ def _porch(plan: Plan):
     return None
 
 
-def _drainage_porch(plan, porch, pts, runs, add, pipe):
-    """Row-house drainage (§5, §9): the gully trap, the chambers and the
-    external main all sit IN THE PORCH, and every run takes the SHORTEST
-    orthogonal route there — never a detour round the drawing / dining room."""
-    notes = []
+def _porch_front(plan: Plan, porch) -> str:
+    """The road-front edge. On a row-house plot the neighbours abut the LONG
+    sides, so the road is on a SHORT side — pick the nearer short-side edge.
+    The rule is pure plot geometry, so EVERY floor computes the same front
+    (porch below, open terrace above) and the stacks line up plan over plan."""
     x0, x1, y0, y1 = _bounds(plan)
     px0, py0 = porch.x, porch.y
     px1, py1 = porch.x + porch.w, porch.y + porch.h
-    # which porch edge sits on the plot boundary = the road front
     d = {"S": abs(py0 - y0), "N": abs(y1 - py1),
          "W": abs(px0 - x0), "E": abs(x1 - px1)}
-    front = min(d, key=d.get)
-    horiz = front in ("S", "N")            # the chamber line runs along x
-    line = ((py0 + 1.2) if front == "S" else (py1 - 1.2)) if horiz else \
-           ((px0 + 1.2) if front == "W" else (px1 - 1.2))
-    lo, hi = (px0 + 1.0, px1 - 1.0) if horiz else (py0 + 1.0, py1 - 1.0)
+    cand = ("S", "N") if (y1 - y0) >= (x1 - x0) else ("W", "E")
+    return min(cand, key=lambda k: d[k])
 
-    def on_line(v):
-        v = max(lo, min(hi, v))
-        return (v, line) if horiz else (line, v)
 
+def _stack_site(plan: Plan):
+    """The ONE place the house's stacks come down: against the wall where the
+    building meets the porch, to ONE SIDE — clear of the entry — so every
+    floor drops its pipes at the SAME x,y, straight over the gully trap and
+    the chamber line below (user rule: 'pipe wall ke sahare utrenge')."""
+    porch = _porch(plan)
+    if porch is None:
+        return None
+    x0, x1, y0, y1 = _bounds(plan)
+    px0, py0 = porch.x, porch.y
+    px1, py1 = porch.x + porch.w, porch.y + porch.h
+    front = _porch_front(plan, porch)
+    horiz = front in ("S", "N")
+    lo, hi = (px0, px1) if horiz else (py0, py1)
+    # the entry: doors / gates ON THE HOUSE WALL or the ROAD EDGE of the
+    # porch (a door in a side wall is not the entry path) — the stacks go to
+    # the side FARTHER from them. No entry on this floor -> the near end
+    # (lo + 1.3), the same deterministic end on every floor.
+    wall_edges = ((py1, py0) if front == "S" else (py0, py1)) if horiz else \
+                 ((px1, px0) if front == "W" else (px0, px1))
+    mids = []
+    for o in plan.openings:
+        if not (getattr(o, "is_door", False) or o.type in ("gate", "open")):
+            continue
+        w = plan.wall(o.wall_id)
+        if w is None:
+            continue
+        try:
+            m = w.point_at(o.pos + o.width / 2)
+        except Exception:
+            continue
+        if not (px0 - 0.5 <= m[0] <= px1 + 0.5
+                and py0 - 0.5 <= m[1] <= py1 + 0.5):
+            continue
+        across = m[1] if horiz else m[0]
+        if min(abs(across - wall_edges[0]), abs(across - wall_edges[1])) > 1.5:
+            continue                       # a side-wall door, not the entry
+        mids.append(m[0] if horiz else m[1])
+    if mids:
+        em = sum(mids) / len(mids)
+        side_v = lo + 1.3 if abs(em - lo) >= abs(hi - em) else hi - 1.3
+    else:
+        side_v = lo + 1.3
+    away = 1.8 if side_v < (lo + hi) / 2 else -1.8
+    if horiz:
+        sy = (py1 - 0.4) if front == "S" else (py0 + 0.4)
+        ss, ws = (side_v, sy), (side_v + away, sy)
+    else:
+        sx_ = (px1 - 0.4) if front == "W" else (px0 + 0.4)
+        ss, ws = (sx_, side_v), (sx_, side_v + away)
+    return {"porch": porch, "front": front, "horiz": horiz,
+            "ss": ss, "ws": ws, "side_v": side_v}
+
+
+def _drainage_porch(plan, porch, pts, runs, add, pipe):
+    """Row-house drainage (§5, §9): the stacks drop against the porch wall to
+    one side (clear of the entry), the gully trap and the chambers sit right
+    under them, and the external main runs straight down that side and out
+    through the road front — the shortest possible route. An upper floor
+    draws NO chambers: its stacks drop onto the ground floor's line."""
+    notes = []
+    x0, x1, y0, y1 = _bounds(plan)
+    site = _stack_site(plan)
+    front = site["front"]
+    horiz = site["horiz"]
     ss = next((q for q in pts if q.code == "SS"), None)
     ws = next((q for q in pts if q.code == "WS"), None)
+    if "terrace" in (porch.name or "").lower():
+        if ss is not None or ws is not None:
+            notes.append("Upper floor: the soil / waste stacks drop straight "
+                         "down at this point — the gully trap and the "
+                         "chambers sit on the GROUND-FLOOR plan directly "
+                         "below (one house, one drainage).")
+        return [], notes
+    dvx, dvy = {"S": (0, -1), "N": (0, 1),
+                "W": (-1, 0), "E": (1, 0)}[front]     # toward the road
     chambers = []
     if ss is not None:
-        icx, icy = on_line(ss.x if horiz else ss.y)
-        ic = add("IC", icx, icy, porch.name, "SOIL", P.D_SOIL)
+        ic = add("IC", ss.x + dvx * 1.6, ss.y + dvy * 1.6, porch.name,
+                 "SOIL", P.D_SOIL)
         chambers.append(ic)
-        mid = (ss.x, icy) if horiz else (icx, ss.y)
-        pipe("SOIL", [(ss.x, ss.y), mid, (icx, icy)], P.D_SOIL,
-             "soil stack DIRECT to the porch chamber — shortest run")
+        pipe("SOIL", [(ss.x, ss.y), (ic.x, ic.y)], P.D_SOIL,
+             "soil stack drops by the wall, DIRECT to the chamber")
     if ws is not None:
-        wv = max(lo, min(hi, (ws.x if horiz else ws.y) + 2.2))
-        if chambers:                        # keep the two chambers apart
-            c0v = chambers[0].x if horiz else chambers[0].y
-            if abs(c0v - wv) < 2.0:
-                wv = c0v - 2.5 if c0v - 2.5 >= lo else c0v + 2.5
-                wv = max(lo, min(hi, wv))
-        gxy = on_line(wv)
-        back = 1.6 if front in ("S", "W") else -1.6
-        gt_xy = (gxy[0], gxy[1] + back) if horiz else (gxy[0] + back, gxy[1])
-        gt = add("GT", gt_xy[0], gt_xy[1], porch.name, "WASTE",
-                 P.D_WASTE_STACK)
-        mid = (ws.x, gt.y) if horiz else (gt.x, ws.y)
-        pipe("WASTE", [(ws.x, ws.y), mid, (gt.x, gt.y)], P.D_WASTE_STACK,
-             "waste stack to the gully trap in the porch — shortest run")
-        ic = add("IC", gxy[0], gxy[1], porch.name, "WASTE", P.D_EXT_DRAIN)
+        gt = add("GT", ws.x + dvx * 1.6, ws.y + dvy * 1.6, porch.name,
+                 "WASTE", P.D_WASTE_STACK)
+        pipe("WASTE", [(ws.x, ws.y), (gt.x, gt.y)], P.D_WASTE_STACK,
+             "waste stack drops by the wall to the gully trap")
+        base = ss if ss is not None else ws
+        ic = add("IC", base.x + dvx * 3.4, base.y + dvy * 3.4, porch.name,
+                 "WASTE", P.D_EXT_DRAIN)
         chambers.append(ic)
-        pipe("WASTE", [(gt.x, gt.y), (gxy[0], gxy[1])], P.D_EXT_DRAIN,
+        pipe("WASTE", [(gt.x, gt.y), (ic.x, ic.y)], P.D_EXT_DRAIN,
              "gully trap to the chamber")
         notes.append("Two-pipe system: the soil stack enters the chamber "
                      "directly; only the waste stack passes a gully trap.")
 
-    # the main runs along the porch line, inverts computed, and leaves the
-    # plot through the road front
-    chambers.sort(key=(lambda c: c.x) if horiz else (lambda c: c.y))
+    # the main runs down the chosen side of the porch — wall to road —
+    # inverts computed, and leaves the plot through the road front
+    chambers.sort(key={"S": (lambda c: -c.y), "N": (lambda c: c.y),
+                       "W": (lambda c: -c.x), "E": (lambda c: c.x)}[front])
     prev = None
     for i, c in enumerate(chambers, start=1):
         c.tag = f"IC-{i}"
@@ -612,17 +689,25 @@ def _supply(plan, pts, runs, side, add, pipe):
         # at the road front); the OHT sits above the stair / mumty.
         px0, py0 = porch.x, porch.y
         px1, py1 = porch.x + porch.w, porch.y + porch.h
-        d_ = {"S": abs(py0 - y0), "N": abs(y1 - py1),
-              "W": abs(px0 - x0), "E": abs(x1 - px1)}
-        front = min(d_, key=d_.get)
+        front = _porch_front(plan, porch)
+        # the potable tank goes on the OPPOSITE side of the porch to the
+        # stack / chamber line — never beside the sewer
+        _site = _stack_site(plan)
+        sv = _site["side_v"] if _site else None
         if front in ("S", "N"):
             ty = (py1 - 1.5) if front == "S" else (py0 + 1.5)
-            tx = px0 + 1.8
-            px_, py_ = min(px1 - 1.5, tx + 3.0), ty
+            left = sv is None or sv > (px0 + px1) / 2
+            tx = (px0 + 1.8) if left else (px1 - 1.8)
+            px_ = min(px1 - 1.5, tx + 3.0) if left else max(px0 + 1.5,
+                                                            tx - 3.0)
+            py_ = ty
         else:
             tx = (px1 - 1.5) if front == "W" else (px0 + 1.5)
-            ty = py0 + 1.8
-            px_, py_ = tx, min(py1 - 1.5, ty + 3.0)
+            low = sv is None or sv > (py0 + py1) / 2
+            ty = (py0 + 1.8) if low else (py1 - 1.8)
+            px_ = tx
+            py_ = min(py1 - 1.5, ty + 3.0) if low else max(py0 + 1.5,
+                                                           ty - 3.0)
         st = plan.stairs[0] if getattr(plan, "stairs", None) else None
         ohx = getattr(st, "x", None) if st is not None else None
         if ohx is not None:
@@ -636,14 +721,19 @@ def _supply(plan, pts, runs, side, add, pipe):
         tx, ty = _yard(plan, y0 + (y1 - y0) * 0.30, tside, 4.2)
         px_, py_ = _yard(plan, y0 + (y1 - y0) * 0.30 + 3.2, tside, 4.2)
         ohx, ohy = _yard(plan, y1 - 2.0, tside, 4.2)
-    add("UGT", tx, ty, "", "CW", P.D_CW_MAIN)
-    add("PUMP", px_, py_, "", "CW", P.D_CW_MAIN)
-    pipe("CW", [(tx, ty), (px_, py_)], P.D_CW_MAIN, "UG tank to the pump")
+    # an upper floor (open terrace, no porch) has NO UG tank or pump — they
+    # exist once, in the ground; only the OHT and the risers show here
+    upper = porch is not None and "terrace" in (porch.name or "").lower()
+    if not upper:
+        add("UGT", tx, ty, "", "CW", P.D_CW_MAIN)
+        add("PUMP", px_, py_, "", "CW", P.D_CW_MAIN)
+        pipe("CW", [(tx, ty), (px_, py_)], P.D_CW_MAIN, "UG tank to the pump")
     add("OHT", ohx, ohy, "", "CW", P.D_CW_MAIN)
-    pipe("CW", [(px_, py_), (px_, ohy), (ohx, ohy)], P.D_CW_MAIN,
-         "pump delivery riser to the OHT, NRV at delivery"
-         + (" — riser up in the porch, run at terrace level"
-            if porch is not None else ""))
+    if not upper:
+        pipe("CW", [(px_, py_), (px_, ohy), (ohx, ohy)], P.D_CW_MAIN,
+             "pump delivery riser to the OHT, NRV at delivery"
+             + (" — riser up in the porch, run at terrace level"
+                if porch is not None else ""))
 
     # THE DOWN-TAKE RUNS OUTSIDE THE BUILDING, never through a bedroom. Each
     # wet room is fed by a riser (CWD-k) just outside its OWN nearest external
@@ -834,9 +924,7 @@ def _garden(plan, pts, add):
     if porch is not None:
         px0, py0 = porch.x, porch.y
         px1, py1 = porch.x + porch.w, porch.y + porch.h
-        d_ = {"S": abs(py0 - y0), "N": abs(y1 - py1),
-              "W": abs(px0 - x0), "E": abs(x1 - px1)}
-        front = min(d_, key=d_.get)
+        front = _porch_front(plan, porch)
         if front in ("S", "N"):
             gy = (py0 + 0.8) if front == "S" else (py1 - 0.8)
             spots = [(px0 + 1.0, gy), (px1 - 1.0, gy)]
