@@ -597,26 +597,29 @@ def draw_stairs(plan: Plan, dl: DrawList) -> None:
                 # the sheet's fan line is 45 deg: its drop equals the column
                 # width, measured from the LOWER edge - not the stretched top
                 cyD = min(cy1, cy0 + _colw)
+                # the sheet's line RISES toward the outer wall: it springs
+                # from the inner corner (band meets column, lower edge) up
+                # to the outer side at 45 deg
                 if fl0["dir"] > 0:
-                    ti, cb = (cx0, cyD), (cx1, cy0)
-                    ext = [(cx0, cyD), (cx0, cyT), (cx1, cyT), (cx1, cy0)]
-                    wed = [(cx0, cyD), (cx1, cy0), (cx0, cy0)]
+                    ti, cb = (cx0, cy0), (cx1, cyD)
+                    ext = [(cx0, cy0), (cx0, cyT), (cx1, cyT), (cx1, cyD)]
+                    wed = [(cx0, cy0), (cx1, cyD), (cx1, cy0)]
                 else:
-                    ti, cb = (cx1, cyD), (cx0, cy0)
-                    ext = [(cx1, cyD), (cx1, cyT), (cx0, cyT), (cx0, cy0)]
-                    wed = [(cx1, cyD), (cx0, cy0), (cx1, cy0)]
+                    ti, cb = (cx1, cy0), (cx0, cyD)
+                    ext = [(cx1, cy0), (cx1, cyT), (cx0, cyT), (cx0, cyD)]
+                    wed = [(cx1, cy0), (cx0, cyD), (cx0, cy0)]
             else:
                 cx0, cx1, cy0, cy1 = fx, fx + fw, ly, ly + lh
                 cxT = _face_beyond(cx1, False, cy0, cy1)
                 cxD = min(cx1, cx0 + _colw)
                 if fl0["dir"] > 0:
-                    ti, cb = (cxD, cy0), (cx0, cy1)
-                    ext = [(cxD, cy0), (cxT, cy0), (cxT, cy1), (cx0, cy1)]
-                    wed = [(cxD, cy0), (cx0, cy1), (cx0, cy0)]
+                    ti, cb = (cx0, cy0), (cxD, cy1)
+                    ext = [(cx0, cy0), (cxT, cy0), (cxT, cy1), (cxD, cy1)]
+                    wed = [(cx0, cy0), (cxD, cy1), (cx0, cy1)]
                 else:
-                    ti, cb = (cxD, cy1), (cx0, cy0)
-                    ext = [(cxD, cy1), (cxT, cy1), (cxT, cy0), (cx0, cy0)]
-                    wed = [(cxD, cy1), (cx0, cy0), (cx0, cy1)]
+                    ti, cb = (cx0, cy1), (cxD, cy0)
+                    ext = [(cx0, cy1), (cxT, cy1), (cxT, cy0), (cxD, cy0)]
+                    wed = [(cx0, cy1), (cxD, cy0), (cx0, cy0)]
             g["winders"] = [(ti[0], ti[1], cb[0], cb[1])]
             g["winder_polys"] = [ext, wed]
             g["winder_nums"] = [last, last + 1]
