@@ -459,11 +459,22 @@ def _draw_room(plan, room, clear, s, dl, origin=None, draw_start=True,
             ax, ay = ep[0], ep[1]
         else:
             ax, ay = ox, oy
-        sx = min(xs, key=lambda v: abs(v - ax)) if xs else ox
-        sy = min(ys, key=lambda v: abs(v - ay)) if ys else oy
-        # clamp so the whole start tile sits inside the room floor
-        sx = min(max(sx, x0), max(x0, x1 - Tx))
-        sy = min(max(sy, y0), max(y0, y1 - Ty))
+        # the marker must sit ON the drawn grid: pick the grid CELL nearest
+        # the anchor whose whole tile lies INSIDE the floor polygon — never
+        # a clamped rect floating off the joints or poking past a wall
+        from shapely.geometry import box as _box
+        cand_x = [v for v in xs if v >= x0 - 1e-6 and v + Tx <= x1 + 1e-6]
+        cand_y = [v for v in ys if v >= y0 - 1e-6 and v + Ty <= y1 + 1e-6]
+        pairs = sorted(((vx, vy) for vx in cand_x for vy in cand_y),
+                       key=lambda p: (p[0] - ax) ** 2 + (p[1] - ay) ** 2)
+        ok = clear.buffer(0.05)
+        best = next(((vx, vy) for vx, vy in pairs
+                     if ok.contains(_box(vx, vy, vx + Tx, vy + Ty))), None)
+        if best is None:                    # tiny room: nearest cell, clamped
+            sx = min(max(pairs[0][0] if pairs else ox, x0), max(x0, x1 - Tx))
+            sy = min(max(pairs[0][1] if pairs else oy, y0), max(y0, y1 - Ty))
+        else:
+            sx, sy = best
         _start_tile(dl, sx, sy, sx + Tx, sy + Ty)
 
     # skirting run round the room's own floor (skip 0 = dado; a merged region
