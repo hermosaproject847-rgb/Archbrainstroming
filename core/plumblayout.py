@@ -374,11 +374,15 @@ def _stacks(plan, pts, runs, soil_out, waste_out, add, pipe):
 def _porch(plan: Plan):
     """The open forecourt. On a row-house plot the neighbours abut the side
     walls, so there IS no side yard — the porch is the only open ground and
-    the drainage line belongs there."""
-    for key in ("porch", "parking", "court", "yard", "verandah"):
-        for r in plan.rooms:
-            if not getattr(r, "void", False) and key in (r.name or "").lower():
-                return r
+    the drainage line belongs there. An upper floor has no porch: its OPEN
+    TERRACE (over the porch) is the open ground instead, so the row-house
+    rule still holds and nothing is drawn outside the plot line."""
+    for key in ("porch", "parking", "court", "yard", "verandah", "terrace"):
+        cands = [r for r in plan.rooms
+                 if not getattr(r, "void", False)
+                 and key in (r.name or "").lower()]
+        if cands:
+            return max(cands, key=lambda r: r.w * r.h)
     return None
 
 
