@@ -520,7 +520,34 @@ def draw_stairs(plan: Plan, dl: DrawList) -> None:
             g["well"] = None
             lx, ly, lw, lh = g["landing"]
             fx, fy, fw, fh = fl0["rect"]
-            last = int(fl0.get("first") or 1) + int(fl0["steps"]) - 1
+            # the sheet's own sizes: tread depth and the turn column width
+            _tread = float(getattr(s, "tread", 0) or 0) or (10.0 / 12.0)
+            _colw = float(getattr(s, "flight_width", 0) or 0) or fh
+            _run = (int(fl0["steps"]) - 1) * _tread
+            if fl0["axis"] == "x":
+                if fl0["dir"] > 0:                 # column against the right
+                    _cl = lx + lw - _colw
+                    lx, lw = _cl, _colw
+                    fx, fw = _cl - _run, _run
+                else:
+                    lx, lw = lx, _colw
+                    fx, fw = lx + _colw, _run
+            else:
+                if fl0["dir"] > 0:
+                    _cl = ly + lh - _colw
+                    ly, lh = _cl, _colw
+                    fy, fh = _cl - _run, _run
+                else:
+                    ly, lh = ly, _colw
+                    fy, fh = ly + _colw, _run
+            fl0["rect"] = (fx, fy, fw, fh)
+            g["landing"] = (lx, ly, lw, lh)
+            # the band holds steps-1 treads (the last tread IS the extension
+            # in the column), so the risers land at the true tread spacing
+            g["_gf_last"] = int(fl0.get("first") or 1) + int(fl0["steps"]) - 1
+            fl0["steps"] = max(2, int(fl0["steps"]) - 1)
+            last = g.get("_gf_last") or (int(fl0.get("first") or 1)
+                                          + int(fl0["steps"]) - 1)
             # the turn column sits IN LINE WITH THE BAND - the band's own
             # height, never the full landing running through the rooms below
             if fl0["axis"] == "x":
