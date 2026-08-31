@@ -540,6 +540,27 @@ def draw_stairs(plan: Plan, dl: DrawList) -> None:
                 else:
                     ly, lh = ly, _colw
                     fy, fh = ly + _colw, _run
+            # WALL-TO-WALL: the sheet butts the band against BOTH faces
+            # (the fill sits directly on the risers) - stretch the band's
+            # height to the wall face above, when one lies within 0.9 ft
+            if fl0["axis"] == "x":
+                _top = fy + fh
+                for w2 in plan.walls:
+                    if abs(w2.y1 - w2.y2) > 0.05:
+                        continue
+                    face = w2.y1 - (float(w2.thickness_in or 4.5) / 12.0) / 2.0
+                    if 0.02 < face - _top < 0.9 and                        max(w2.x1, w2.x2) > fx + 0.5 and min(w2.x1, w2.x2) < fx + fw - 0.5:
+                        fh = face - fy
+                        break
+            else:
+                _rt = fx + fw
+                for w2 in plan.walls:
+                    if abs(w2.x1 - w2.x2) > 0.05:
+                        continue
+                    face = w2.x1 - (float(w2.thickness_in or 4.5) / 12.0) / 2.0
+                    if 0.02 < face - _rt < 0.9 and                        max(w2.y1, w2.y2) > fy + 0.5 and min(w2.y1, w2.y2) < fy + fh - 0.5:
+                        fw = face - fx
+                        break
             fl0["rect"] = (fx, fy, fw, fh)
             g["landing"] = (lx, ly, lw, lh)
             # the band holds steps-1 treads (the last tread IS the extension
