@@ -488,16 +488,34 @@ def draw_stairs(plan: Plan, dl: DrawList) -> None:
             fl0 = g["flights"][0]
             g["flights"] = [fl0]
             g["well"] = None
-            g["winder_polys"] = g["winder_polys"][:2]
-            g["winder_nums"] = g["winder_nums"][:2]
             lx, ly, lw, lh = g["landing"]
+            fx, fy, fw, fh = fl0["rect"]
+            last = int(fl0.get("first") or 1) + int(fl0["steps"]) - 1
+            # the turn column sits IN LINE WITH THE BAND - the band's own
+            # height, never the full landing running through the rooms below
             if fl0["axis"] == "x":
-                ti = (lx, ly + lh) if fl0["dir"] > 0 else (lx + lw, ly + lh)
-                cb = (lx + lw, ly) if fl0["dir"] > 0 else (lx, ly)
+                cx0, cx1, cy0, cy1 = lx, lx + lw, fy, fy + fh
+                if fl0["dir"] > 0:
+                    ti, cb = (cx0, cy1), (cx1, cy0)
+                    ext = [(cx0, cy1), (cx1, cy1), (cx1, cy0)]
+                    wed = [(cx0, cy1), (cx1, cy0), (cx0, cy0)]
+                else:
+                    ti, cb = (cx1, cy1), (cx0, cy0)
+                    ext = [(cx1, cy1), (cx0, cy1), (cx0, cy0)]
+                    wed = [(cx1, cy1), (cx0, cy0), (cx1, cy0)]
             else:
-                ti = (lx + lw, ly) if fl0["dir"] > 0 else (lx + lw, ly + lh)
-                cb = (lx, ly + lh) if fl0["dir"] > 0 else (lx, ly)
+                cx0, cx1, cy0, cy1 = fx, fx + fw, ly, ly + lh
+                if fl0["dir"] > 0:
+                    ti, cb = (cx1, cy0), (cx0, cy1)
+                    ext = [(cx1, cy0), (cx1, cy1), (cx0, cy1)]
+                    wed = [(cx1, cy0), (cx0, cy1), (cx0, cy0)]
+                else:
+                    ti, cb = (cx1, cy1), (cx0, cy0)
+                    ext = [(cx1, cy1), (cx1, cy0), (cx0, cy0)]
+                    wed = [(cx1, cy1), (cx0, cy0), (cx0, cy1)]
             g["winders"] = [(ti[0], ti[1], cb[0], cb[1])]
+            g["winder_polys"] = [ext, wed]
+            g["winder_nums"] = [last, last + 1]
             g["arrows"] = g["arrows"][:1]
 
         # a three-flight stair has two landings; the others have one
