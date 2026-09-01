@@ -159,14 +159,35 @@ def _track(dl, p):
 
 
 # ------------------------------------------------------------------ fans
+def _fan_box(dl, cx, cy, r):
+    """The GI FAN BOX (hook box) cast into the slab at every fan point.
+
+    A fan never hangs off a ceiling rose - it hangs off a 150 mm octagonal
+    hook box with an MS hook bar through it, and the conduits land ON that
+    box. The conduiting layout has to show it, otherwise the electrician has
+    nothing to cast in before the slab is poured.
+    """
+    pts = [(cx + r * math.cos(math.radians(22.5 + 45 * i)),
+            cy + r * math.sin(math.radians(22.5 + 45 * i))) for i in range(8)]
+    dl.poly(pts, layer=L, closed=True)
+    # the hook bar across the box, with its two fixing lugs
+    dl.line(cx - r * 0.82, cy, cx + r * 0.82, cy, layer=L)
+    for sx in (-1, 1):
+        dl.line(cx + sx * r * 0.82, cy - r * 0.20,
+                cx + sx * r * 0.82, cy + r * 0.20, layer=L)
+
+
 def _fan(dl, p):
     """Ceiling fan, drawn the way a services drawing draws it: a hub with
     three swept blades and a rim. No dashed sweep circle — the blades already
     say how far it reaches, and the extra circle is what made the sheet look
     busy."""
     r = (p.size or 4.0) / 2
-    hub = r * 0.16
-    dl.items.append(_circle(p.x, p.y, hub))
+    # a 150 mm octagonal GI fan box, drawn at TRUE size - the blades spring
+    # from its edge, so the box itself reads as the hub instead of a second
+    # circle piled on one
+    hub = 0.246
+    _fan_box(dl, p.x, p.y, hub)
     dl.items.append(_circle(p.x, p.y, hub * 0.45))
     for i in range(3):
         a0 = math.radians(120 * i + (p.angle or 0))

@@ -995,6 +995,18 @@ def design(plan_dict: dict) -> tuple[dict, list[str]]:
     res["elec"] = [asdict(p) for p in out]
     res["circuits"] = [asdict(c) for c in circuits]
     res["elec_summary"] = summary
+    # The LOOPING the drawing decided, handed to the 3D view as well. Without
+    # this the 3D re-derived its own nearest-first chain from a board's whole
+    # controls list, so a loop wandered out of the room and across the slab.
+    # switches() is strictly per ROOM and per DUTY - one source of truth.
+    res["elec_loops"] = [
+        {"id": s.id, "duty": s.duty, "room": s.room,
+         "board": (None if s.board is None else
+                   {"x": s.board.x, "y": s.board.y,
+                    "height_mm": s.board.height_mm}),
+         "seq": [{"x": p.x, "y": p.y, "tag": p.tag, "code": p.code}
+                 for p in s.seq]}
+        for s in looping.switches(plan)]
     return res, notes
 
 
