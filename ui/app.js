@@ -2116,19 +2116,21 @@ function syncSections(srcPlan) {
   });
 }
 
-/* run a stage (furniture / electrical / plumbing / flooring) on EVERY floor
-   that has a plan and store each result back, so one click lays the stage over
-   the whole project. Returns [{floor, r}] — check every r.ok. */
+/* run a stage (furniture / electrical / plumbing / flooring) on the ACTIVE
+   floor only and store the result back. Each floor generates its own stage;
+   the other floors' layouts stay exactly as they are — regenerating the
+   First Floor's electrical must never reset the Ground Floor's (user rule).
+   Returns [{floor, r}] — check every r.ok. */
 async function forEachFloorPlan(fn) {
-  const out = [];
-  const list = (S.floors || []).filter(f => f && f.plan);
-  const targets = list.length ? list : (S.plan ? [S.floors[S.active]] : []);
-  for (const f of targets) {
-    const r = await fn(f.plan);
-    if (r && r.ok && r.plan) f.plan = r.plan;
-    out.push({ floor: f, r });
-  }
-  return out;
+  const f = (S.floors || [])[S.active];
+  if (!f || !f.plan) return [];
+  const r = await fn(f.plan);
+  if (r && r.ok && r.plan) f.plan = r.plan;
+  return [{ floor: f, r }];
+}
+function activeFloorName() {
+  const f = (S.floors || [])[S.active];
+  return (f && f.name) || "this floor";
 }
 function stageTotal(res, key) {
   return res.reduce((s, x) => s + ((x.r && x.r[key]) || 0), 0);
@@ -3754,9 +3756,8 @@ $("#btnElec").onclick = async () => {
       + `Ctrl+Z undoes it. Lay out again?`)) return;
   pushUndo();
   const multi = allFloorsView();
-  busy(true, multi
-    ? "Laying out electrical on EVERY floor — fans, boards, circuits, load…"
-    : "Laying out the electrical — lux targets, fans, boards, circuits and load…");
+  busy(true, `Laying out the electrical on ${activeFloorName()} — `
+    + "lux targets, fans, boards, circuits and load…");
   const res = await forEachFloorPlan(p => api().electrify(p));
   busy(false);
   const bad = stageFailed(res); if (bad) return fail(bad);
@@ -3766,7 +3767,7 @@ $("#btnElec").onclick = async () => {
   markDirty(); buildTables(); redraw();
   tab("elec");
   const total = stageTotal(res, "count"), circ = stageTotal(res, "circuits");
-  status((multi ? `across ${res.length} floors — ` : "")
+  status((multi ? `${activeFloorName()} — ` : "")
     + `${total} point(s), ${circ} circuit(s) · furniture hidden — `
     + `turn it back on in the Layers tab`);
 };
@@ -3780,9 +3781,8 @@ $("#btnFloor").onclick = async () => {
     return;
   pushUndo();
   const multi = allFloorsView();
-  busy(true, multi
-    ? "Setting flooring on EVERY floor — tile grid, spacers, start, skirting…"
-    : "Setting the flooring — tile grid, spacers, start points, skirting and levels…");
+  busy(true, `Setting the flooring on ${activeFloorName()} — `
+    + "tile grid, spacers, start points, skirting and levels…");
   const res = await forEachFloorPlan(p => api().floor(p));
   busy(false);
   const bad = stageFailed(res); if (bad) return fail(bad);
@@ -3792,7 +3792,7 @@ $("#btnFloor").onclick = async () => {
   markDirty(); buildTables(); redraw();
   tab("flooring");
   const total = stageTotal(res, "count");
-  status((multi ? `across ${res.length} floors — ` : "")
+  status((multi ? `${activeFloorName()} — ` : "")
     + `${total} room(s) floored · edit material, size, spacer, start, skirting `
     + `and drop per room — furniture, plumbing and electrical hidden`);
 };
@@ -4108,9 +4108,8 @@ $("#btnPlumb").onclick = async () => {
       + `replaces all of it.\n\nCtrl+Z undoes it. Lay out again?`)) return;
   pushUndo();
   const multi = allFloorsView();
-  busy(true, multi
-    ? "Laying out plumbing on EVERY floor — water, soil, waste, rain, chambers…"
-    : "Laying out the plumbing — water, soil, waste, rain water and the chambers…");
+  busy(true, `Laying out the plumbing on ${activeFloorName()} — `
+    + "water, soil, waste, rain water and the chambers…");
   const res = await forEachFloorPlan(p => api().plumb(p));
   busy(false);
   const bad = stageFailed(res); if (bad) return fail(bad);
@@ -4119,7 +4118,7 @@ $("#btnPlumb").onclick = async () => {
   LAYERS.groups.forEach(g => S.layerState[g.key] = want.has(g.key));
   markDirty(); buildTables(); redraw();
   const total = stageTotal(res, "count"), pipes = stageTotal(res, "pipes");
-  status((multi ? `across ${res.length} floors — ` : "")
+  status((multi ? `${activeFloorName()} — ` : "")
     + `${total} plumbing point(s), ${pipes} pipe run(s) · only sanitary and `
     + `kitchen fixtures shown — the rest is off in the Layers tab`);
 };
@@ -4133,19 +4132,17 @@ $("#btnFurn").onclick = async () => {
       + `resizes you made.\n\nCtrl+Z undoes it. Lay out again?`)) return;
   pushUndo();
   const multi = allFloorsView();
-  busy(true, multi
-    ? "Laying out furniture on EVERY floor — sizes, clearances and Vaastu…"
-    : "Laying out the furniture — sizes, clearances and Vaastu…");
+  busy(true, `Laying out the furniture on ${activeFloorName()} — `
+    + "sizes, clearances and Vaastu…");
   const res = await forEachFloorPlan(p => api().furnish(p));
   busy(false);
   const bad = stageFailed(res); if (bad) return fail(bad);
-  if (S.floors && S.floors.length) S.floors.forEach(f => clampFurniture(f.plan));
-  else clampFurniture(S.plan);
+  clampFurniture(S.plan);            // only this floor's layout changed
   markDirty(); buildTables(); redraw();
   tab("furniture");
   const total = stageTotal(res, "count");
   status(multi
-    ? `${total} piece(s) placed across ${res.length} floors — see the Vaastu tab`
+    ? `${total} piece(s) placed on ${activeFloorName()} — see the Vaastu tab`
     : `${total} piece(s) placed — see the Vaastu tab for compliance`);
 };
 $("#notesCancel").onclick = () => $("#notesWrap").classList.add("hidden");
