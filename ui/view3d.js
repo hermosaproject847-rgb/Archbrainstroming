@@ -837,13 +837,74 @@
       let sN = SLOPE3D[r.system] || 0;
       if (r.system === "WASTE" && dia < 75) sN = 30;
       const fall = sN ? 1 / sN : 0;            // supply runs stay level
-      const cum = [0];
-      for (let i = 1; i < P.length; i++)
-        cum[i] = cum[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]);
       const rg = new THREE.Group();            // whole run = ONE editable thing
       rg.userData.edit = { kind: "pipe", ref: r, plan };
       const supply = (r.system === "CW" || r.system === "HW");
       const isACD = r.system === "ACD";
+      // ---- STAIR RULE (every system): no pipe crosses a staircase
+      // footprint — a crossing segment detours round the box perimeter
+      const sBoxes = (plan.stairs || []).map(s2 =>
+        [s2.x - 0.4, s2.y - 0.4, s2.x + s2.w + 0.4, s2.y + s2.h + 0.4]);
+      const boxOf = p => sBoxes.find(b2 =>
+        p[0] > b2[0] && p[0] < b2[2] && p[1] > b2[1] && p[1] < b2[3]) || null;
+      const inBox = p => !!boxOf(p);
+      const edgeHit = (a, b, b2) => {          // first crossing of box b2 on a->b
+        let best = null;
+        const test = (t2, x2, y2) => {
+          if (t2 > 0.0001 && t2 < 0.9999 && (best == null || t2 < best.t))
+            best = { t: t2, p: [x2, y2] };
+        };
+        for (const e of [b2[0], b2[2]])
+          if ((a[0] - e) * (b[0] - e) < 0) {
+            const t2 = (e - a[0]) / (b[0] - a[0]);
+            const y2 = a[1] + (b[1] - a[1]) * t2;
+            if (y2 > b2[1] - 0.01 && y2 < b2[3] + 0.01) test(t2, e, y2);
+          }
+        for (const e of [b2[1], b2[3]])
+          if ((a[1] - e) * (b[1] - e) < 0) {
+            const t2 = (e - a[1]) / (b[1] - a[1]);
+            const x2 = a[0] + (b[0] - a[0]) * t2;
+            if (x2 > b2[0] - 0.01 && x2 < b2[2] + 0.01) test(t2, x2, e);
+          }
+        return best;
+      };
+      const detourOnly = pts => {
+        const out2 = [pts[0]];
+        for (let i = 0; i < pts.length - 1; i++) {
+          let a = out2[out2.length - 1]; const b = pts[i + 1];
+          let guard = 0;
+          while (guard++ < 6 && !inBox(a) && !inBox(b)) {
+            let cross = null, cbx = null;
+            for (const b2 of sBoxes) {
+              const h1 = edgeHit(a, b, b2);
+              if (h1 && (!cross || h1.t < cross.t)) { cross = h1; cbx = b2; }
+            }
+            if (!cross) break;
+            const h2 = edgeHit(cross.p, b, cbx) || { p: b };
+            const horiz = Math.abs(b[1] - a[1]) < Math.abs(b[0] - a[0]);
+            let via1, via2;
+            if (horiz) {
+              const ey = (a[1] - cbx[1]) < (cbx[3] - a[1]) ? cbx[1] : cbx[3];
+              via1 = [cross.p[0], ey]; via2 = [h2.p[0], ey];
+            } else {
+              const ex = (a[0] - cbx[0]) < (cbx[2] - a[0]) ? cbx[0] : cbx[2];
+              via1 = [ex, cross.p[1]]; via2 = [ex, h2.p[1]];
+            }
+            out2.push(cross.p, via1, via2, h2.p);
+            a = h2.p;
+          }
+          out2.push(b);
+        }
+        return out2;
+      };
+      if (!(supply || r.system === "VENT" || isACD) && sBoxes.length) {
+        const nP = detourOnly(P);
+        P.length = 0;
+        for (const p of nP) P.push(p);
+      }
+      const cum = [0];
+      for (let i = 1; i < P.length; i++)
+        cum[i] = cum[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]);
       if (supply || r.system === "VENT" || isACD) {
         // HIGH-LEVEL runs: supply + vent at ceiling / lintel height; the AC
         // CONDENSATE line also runs along the ceiling from the unit, on a
@@ -860,31 +921,6 @@
         // END lies under the stair (a toilet tap below the flights) leaves
         // the ceiling at the box edge and finishes as a LOW tail hugging the
         // floor — nothing hangs in the well.
-        const sBoxes = (plan.stairs || []).map(s2 =>
-          [s2.x - 0.4, s2.y - 0.4, s2.x + s2.w + 0.4, s2.y + s2.h + 0.4]);
-        const boxOf = p => sBoxes.find(b2 =>
-          p[0] > b2[0] && p[0] < b2[2] && p[1] > b2[1] && p[1] < b2[3]) || null;
-        const inBox = p => !!boxOf(p);
-        const edgeHit = (a, b, b2) => {        // first crossing of box b2 on a->b
-          let best = null;
-          const test = (t2, x2, y2) => {
-            if (t2 > 0.0001 && t2 < 0.9999 && (best == null || t2 < best.t))
-              best = { t: t2, p: [x2, y2] };
-          };
-          for (const e of [b2[0], b2[2]])
-            if ((a[0] - e) * (b[0] - e) < 0) {
-              const t2 = (e - a[0]) / (b[0] - a[0]);
-              const y2 = a[1] + (b[1] - a[1]) * t2;
-              if (y2 > b2[1] - 0.01 && y2 < b2[3] + 0.01) test(t2, e, y2);
-            }
-          for (const e of [b2[1], b2[3]])
-            if ((a[1] - e) * (b[1] - e) < 0) {
-              const t2 = (e - a[1]) / (b[1] - a[1]);
-              const x2 = a[0] + (b[0] - a[0]) * t2;
-              if (x2 > b2[0] - 0.01 && x2 < b2[2] + 0.01) test(t2, x2, e);
-            }
-          return best;
-        };
         // 1) trim a tail that starts / ends inside a stair box
         let hp = P.map(p => [p[0], p[1]]);
         const tails = [];                       // [[edgePt, ...insidePts]]
@@ -905,37 +941,7 @@
           inBox(hp[hp.length - 1]) && hp.every(inBox);
         if (wholeInside) { tails.push(hp.slice()); hp = []; }
         // 2) detour every remaining crossing round the box perimeter
-        const out2 = hp.length ? [hp[0]] : [];
-        for (let i = 0; i < hp.length - 1; i++) {
-          let a = hp[i]; const b = hp[i + 1];
-          let guard = 0;
-          while (guard++ < 6) {
-            let cross = null, cbx = null;
-            for (const b2 of sBoxes) {
-              const h1 = edgeHit(a, b, b2);
-              if (h1 && inBox([(h1.p[0] + b[0]) / 2, (h1.p[1] + b[1]) / 2])
-                  || (h1 && !inBox(b) && edgeHit(h1.p, b, b2))) {
-                if (!cross || h1.t < cross.t) { cross = h1; cbx = b2; }
-              }
-            }
-            if (!cross || inBox(b)) break;
-            const h2 = edgeHit(cross.p, b, cbx) ||
-                       { p: b };                 // exit point
-            const horiz = Math.abs(b[1] - a[1]) < Math.abs(b[0] - a[0]);
-            let via1, via2;
-            if (horiz) {                        // go round top or bottom
-              const ey = (a[1] - cbx[1]) < (cbx[3] - a[1]) ? cbx[1] : cbx[3];
-              via1 = [cross.p[0], ey]; via2 = [h2.p[0], ey];
-            } else {
-              const ex = (a[0] - cbx[0]) < (cbx[2] - a[0]) ? cbx[0] : cbx[2];
-              via1 = [ex, cross.p[1]]; via2 = [ex, h2.p[1]];
-            }
-            out2.push(cross.p, via1, via2, h2.p);
-            a = h2.p;
-          }
-          out2.push(b);
-        }
-        const P2 = out2;
+        const P2 = hp.length ? detourOnly(hp) : [];
         const cum2 = [0];
         for (let i = 1; i < P2.length; i++)
           cum2[i] = cum2[i - 1] +
@@ -2292,17 +2298,68 @@
     // floor, and footings exist ONLY under the ground floor (user rule).
     {
       const gfPlan = ((S.floors || [])[0] && S.floors[0].plan) || base;
-      const mSoling = new THREE.MeshLambertMaterial({ color: 0xc8bfa0 });
-      const mPCC = new THREE.MeshLambertMaterial({ color: 0xb5b9be });
-      const mFound = new THREE.MeshLambertMaterial({ color: 0xcbbda2 });
-      const mBeam = new THREE.MeshLambertMaterial({ color: 0x8d939c });
-      const mDPC = new THREE.MeshLambertMaterial({ color: 0x3a3f45 });
+      // every layer with ITS OWN texture, so the build-up reads like the
+      // section: RR stone blocks, pebble soling, speckled PCC, smooth
+      // concrete beam, near-black DPC (user: "sabko alag texture karo")
+      const cvTex = draw => {
+        const cv = document.createElement("canvas");
+        cv.width = cv.height = 128;
+        const c = cv.getContext("2d");
+        draw(c, 128, 128);
+        const t = new THREE.CanvasTexture(cv);
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        return t;
+      };
+      const stoneTex = cvTex((c, w, h) => {
+        c.fillStyle = "#c9b795"; c.fillRect(0, 0, w, h);
+        c.strokeStyle = "#8a7a5d"; c.lineWidth = 3;
+        for (let r = 0; r < 4; r++) {
+          const y = r * 32;
+          for (let i = 0; i < 4; i++) {
+            const x = ((i * 32 + (r % 2 ? 16 : 0)) % w);
+            const j = ((r * 7 + i * 13) % 5) - 2;
+            c.strokeRect(x + 1, y + 1 + j, 30, 30 - j);
+            c.fillStyle = (r + i) % 2 ? "#c2b08c" : "#cfbd9c";
+            c.fillRect(x + 3, y + 3 + j, 26, 26 - j);
+          }
+        }
+      });
+      const pebbleTex = cvTex((c, w, h) => {
+        c.fillStyle = "#cfc5aa"; c.fillRect(0, 0, w, h);
+        for (let i = 0; i < 42; i++) {
+          const x = (i * 37) % w, y = (i * 53) % h;
+          const rr = 6 + ((i * 11) % 7);
+          c.fillStyle = ["#b3a582", "#a3957a", "#bdb08e"][i % 3];
+          c.beginPath();
+          c.ellipse(x, y, rr, rr * 0.72, (i % 6) * 0.5, 0, 6.3);
+          c.fill();
+          c.strokeStyle = "#8d8166"; c.lineWidth = 1; c.stroke();
+        }
+      });
+      const pccTex = cvTex((c, w, h) => {
+        c.fillStyle = "#c6cad0"; c.fillRect(0, 0, w, h);
+        for (let i = 0; i < 240; i++) {
+          const x = (i * 29) % w, y = (i * 41) % h;
+          c.fillStyle = i % 3 ? "#aeb3ba" : "#93989f";
+          c.fillRect(x, y, 2, 2);
+        }
+      });
+      const texMat = (tex, rw, rh) => {
+        const t = tex.clone(); t.needsUpdate = true;
+        t.repeat.set(Math.max(1, rw / 2.5), Math.max(1, rh / 2.5));
+        return new THREE.MeshLambertMaterial({ map: t });
+      };
+      const mSolingT = (rw, rh) => texMat(pebbleTex, rw, rh);
+      const mPCCT = (rw, rh) => texMat(pccTex, rw, rh);
+      const mFoundT = (rw, rh) => texMat(stoneTex, rw, rh);
+      const mBeam = new THREE.MeshLambertMaterial({ color: 0x878d96 });
+      const mDPC = new THREE.MeshLambertMaterial({ color: 0x26282c });
       for (const q of pr) {
         if (q[2] - q[0] < 0.15 || q[3] - q[1] < 0.15) continue;
         const w = q[2] - q[0], d = q[3] - q[1];
         const qx = (q[0] + q[2]) / 2, qy = (q[1] + q[3]) / 2;
-        G.found.add(box(w, d, 0.4, qx, qy, -0.2, mPCC));            // P.C.C. 100-150
-        G.found.add(box(w, d, 0.75, qx, qy, -0.775, mSoling));      // soling 230
+        G.found.add(box(w, d, 0.4, qx, qy, -0.2, mPCCT(w, d)));       // P.C.C. 100-150
+        G.found.add(box(w, d, 0.75, qx, qy, -0.775, mSolingT(w, d))); // soling 230
       }
       for (const w of (gfPlan.walls || [])) {
         if (w.railing) continue;
@@ -2317,16 +2374,19 @@
         seg(0.75, 1.0, plH - 0.58, mBeam);            // plinth beam 230x300
         seg(th + 0.05, 0.075, plH - 0.04, mDPC);      // D.P.C. 75 thk
         // RR stone masonry strip footing, stepping out on the way down
-        seg(th + 0.5, 2.0, -1.0, mFound);
-        seg(th + 1.1, 1.6, -2.8, mFound);
-        seg(th + 1.7, 0.35, -3.78, mFound);
+        seg(th + 0.5, 2.0, -1.0, mFoundT(len, 2.0));
+        seg(th + 1.1, 1.6, -2.8, mFoundT(len, 1.6));
+        seg(th + 1.7, 0.35, -3.78, mFoundT(len, 1.0));
       }
       for (const c of (gfPlan.columns || [])) {
         const cw = Math.max(+c.w || 0.8, 0.3), ch = Math.max(+c.h || 0.8, 0.3);
         G.found.add(box(cw + 0.3, ch + 0.3, 1.6, c.x, c.y, -0.8, mBeam));
-        G.found.add(box(cw + 1.3, ch + 1.3, 1.6, c.x, c.y, -2.4, mFound));
-        G.found.add(box(cw + 2.5, ch + 2.5, 0.9, c.x, c.y, -3.65, mFound));
-        G.found.add(box(cw + 3.0, ch + 3.0, 0.35, c.x, c.y, -4.27, mPCC));
+        G.found.add(box(cw + 1.3, ch + 1.3, 1.6, c.x, c.y, -2.4,
+          mFoundT(cw + 1.3, 1.6)));
+        G.found.add(box(cw + 2.5, ch + 2.5, 0.9, c.x, c.y, -3.65,
+          mFoundT(cw + 2.5, 1.0)));
+        G.found.add(box(cw + 3.0, ch + 3.0, 0.35, c.x, c.y, -4.27,
+          mPCCT(cw + 3.0, ch + 3.0)));
       }
     }
 
