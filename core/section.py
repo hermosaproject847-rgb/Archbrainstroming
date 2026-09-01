@@ -196,6 +196,16 @@ def build(plan, p1, p2, params) -> tuple[DrawList, list]:
     cuts_vis = [c for c in cuts if not _in_well(c[0])]
     faces_vis = [f for f in faces
                  if not any(f[0] < wb and f[1] > wa for wa, wb in wells_par)]
+    # looking ACROSS the stair the viewer sees THROUGH the open well — a
+    # door behind a nearer blank wall (the toilet's) must still show, so
+    # inside the stair extent occlusion is lifted (user rule)
+    if any(fl.get("crosswise") for fl in flights):
+        have = {(round(f[0], 2), f[5]) for f in faces_vis}
+        for f in _facing_openings(plan, p1, p2, x_lo, x_hi, view,
+                                  occlude=False):
+            if any(f[0] < wb + 0.1 and f[1] > wa - 0.1 for wa, wb in wells) \
+               and (round(f[0], 2), f[5]) not in have:
+                faces_vis.append(f)
 
     def _spans(lo, hi):
         """The x-spans of [lo,hi] left after subtracting the stair wells."""
@@ -969,7 +979,7 @@ def build_screen(plan, params):
     return out, n
 
 
-def _facing_openings(plan, p1, p2, x_lo, x_hi, view):
+def _facing_openings(plan, p1, p2, x_lo, x_hi, view, occlude=True):
     """Doors / windows on walls PARALLEL to the cut, projected onto the section
     axis and shown in elevation — but only where they are actually SEEN: a
     wall on the removed side is dropped, and a wall standing behind a nearer
@@ -1006,7 +1016,8 @@ def _facing_openings(plan, p1, p2, x_lo, x_hi, view):
         if d["depth"] <= 0.1:
             d["vis"] = []
             continue
-        d["vis"] = _subtract(d["ta"], d["tb"], covered)
+        d["vis"] = _subtract(d["ta"], d["tb"], covered) if occlude \
+            else [(d["ta"], d["tb"])]
         covered.append((d["ta"], d["tb"]))
 
     out = []
