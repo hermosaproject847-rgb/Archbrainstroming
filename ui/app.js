@@ -2233,11 +2233,13 @@ function makeFieldEl(key, row, col) {
     if (kind === "num") {
       el.type = "number"; el._isNum = true;
       el.step = isFeetLen(path) ? unitStepAttr() : stepFor(path);
-      // furniture shows its PRINTED size (label-true) — the drawn box may
-      // be stretched wall-to-wall like the sketch, the number is the truth
+      // furniture shows its PRINTED size (drawn ÷ room scale) — the drawn
+      // box carries the sketch's own stretch, the number is the truth
       let dv = dig(row, path);
-      if (key === "furniture" && path === "w" && row.size_w) dv = row.size_w;
-      if (key === "furniture" && path === "h" && row.size_h) dv = row.size_h;
+      if (key === "furniture" && (path === "w" || path === "h")) {
+        const k = furnScale(S.plan, row);
+        dv = (+dv || 0) / (path === "w" ? k.kw : k.kh);
+      }
       el.value = isFeetLen(path) ? toDisp(dv) : (dv ?? "");
     } else {
       el.value = dig(row, path) ?? "";
@@ -2251,11 +2253,14 @@ function makeFieldEl(key, row, col) {
     else if (kind === "list") v = v.split(",").map(s => s.trim()).filter(Boolean);
     pushUndo();
     if (calc) { calc.set(row, v); markDirty(); refreshKey(key); redraw(); return; }
-    put(row, path, v);
     if (key === "furniture" && (path === "w" || path === "h")) {
-      // a hand-typed size is explicit: it becomes drawn AND printed size
-      delete row.size_w; delete row.size_h;
+      // the typed number is the PRINTED size — draw it at the room's own
+      // stretch so the box and the number stay linked
+      const k = furnScale(S.plan, row);
+      v = (+v || 0) * (path === "w" ? k.kw : k.kh);
+      delete row.size_w; delete row.size_h;    // legacy cache, now derived
     }
+    put(row, path, v);
     if (key === "flooring" && path === "material") {
       const dfl = FLOOR_DEFAULTS[v]; if (dfl) Object.assign(row, dfl); refreshKey(key);
     }
@@ -3277,6 +3282,28 @@ function _lblFtV(s) {
    the printed size, the furniture clamp below, unit conversions — while a
    genuinely misread wall is fixed by hand or by re-reading the sheet. */
 
+/* room-local drawn/label scale for a piece, per STORED axis — the sketch
+   reads a room a touch bigger than its printed label, so everything drawn
+   inside carries the same stretch. drawn ÷ this = the PRINTED size; a typed
+   size × this = the drawn box. Mirrors core/furniture.room_scale(). */
+function furnScale(plan, f) {
+  const w = +f.w || 0, h = +f.h || 0;
+  const rot = Math.abs(((+f.angle || 0) % 180 + 180) % 180 - 90) < 45;
+  const dw = rot ? h : w, dh = rot ? w : h;
+  const cx = (+f.x || 0) + w / 2, cy = (+f.y || 0) + h / 2;
+  const rm = ((plan && plan.rooms) || []).find(r => !r.void &&
+    cx - dw / 2 >= r.x - 0.6 && cx + dw / 2 <= r.x + r.w + 0.6 &&
+    cy - dh / 2 >= r.y - 0.6 && cy + dh / 2 <= r.y + r.h + 0.6);
+  if (!rm) return { kw: 1, kh: 1 };
+  const parts = String(rm.size_label || "").split(/[xX×]/);
+  const lw = _lblFtV(parts[0]), lh = _lblFtV(parts[1]);
+  let sx = (lw && lw < rm.w) ? rm.w / lw : 1;
+  let sy = (lh && lh < rm.h) ? rm.h / lh : 1;
+  if (!(sx >= 1 && sx <= 1.6)) sx = 1;   // a misparsed label must not warp
+  if (!(sy >= 1 && sy <= 1.6)) sy = 1;
+  return rot ? { kw: sy, kh: sx } : { kw: sx, kh: sy };
+}
+
 /* a piece can never be bigger than its room or hang outside it — clamp in
    the CLIENT's own data (once, at load / after the furniture stage), so the
    drawn sheet, the size labels and the gizmo all read the same numbers */
@@ -3312,18 +3339,14 @@ function clampFurniture(plan) {
     const rot = Math.abs(((+f.angle || 0) % 180 + 180) % 180 - 90) < 45;
     let dw = rot ? (+f.h || 1) : (+f.w || 1);   // drawn x-extent
     let dh = rot ? (+f.w || 1) : (+f.h || 1);   // drawn y-extent
-    // the PRINTED size never exceeds the room's label envelope — the label
-    // is the truth (a 4'-6" dress prints its wardrobe at 1372, never more)
-    const sw = Math.min(dw, effW), sh = Math.min(dh, effH);
     // the DRAWN box works like the room itself: the sketch geometry is
     // proportional, so a piece meant to span the room spans the DRAWN room
     // flush to its walls — no dead gap where the sketch reads a little big
     if (dw >= effW - 0.3) dw = rm.w;
     if (dh >= effH - 0.3) dh = rm.h;
-    const pw = rot ? sh : sw, ph = rot ? sw : sh;   // stored-axis order
     if (rot) { f.h = dw; f.w = dh; } else { f.w = dw; f.h = dh; }
-    f.size_w = +pw.toFixed(3);
-    f.size_h = +ph.toFixed(3);
+    // printed size is DERIVED live (drawn ÷ room scale) — drop stale caches
+    delete f.size_w; delete f.size_h;
     // keep the DRAWN box inside the room (rotation is about the centre);
     // a full-span axis sits flush, a loose one keeps a small clearance
     const padX = dw >= rm.w - 0.01 ? 0 : 0.08;

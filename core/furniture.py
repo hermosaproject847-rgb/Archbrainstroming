@@ -210,42 +210,53 @@ def _label_ft(s: str) -> float | None:
     return None
 
 
-def printed_wh(plan, f) -> tuple[float, float]:
-    """The size a piece PRINTS (sheet text / schedule / legend), in feet.
+def room_scale(plan, f) -> tuple[float, float]:
+    """The room-local drawn/label scale for a piece, per STORED axis.
 
-    The room's size label is the sheet's own truth, so a piece never prints
-    bigger than the label of the room it sits in — no matter how the drawn
-    box was stretched, dragged or rotated on the canvas. This runs at DRAW
-    time so it holds for any client state, old saves included.
+    The sketch reads a room a touch bigger than its printed size label, so
+    everything drawn inside it carries the same stretch. Dividing a drawn
+    size by this factor gives the size the sheet PRINTS; multiplying a typed
+    size by it gives the drawn box. Rotation is folded in, so the factors
+    apply directly to f.w / f.h. (1, 1) when the piece is not wholly inside
+    one labelled room, or the label reads smaller than sane.
     """
     import re
-    w = float(getattr(f, "size_w", 0) or f.w)
-    h = float(getattr(f, "size_h", 0) or f.h)
-    # the DRAWN footprint (rotation is about the piece centre)
     rot = abs(((float(f.angle or 0) % 180) + 180) % 180 - 90) < 45
     cx, cy = f.centre
-    dw, dh = (f.h, f.w) if rot else (f.w, f.h)
+    dw, dh = (f.h, f.w) if rot else (f.w, f.h)   # drawn extents
     rm = None
     for r in plan.rooms:
         if r.void:
             continue
-        # cap only when the piece really lives in this room — the whole
-        # drawn box inside it (a table spanning two open rooms is exempt)
         if (r.x - 0.6 <= cx - dw / 2 and cx + dw / 2 <= r.x + r.w + 0.6 and
                 r.y - 0.6 <= cy - dh / 2 and cy + dh / 2 <= r.y + r.h + 0.6):
             rm = r
             break
     if rm is None:
-        return w, h
+        return 1.0, 1.0
     parts = re.split(r"[xX×]", str(getattr(rm, "size_label", "") or ""))
     lw = _label_ft(parts[0]) if parts else None
     lh = _label_ft(parts[1]) if len(parts) > 1 else None
-    eff_w = lw if (lw and lw < rm.w) else rm.w      # x-envelope, feet
-    eff_h = lh if (lh and lh < rm.h) else rm.h      # y-envelope, feet
-    # stored w spans DRAWN y when the piece stands rotated
-    cap_w = eff_h if rot else eff_w
-    cap_h = eff_w if rot else eff_h
-    return min(w, cap_w), min(h, cap_h)
+    sx = rm.w / lw if (lw and lw < rm.w) else 1.0
+    sy = rm.h / lh if (lh and lh < rm.h) else 1.0
+    # a misparsed label must not warp sizes — only a mild read-stretch is real
+    if not (1.0 <= sx <= 1.6):
+        sx = 1.0
+    if not (1.0 <= sy <= 1.6):
+        sy = 1.0
+    return (sy, sx) if rot else (sx, sy)         # stored-axis order
+
+
+def printed_wh(plan, f) -> tuple[float, float]:
+    """The size a piece PRINTS (sheet text / schedule / legend), in feet.
+
+    Drawn size divided by the room's own drawn/label scale — so a wardrobe
+    drawn wall-to-wall in a room that reads 1670 against a 1372 label prints
+    exactly 1372, and the number always tracks the drawn box. Runs at DRAW
+    time, so it holds for any client state, old saves included.
+    """
+    kw, kh = room_scale(plan, f)
+    return float(f.w) / kw, float(f.h) / kh
 
 
 # ------------------------------------------------ the catalogue, grouped
