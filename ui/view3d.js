@@ -850,69 +850,121 @@
         // continuous 1:50 fall, and only drops down OUTSIDE to the drain
         // each high-level system gets its OWN band: cold lowest, hot above
         // it, vent above that — parallel runs never merge into one another
+        // tight UNDER THE SLAB (user rule: "slab ke niche hi sab route")
         const zBase = (isACD ? z0 + 7.1
-          : r.system === "HW" ? z0 + fh - 1.05
-          : r.system === "VENT" ? z0 + fh - 0.50
-          : z0 + fh - 1.62) - lk * 0.45;    // clashing runs step WELL clear
-        // NEVER through the open stair well (user rule): inside a stair's
-        // footprint a ceiling run DUCKS below the flight soffit — it stays
-        // on its route line but drops to toilet-ceiling height, with a
-        // vertical at each edge, like a real concealed service
+          : r.system === "HW" ? z0 + fh - 0.72
+          : r.system === "VENT" ? z0 + fh - 0.48
+          : z0 + fh - 0.98) - lk * 0.30;
+        // USER RULE: NO pipe inside a staircase footprint, ever. A run that
+        // would cross the stair DETOURS round the box perimeter; a run whose
+        // END lies under the stair (a toilet tap below the flights) leaves
+        // the ceiling at the box edge and finishes as a LOW tail hugging the
+        // floor — nothing hangs in the well.
         const sBoxes = (plan.stairs || []).map(s2 =>
           [s2.x - 0.4, s2.y - 0.4, s2.x + s2.w + 0.4, s2.y + s2.h + 0.4]);
-        const inBox = p => sBoxes.some(b2 =>
-          p[0] > b2[0] && p[0] < b2[2] && p[1] > b2[1] && p[1] < b2[3]);
-        // split every segment where it crosses a stair-box edge
-        const P2 = [P[0]];
-        for (let i = 0; i < P.length - 1; i++) {
-          const a = P[i], b = P[i + 1];
-          const cuts = [];
-          for (const b2 of sBoxes) {
-            for (const e of [b2[0], b2[2]]) {          // vertical edges
-              if ((a[0] - e) * (b[0] - e) < 0) {
-                const t2 = (e - a[0]) / (b[0] - a[0]);
-                const y2 = a[1] + (b[1] - a[1]) * t2;
-                if (y2 > b2[1] - 0.01 && y2 < b2[3] + 0.01) cuts.push(t2);
+        const boxOf = p => sBoxes.find(b2 =>
+          p[0] > b2[0] && p[0] < b2[2] && p[1] > b2[1] && p[1] < b2[3]) || null;
+        const inBox = p => !!boxOf(p);
+        const edgeHit = (a, b, b2) => {        // first crossing of box b2 on a->b
+          let best = null;
+          const test = (t2, x2, y2) => {
+            if (t2 > 0.0001 && t2 < 0.9999 && (best == null || t2 < best.t))
+              best = { t: t2, p: [x2, y2] };
+          };
+          for (const e of [b2[0], b2[2]])
+            if ((a[0] - e) * (b[0] - e) < 0) {
+              const t2 = (e - a[0]) / (b[0] - a[0]);
+              const y2 = a[1] + (b[1] - a[1]) * t2;
+              if (y2 > b2[1] - 0.01 && y2 < b2[3] + 0.01) test(t2, e, y2);
+            }
+          for (const e of [b2[1], b2[3]])
+            if ((a[1] - e) * (b[1] - e) < 0) {
+              const t2 = (e - a[1]) / (b[1] - a[1]);
+              const x2 = a[0] + (b[0] - a[0]) * t2;
+              if (x2 > b2[0] - 0.01 && x2 < b2[2] + 0.01) test(t2, x2, e);
+            }
+          return best;
+        };
+        // 1) trim a tail that starts / ends inside a stair box
+        let hp = P.map(p => [p[0], p[1]]);
+        const tails = [];                       // [[edgePt, ...insidePts]]
+        const trim = () => {
+          const bx = boxOf(hp[0]);
+          if (!bx) return false;
+          let k = 0;
+          while (k < hp.length && inBox(hp[k])) k++;
+          if (k >= hp.length) return false;     // whole run inside
+          const hit = edgeHit(hp[k - 1], hp[k], bx);
+          const edge = hit ? hit.p : hp[k - 1];
+          tails.push([edge].concat(hp.slice(0, k).reverse()));
+          hp = [edge].concat(hp.slice(k));
+          return true;
+        };
+        trim(); hp.reverse(); trim(); hp.reverse();
+        const wholeInside = hp.length && inBox(hp[0]) &&
+          inBox(hp[hp.length - 1]) && hp.every(inBox);
+        if (wholeInside) { tails.push(hp.slice()); hp = []; }
+        // 2) detour every remaining crossing round the box perimeter
+        const out2 = hp.length ? [hp[0]] : [];
+        for (let i = 0; i < hp.length - 1; i++) {
+          let a = hp[i]; const b = hp[i + 1];
+          let guard = 0;
+          while (guard++ < 6) {
+            let cross = null, cbx = null;
+            for (const b2 of sBoxes) {
+              const h1 = edgeHit(a, b, b2);
+              if (h1 && inBox([(h1.p[0] + b[0]) / 2, (h1.p[1] + b[1]) / 2])
+                  || (h1 && !inBox(b) && edgeHit(h1.p, b, b2))) {
+                if (!cross || h1.t < cross.t) { cross = h1; cbx = b2; }
               }
             }
-            for (const e of [b2[1], b2[3]]) {          // horizontal edges
-              if ((a[1] - e) * (b[1] - e) < 0) {
-                const t2 = (e - a[1]) / (b[1] - a[1]);
-                const x2 = a[0] + (b[0] - a[0]) * t2;
-                if (x2 > b2[0] - 0.01 && x2 < b2[2] + 0.01) cuts.push(t2);
-              }
+            if (!cross || inBox(b)) break;
+            const h2 = edgeHit(cross.p, b, cbx) ||
+                       { p: b };                 // exit point
+            const horiz = Math.abs(b[1] - a[1]) < Math.abs(b[0] - a[0]);
+            let via1, via2;
+            if (horiz) {                        // go round top or bottom
+              const ey = (a[1] - cbx[1]) < (cbx[3] - a[1]) ? cbx[1] : cbx[3];
+              via1 = [cross.p[0], ey]; via2 = [h2.p[0], ey];
+            } else {
+              const ex = (a[0] - cbx[0]) < (cbx[2] - a[0]) ? cbx[0] : cbx[2];
+              via1 = [ex, cross.p[1]]; via2 = [ex, h2.p[1]];
             }
+            out2.push(cross.p, via1, via2, h2.p);
+            a = h2.p;
           }
-          cuts.sort((u, v) => u - v);
-          for (const t2 of cuts)
-            P2.push([a[0] + (b[0] - a[0]) * t2, a[1] + (b[1] - a[1]) * t2]);
-          P2.push(b);
+          out2.push(b);
         }
-        const zDuck = Math.min(zBase, z0 + 6.3 - lk * 0.45);
-        const zAt = (p, q) =>
-          (inBox([(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]) ? zDuck : zBase);
+        const P2 = out2;
         const cum2 = [0];
         for (let i = 1; i < P2.length; i++)
           cum2[i] = cum2[i - 1] +
             Math.hypot(P2[i][0] - P2[i - 1][0], P2[i][1] - P2[i - 1][1]);
         const fHi = isACD ? 1 / 50 : 0;
-        let prevZ = null;
         for (let i = 0; i < P2.length - 1; i++) {
-          const lvl = zAt(P2[i], P2[i + 1]);
-          const zA = lvl - cum2[i] * fHi, zB = lvl - cum2[i + 1] * fHi;
-          if (prevZ != null && Math.abs(prevZ - zA) > 0.05) {
-            const v = cylBetween(P2[i][0], P2[i][1], prevZ,
-              P2[i][0], P2[i][1], zA, rad, mat);
-            if (v) rg.add(v);
-          }
+          const zA = zBase - cum2[i] * fHi, zB = zBase - cum2[i + 1] * fHi;
           const c = cylBetween(P2[i][0], P2[i][1], zA,
             P2[i + 1][0], P2[i + 1][1], zB, rad, mat);
           if (c) rg.add(c);
-          if (i > 0 && turnAt(P2, i) > 0.26) {
+          if (i > 0 && turnAt(P2, i) > 0.26)
             addFit(rg, P2[i][0], P2[i][1], zA, fitR(rad), mat);
-          }
-          prevZ = zB;
         }
+        // 3) the LOW tails under the stair: down the edge, then along the
+        // floor to the fitting — never up in the well
+        const zLow = z0 + 1.6 + lk * 0.12;
+        for (const tl of tails) {
+          if (tl.length < 2) continue;
+          const v = cylBetween(tl[0][0], tl[0][1], zBase,
+            tl[0][0], tl[0][1], zLow, rad, mat);
+          if (v) rg.add(v);
+          for (let i = 0; i < tl.length - 1; i++) {
+            const c = cylBetween(tl[i][0], tl[i][1], zLow,
+              tl[i + 1][0], tl[i + 1][1], zLow, rad, mat);
+            if (c) rg.add(c);
+          }
+        }
+        const zDuck = zLow;                     // taps under the stair sit low
+        const inBoxEnd = inBox;
         if (supply) {
           const ends = [P[0], P[P.length - 1]].filter(e => inTap(e[0], e[1]));
           for (const e of (ends.length ? ends : [P[P.length - 1]])) {
