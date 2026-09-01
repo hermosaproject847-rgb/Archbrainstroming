@@ -2795,10 +2795,22 @@
               x2: w2.x2 + dAl.x, y2: w2.y2 + dAl.y,
               thickness_in: w2.thickness_in }))));
         // the stair from the floor BELOW arrives here — its well is cut out
-        // of the terrace / mumty floor finish
-        addFlooring(L.floor, plan, z0, ((below || {}).stairs || []).map(st =>
+        // of the terrace / mumty floor finish; and every O.T.S. / shaft
+        // (this plan's AND the floor below's) is OPEN TO SKY — no tiles
+        const SHAFT_RE = /o\.?\s?t\.?\s?s|open\s*to\s*sky|shaft|duct/i;
+        const tWells = ((below || {}).stairs || []).map(st =>
           [st.x + dAl.x, st.y + dAl.y,
-           st.x + st.w + dAl.x, st.y + st.h + dAl.y]));
+           st.x + st.w + dAl.x, st.y + st.h + dAl.y])
+          .concat((plan.rooms || [])
+            .filter(r => r.void || SHAFT_RE.test(r.name || ""))
+            .map(r => [r.x - 0.05, r.y - 0.05,
+                       r.x + r.w + 0.05, r.y + r.h + 0.05]))
+          .concat((((below || {}).rooms) || [])
+            .filter(r => r.void || SHAFT_RE.test(r.name || ""))
+            .map(r => [r.x + dAl.x - 0.05, r.y + dAl.y - 0.05,
+                       r.x + r.w + dAl.x + 0.05,
+                       r.y + r.h + dAl.y + 0.05]));
+        addFlooring(L.floor, plan, z0, tWells);
         addFurniture(L.furn, plan, z0);
         addPipes(L.plumb, plan, z0, H, {
         floor: f,
@@ -2894,17 +2906,28 @@
       addStairs(L.stairs, plan, z0, H, M);
       if (f === 0) addSteps(L.stairs, plan, z0, M);   // entrance steps
       // on an upper floor the stair from BELOW arrives through the floor —
-      // its well is cut out of the finish (the ground floor has no well)
-      const fwells = f > 0 ? (() => {
+      // its well is cut out of the finish; every O.T.S. / shaft (own and
+      // below) is open to sky too — never tiled over
+      const SHAFT_RE2 = /o\.?\s?t\.?\s?s|open\s*to\s*sky|shaft|duct/i;
+      const fwells = (plan.rooms || [])
+        .filter(r => r.void || SHAFT_RE2.test(r.name || ""))
+        .map(r => [r.x - 0.05, r.y - 0.05,
+                   r.x + r.w + 0.05, r.y + r.h + 0.05]);
+      if (f > 0) {
         const below2 = ((S.floors || [])[f - 1] && S.floors[f - 1].plan) || null;
         const dA2 = {
           x: (FL_ALIGN[f - 1] || { x: 0 }).x - (FL_ALIGN[f] || { x: 0 }).x,
           y: (FL_ALIGN[f - 1] || { y: 0 }).y - (FL_ALIGN[f] || { y: 0 }).y,
         };
-        return (((below2 || {}).stairs) || []).map(st =>
-          [st.x + dA2.x, st.y + dA2.y,
-           st.x + st.w + dA2.x, st.y + st.h + dA2.y]);
-      })() : [];
+        for (const st of (((below2 || {}).stairs) || []))
+          fwells.push([st.x + dA2.x, st.y + dA2.y,
+                       st.x + st.w + dA2.x, st.y + st.h + dA2.y]);
+        for (const r of ((((below2 || {}).rooms) || [])
+            .filter(r2 => r2.void || SHAFT_RE2.test(r2.name || ""))))
+          fwells.push([r.x + dA2.x - 0.05, r.y + dA2.y - 0.05,
+                       r.x + r.w + dA2.x + 0.05,
+                       r.y + r.h + dA2.y + 0.05]);
+      }
       addFlooring(L.floor, plan, z0, fwells);
       addFurniture(L.furn, plan, z0);
       addPipes(L.plumb, plan, z0, H);
