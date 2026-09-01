@@ -1390,14 +1390,8 @@ def _draw_stair_section(dl, ta, tb, y_low, rise, s, turn_hi, up_hi, layer):
         # made the two bands cross mid-air into an unreadable X
         _polyline(dl, f1, layer)
         _landing_slab(dl, la[0], lb[0], ymid, _mm_ft(150), layer)  # mid-landing SLAB
-        # the LANDING BEAM under the landing's well edge — an OUTLINED,
-        # diagonally hatched member, as the sheets draw it (never a fill)
-        bw, bd = _mm_ft(150), _mm_ft(450)
-        sgn = 1 if lb[0] > la[0] else -1
-        bx0, bx1 = sorted((la[0], la[0] + sgn * bw))
-        by1 = ymid - _mm_ft(150)
-        dl.rect(bx0, by1 - bd, bx1 - bx0, bd, layer=layer)
-        _hatch(dl, bx0, by1 - bd, bx1, by1, layer, step=0.16)
+        # (no hanging landing-beam block here — user rule: the architectural
+        # section shows the stair and the landing slab only)
         # the small base beam PEDESTAL under the first riser at the floor
         px0 = f1[0][0]
         dl.rect(px0 - _mm_ft(75), y_low - _mm_ft(300), _mm_ft(150),
