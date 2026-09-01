@@ -82,6 +82,25 @@ def _slide_off_opening(plan, clear, x, y):
     return x, y
 
 
+def _nt_beside_wc(clear, wx, wy, side):
+    """User rule: the nahani trap sits JUST BESIDE the WC on the SAME wall —
+    1500 mm to the WC's left along the wall (flipped right when the wall
+    ends), hugging it. Never on top of the WC, never on another wall."""
+    left = {"N": (-1, 0), "S": (1, 0), "E": (0, 1), "W": (0, -1)}[side]
+    off = 1500.0 / 304.8
+    nx, ny = wx + left[0] * off, wy + left[1] * off
+    bx0, by0, bx1, by1 = clear.bounds
+    if left[0]:
+        if not (bx0 + 0.4 <= nx <= bx1 - 0.4):
+            nx = wx - left[0] * off
+        nx = min(max(nx, bx0 + 0.4), bx1 - 0.4)
+    else:
+        if not (by0 + 0.4 <= ny <= by1 - 0.4):
+            ny = wy - left[1] * off
+        ny = min(max(ny, by0 + 0.4), by1 - 0.4)
+    return nx, ny
+
+
 def _yard_side(plan: Plan, wet_xy: list) -> str:
     x0, x1, _y0, _y1 = _bounds(plan)
     mid = (x0 + x1) / 2
@@ -227,7 +246,14 @@ def design(plan_dict: dict) -> tuple[dict, list[str]]:
             add("SH", sx, sy, rn, "HW", P.D_HW_TAIL)
             add("SMX", sx, sy, rn, "CW", P.D_CW_TAIL)
             cx_, cy_ = sctr
-            nx, ny = (cx_, sy) if side in ("W", "E") else (sx, cy_)
+            if wc is not None:
+                # user rule: with a WC in the room the trap sits beside the
+                # WC (1500 mm to its left along the wall); the shower waste
+                # runs to it
+                wxx, wyy, wside = place(wc, 0.30)
+                nx, ny = _nt_beside_wc(clear, wxx, wyy, wside)
+            else:
+                nx, ny = (cx_, sy) if side in ("W", "E") else (sx, cy_)
             nt = add("NT", nx, ny, rn, "WASTE", P.D_WASTE_BRANCH)
             nts.append(nt)
             pipe("WASTE", [(sx, sy), (nx, ny)], P.D_WASTE_BRANCH,
@@ -244,20 +270,12 @@ def design(plan_dict: dict) -> tuple[dict, list[str]]:
             add("HF", wx + dxy[0] * 0.85, wy + dxy[1] * 0.85, rn, "CW",
                 P.D_CW_TAIL)
             soil_out.append(((wc.centre), rn))
-            # §5 + user rule — the nahani trap sits BESIDE the WC, to its
-            # LEFT (facing the wall), 1500 mm off the wall — never on top of
-            # the WC (unless the shower already put one in this room)
+            # §5 + user rule — the nahani trap sits JUST BESIDE the WC on
+            # the SAME wall: 1500 mm to the WC's left ALONG the wall, hugging
+            # it — never on top of the WC, never shifted to another wall
+            # (unless the shower already put one in this room)
             if shower is None and shower_xy is None:
-                perp = {"N": (0, -1), "S": (0, 1),
-                        "E": (-1, 0), "W": (1, 0)}[side]      # into the room
-                left = {"N": (-1, 0), "S": (1, 0),
-                        "E": (0, 1), "W": (0, -1)}[side]      # WC's left
-                off = 1500.0 / 304.8                          # 1500 mm
-                nx = wx + perp[0] * off + left[0] * 2.0
-                ny = wy + perp[1] * off + left[1] * 2.0
-                bx0, by0, bx1, by1 = clear.bounds
-                nx = min(max(nx, bx0 + 0.4), bx1 - 0.4)
-                ny = min(max(ny, by0 + 0.4), by1 - 0.4)
+                nx, ny = _nt_beside_wc(clear, wx, wy, side)
                 nt = add("NT", nx, ny, rn, "WASTE", P.D_WASTE_BRANCH)
                 nts.append(nt)
 
