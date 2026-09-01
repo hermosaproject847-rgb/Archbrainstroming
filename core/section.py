@@ -1235,7 +1235,8 @@ def _flights_in_section(plan, x1s, y1s, ux, uy, p1, p2, x_lo, x_hi,
                     d2 = (cpos - lo) if d > 0 else (lo + ln - cpos)
                     k = max(0, min(nf - 1, int(d2 / max(tread, 1e-6))))
                     cut_r = b0 + k + 1
-                    strips.append({"t0": c0, "t1": c1, "ris": cut_r})
+                    strips.append({"t0": c0, "t1": c1, "ris": cut_r,
+                                   "name": "FLIGHT-" + "AB"[min(i, 1)]})
                     asc_beyond = (d > 0) == (vrun > 0)
                     if asc_beyond and k < nf:
                         strips.append({"t0": c0, "t1": c1,
@@ -1252,7 +1253,8 @@ def _flights_in_section(plan, x1s, y1s, ux, uy, p1, p2, x_lo, x_hi,
                 ln = lw if run_x else lh
                 c0, c1 = _project_rect(x1s, y1s, ux, uy, lx, ly, lw, lh)
                 if lo - 0.05 <= cpos <= lo + ln + 0.05:
-                    strips.append({"t0": c0, "t1": c1, "ris": n1 + wind})
+                    strips.append({"t0": c0, "t1": c1, "ris": n1 + wind,
+                                   "name": "LANDING"})
                 elif ((lo + ln / 2) - cpos) * vrun > 0:
                     strips.append({"t0": c0, "t1": c1, "land": n1 + wind})
             strips.append({"total": n1 + n2 + wind + 1})
@@ -1336,17 +1338,16 @@ def _draw_stair_crosswise(dl, fl, y_low, rise, layer):
         if "t0" not in st:
             continue
         lo, hi = min(st["t0"], st["t1"]), max(st["t0"], st["t1"])
-        if "ris" in st:                       # the CUT strip
+        if "ris" in st:                       # the CUT strip — a real RCC
+            # member: outlined + diagonally hatched, labelled with WHAT it
+            # is, so two flights at their own heights never read as two
+            # landings (a landing is always ONE level — user rule)
             h = y_low + st["ris"] * riser
-            dl.line(lo, h, hi, h, layer=layer)
-            dl.line(lo, h - wt, hi, h - wt, layer=layer)
-            dl.line(lo, h, lo, h - wt, layer=layer)
-            dl.line(hi, h, hi, h - wt, layer=layer)
-            n = max(2, int((hi - lo) / 0.55))
-            for i in range(n):
-                cx = lo + (hi - lo) * (i + 0.5) / n
-                dl.arc(cx, h - wt * (0.35 if i % 2 == 0 else 0.7),
-                       0.03, 0, 360, layer=layer)
+            dl.rect(lo, h - wt, hi - lo, wt, layer=layer)
+            _hatch(dl, lo, h - wt, hi, h, layer, step=0.22)
+            nm = st.get("name")
+            if nm:
+                dl.text((lo + hi) / 2, h + 0.45, nm, h=0.3, layer="SEC-TEXT")
             tops.append((lo, hi, h))
         elif "flight" in st:                  # the whole flight FACE-ON
             b0, nf = st["flight"]
