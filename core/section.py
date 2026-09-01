@@ -1212,6 +1212,15 @@ def _draw_stair_section(dl, ta, tb, y_low, rise, s, turn_hi, up_hi, layer):
         # made the two bands cross mid-air into an unreadable X
         _polyline(dl, f1, layer)
         _landing_slab(dl, la[0], lb[0], ymid, _mm_ft(150), layer)  # mid-landing SLAB
+        # the LANDING BEAM under the landing's well edge, as the GFC
+        # staircase sheets show it (a real hatched member, not a bare line)
+        bw, bd = _mm_ft(150), _mm_ft(450)
+        sgn = 1 if lb[0] > la[0] else -1
+        bx0, bx1 = sorted((la[0], la[0] + sgn * bw))
+        by1 = ymid - _mm_ft(150)
+        dl.fill([(bx0, by1 - bd), (bx1, by1 - bd), (bx1, by1), (bx0, by1)],
+                color="#b7bcc8", layer="SEC-SLAB")
+        dl.rect(bx0, by1 - bd, bx1 - bx0, bd, layer=layer)
         _polyline(dl, f2, layer)
         _waist_band(dl, f1[0][0], f1[0][1], f1[-1][0], f1[-1][1], _mm_ft(150), layer)
         dl.line(f2[0][0], f2[0][1], f2[-1][0], f2[-1][1], layer=layer)  # thin soffit
@@ -1243,31 +1252,34 @@ def _draw_stair_section(dl, ta, tb, y_low, rise, s, turn_hi, up_hi, layer):
 
 
 def _landing_slab(dl, x0, x1, y, wt, layer):
-    """A LANDING / mid-landing as a real RCC slab: a horizontal concrete-hatched
-    band of thickness `wt` under the landing level `y` (not a bare line)."""
+    """A LANDING / mid-landing as a real RCC slab: the solid concrete grey
+    with a fine diagonal hatch, as the GFC staircase sheets draw it."""
     if abs(x1 - x0) < 1e-6:
         return
     lo, hi = min(x0, x1), max(x0, x1)
     poly = [(lo, y), (hi, y), (hi, y - wt), (lo, y - wt)]
+    dl.fill(poly, color="#b7bcc8", layer="SEC-SLAB")
     try:
-        dl.hatch([poly], kind="concrete", step=0.45, layer="SEC-SLAB")
+        dl.hatch([poly], kind="diag45", step=0.4, layer="SEC-SLAB")
     except Exception:
         pass
     dl.poly(poly, layer=layer, closed=True)
 
 
 def _waist_band(dl, ax, ay, bx, by, wt, layer):
-    """The sloped RCC WAIST SLAB under a flight: a concrete-hatched band from the
-    pitch line (ax,ay)->(bx,by) down perpendicular by `wt` — so the stair reads
-    as a real slab with thickness, not a bare stepped line."""
+    """The sloped RCC WAIST SLAB under a flight: solid concrete grey with a
+    fine diagonal hatch from the pitch line (ax,ay)->(bx,by) down
+    perpendicular by `wt` — so the stair reads as a real slab, matching the
+    staircase structural-details sheet."""
     L = math.hypot(bx - ax, by - ay) or 1e-9
     ux, uy = (bx - ax) / L, (by - ay) / L
     px, py = uy, -ux                                 # perpendicular
     if py > 0:                                        # make it point DOWN
         px, py = -px, -py
     poly = [(ax, ay), (bx, by), (bx + px * wt, by + py * wt), (ax + px * wt, ay + py * wt)]
+    dl.fill(poly, color="#b7bcc8", layer="SEC-SLAB")
     try:
-        dl.hatch([poly], kind="concrete", step=0.45, layer="SEC-SLAB")
+        dl.hatch([poly], kind="diag45", step=0.4, layer="SEC-SLAB")
     except Exception:
         pass
     dl.poly(poly, layer=layer, closed=True)
