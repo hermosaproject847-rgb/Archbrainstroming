@@ -1218,18 +1218,27 @@ def _flights_in_section(plan, x1s, y1s, ux, uy, p1, p2, x_lo, x_hi,
                 tread = ln / nf
                 d = 1 if f2.get("dir", 1) > 0 else -1
                 c0, c1 = _project_rect(x1s, y1s, ux, uy, rx, ry, rw, rh)
-                if lo - 0.05 <= cpos <= lo + ln + 0.05:
+                b0 = base[min(i, 1)]
+                inside = lo - 0.05 <= cpos <= lo + ln + 0.05
+                if inside:
+                    # the plane slices THIS flight: its cut strip, plus the
+                    # part of the flight beyond the plane as a PARTIAL ladder
+                    # ANCHORED at the strip (never a full overlapping ladder,
+                    # never floating lines)
                     d2 = (cpos - lo) if d > 0 else (lo + ln - cpos)
                     k = max(0, min(nf - 1, int(d2 / max(tread, 1e-6))))
-                    strips.append({"t0": c0, "t1": c1,
-                                   "ris": base[min(i, 1)] + k + 1})
-                # a flight seen FACE-ON beyond the plane: the COMPLETE
-                # anchored ladder (all its risers, base to top), never a
-                # floating handful of lines
-                inside = lo - 0.05 <= cpos <= lo + ln + 0.05
-                if inside or ((lo + ln / 2) - cpos) * vrun > 0:
-                    strips.append({"t0": c0, "t1": c1,
-                                   "flight": (base[min(i, 1)], nf)})
+                    cut_r = b0 + k + 1
+                    strips.append({"t0": c0, "t1": c1, "ris": cut_r})
+                    asc_beyond = (d > 0) == (vrun > 0)
+                    if asc_beyond and k < nf:
+                        strips.append({"t0": c0, "t1": c1,
+                                       "part": (cut_r, b0 + nf + 1)})
+                    elif not asc_beyond and k > 0:
+                        strips.append({"t0": c0, "t1": c1,
+                                       "part": (b0, cut_r)})
+                elif ((lo + ln / 2) - cpos) * vrun > 0:
+                    # wholly beyond: the complete anchored ladder
+                    strips.append({"t0": c0, "t1": c1, "flight": (b0, nf)})
             if land is not None:
                 lx, ly, lw, lh = land
                 lo = lx if run_x else ly
@@ -1340,6 +1349,15 @@ def _draw_stair_crosswise(dl, fl, y_low, rise, layer):
                 dl.line(lo, zb + j * riser, hi, zb + j * riser, layer=layer)
             dl.line(lo, zb, lo, zt, layer=layer)
             dl.line(hi, zb, hi, zt, layer=layer)
+        elif "part" in st:                    # beyond part, ANCHORED at strip
+            ra, rb = st["part"]
+            za = y_low + ra * riser
+            zb2 = y_low + rb * riser
+            for r in range(ra + 1, rb + 1):
+                dl.line(lo, y_low + r * riser, hi, y_low + r * riser,
+                        layer=layer)
+            dl.line(lo, za, lo, zb2, layer=layer)
+            dl.line(hi, za, hi, zb2, layer=layer)
         elif "land" in st:                    # the landing edge beyond
             z = y_low + st["land"] * riser
             dl.line(lo, z, hi, z, layer=layer)
