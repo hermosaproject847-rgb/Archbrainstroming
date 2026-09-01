@@ -58,7 +58,7 @@ def rows(plan: Plan) -> list[list[str]]:
             f.tag or "",
             F.LABEL.get(f.kind, f.kind.replace("_", " ").upper()),
             f.room or "",
-            f"{_ft(f.size_w or f.w)} x {_ft(f.size_h or f.h)}",
+            f"{_ft(F.printed_wh(plan, f)[0])} x {_ft(F.printed_wh(plan, f)[1])}",
             _ft(d.get("N")), _ft(d.get("S")),
             _ft(d.get("E")), _ft(d.get("W")),
             f.verdict or "n/a",

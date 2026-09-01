@@ -195,6 +195,59 @@ LABEL = {
 }
 
 
+# ------------------------------------------- the printed size, label-true
+def _label_ft(s: str) -> float | None:
+    """One side of a room size label -> feet. \"6'-0\\\"\" or bare mm/ft."""
+    import re
+    s = (s or "").strip()
+    m = re.match(r"^(\d+)\s*'\s*-?\s*(\d+(?:\.\d+)?)?", s)
+    if m:
+        return float(m.group(1)) + (float(m.group(2) or 0) / 12.0)
+    m = re.match(r"^(\d+(?:\.\d+)?)", s)
+    if m:
+        v = float(m.group(1))
+        return v / 304.8 if v > 50 else v
+    return None
+
+
+def printed_wh(plan, f) -> tuple[float, float]:
+    """The size a piece PRINTS (sheet text / schedule / legend), in feet.
+
+    The room's size label is the sheet's own truth, so a piece never prints
+    bigger than the label of the room it sits in — no matter how the drawn
+    box was stretched, dragged or rotated on the canvas. This runs at DRAW
+    time so it holds for any client state, old saves included.
+    """
+    import re
+    w = float(getattr(f, "size_w", 0) or f.w)
+    h = float(getattr(f, "size_h", 0) or f.h)
+    # the DRAWN footprint (rotation is about the piece centre)
+    rot = abs(((float(f.angle or 0) % 180) + 180) % 180 - 90) < 45
+    cx, cy = f.centre
+    dw, dh = (f.h, f.w) if rot else (f.w, f.h)
+    rm = None
+    for r in plan.rooms:
+        if r.void:
+            continue
+        # cap only when the piece really lives in this room — the whole
+        # drawn box inside it (a table spanning two open rooms is exempt)
+        if (r.x - 0.6 <= cx - dw / 2 and cx + dw / 2 <= r.x + r.w + 0.6 and
+                r.y - 0.6 <= cy - dh / 2 and cy + dh / 2 <= r.y + r.h + 0.6):
+            rm = r
+            break
+    if rm is None:
+        return w, h
+    parts = re.split(r"[xX×]", str(getattr(rm, "size_label", "") or ""))
+    lw = _label_ft(parts[0]) if parts else None
+    lh = _label_ft(parts[1]) if len(parts) > 1 else None
+    eff_w = lw if (lw and lw < rm.w) else rm.w      # x-envelope, feet
+    eff_h = lh if (lh and lh < rm.h) else rm.h      # y-envelope, feet
+    # stored w spans DRAWN y when the piece stands rotated
+    cap_w = eff_h if rot else eff_w
+    cap_h = eff_w if rot else eff_h
+    return min(w, cap_w), min(h, cap_h)
+
+
 # ------------------------------------------------ the catalogue, grouped
 # What the "add furniture" dialog offers: category -> the pieces in it, in the
 # order a designer would look for them. Every entry draws its own symbol.

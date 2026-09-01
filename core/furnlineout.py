@@ -10,6 +10,7 @@ import os
 from .model import Plan
 from .draw import DrawList
 from . import engine, sheet
+from . import furniture as _furn
 from . import export as EXP
 
 MM = 304.8
@@ -107,9 +108,10 @@ def build(plan: Plan) -> tuple[DrawList, list[dict]]:
             else:
                 _dim(dl, xline, y1, xline, fc, _ft_in(d))
 
+        pw, ph = _furn.printed_wh(plan, f)
         legend.append({
             "tag": tag, "kind": f.kind, "room": f.room,
-            "size": f"{_ft_in(f.size_w or f.w)} x {_ft_in(f.size_h or f.h)}",
+            "size": f"{_ft_in(pw)} x {_ft_in(ph)}",
             "left": dl_left, "right": dl_right, "bot": dl_bot, "top": dl_top,
         })
     _legend(dl, plan, legend)
