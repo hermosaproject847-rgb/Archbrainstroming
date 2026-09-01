@@ -174,12 +174,45 @@ def build(plan, p1, p2, params) -> tuple[DrawList, list]:
     # ---- each storey ---------------------------------------------------
     cut_ops = []            # openings the plane cuts through (for the legend)
     rep = {}                # representative points for the side labels
+    # the stair WELL: the floor slab above a stair has its cutout — the slab
+    # (and the level line) never runs over the flights, exactly as the sheet
+    # draws the opening with the arrival flush at its edge
+    wells = [(min(fl["ta"], fl["tb"]), max(fl["ta"], fl["tb"]))
+             for fl in flights]
+
+    def _spans(lo, hi):
+        """The x-spans of [lo,hi] left after subtracting the stair wells."""
+        segs = [(lo, hi)]
+        for wa, wb in wells:
+            nxt_segs = []
+            for a, b in segs:
+                if wb <= a or wa >= b:
+                    nxt_segs.append((a, b))
+                else:
+                    if wa > a:
+                        nxt_segs.append((a, wa))
+                    if wb < b:
+                        nxt_segs.append((wb, b))
+            segs = nxt_segs
+        return [(a, b) for a, b in segs if b - a > 0.05]
+
     for k in range(floors):
         ffl = tops[k]
         nxt = tops[k + 1]
         slab_bot = nxt - slab
-        dl.line(x_lo, ffl, x_hi, ffl, layer=L_SLAB)
-        _fill_band(dl, face_lo, slab_bot, face_hi, nxt, L_SLAB)   # slab, flush
+        if k == 0 or not wells:
+            dl.line(x_lo, ffl, x_hi, ffl, layer=L_SLAB)
+        else:
+            for a, b in _spans(x_lo, x_hi):
+                dl.line(a, ffl, b, ffl, layer=L_SLAB)
+        for a, b in _spans(face_lo, face_hi):
+            _fill_band(dl, a, slab_bot, b, nxt, L_SLAB)   # slab, flush
+        if wells:
+            # close the slab's cut edge at the well
+            for wa, wb in wells:
+                for e in (wa, wb):
+                    if face_lo < e < face_hi:
+                        dl.line(e, slab_bot, e, nxt, layer=L_CUT)
 
         # facing openings in ELEVATION (behind the cut plane, occluded)
         for (t0, t1, sill, lintel, kind, tag) in faces:
@@ -1228,7 +1261,9 @@ def _draw_stair_section(dl, ta, tb, y_low, rise, s, turn_hi, up_hi, layer):
                px0 + _mm_ft(75), y_low, layer, step=0.16)
         _polyline(dl, f2, layer)
         _stepped_band(dl, f1, _mm_ft(115), layer)   # rcc steps 4½" thk.
-        dl.line(f2[0][0], f2[0][1], f2[-1][0], f2[-1][1], layer=layer)  # thin soffit
+        _stepped_band(dl, f2, _mm_ft(115), layer)   # the return flight too —
+        # the sheet draws BOTH flights with their stepped soffit, never a
+        # bare zigzag with one straight diagonal
         return
 
     # U3 — two main flights and a short middle flight, over two landings
@@ -1248,12 +1283,9 @@ def _draw_stair_section(dl, ta, tb, y_low, rise, s, turn_hi, up_hi, layer):
         f2 = _nosing_pts(ta, y2, run / max(1, n2), riser, n2, +1)
     # U3: hatch the waist under the CUT (first) flight only; the middle and
     # return flights are beyond the cut — plain outlines with a thin soffit
-    for i, pl in enumerate((f1, mid, f2)):
+    for pl in (f1, mid, f2):
         _polyline(dl, pl, layer)
-        if i == 0:
-            _stepped_band(dl, pl, _mm_ft(115), layer)
-        else:
-            dl.line(pl[0][0], pl[0][1], pl[-1][0], pl[-1][1], layer=layer)
+        _stepped_band(dl, pl, _mm_ft(115), layer)
 
 
 def _landing_slab(dl, x0, x1, y, wt, layer):
