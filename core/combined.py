@@ -187,8 +187,18 @@ def build_structural(plan_dict: dict, sheet_size: str = "A3",
     from . import structdetails as SD
     _add(SD.slab_section(_stage_plan(plan_dict, "plan"), src.struct),
          "Typical slab section", "top / bottom bars, depth")
-    _add(SD.staircase(_stage_plan(plan_dict, "plan"), src.struct),
-         "Typical staircase section", "waist slab, main & dist. bars")
+    # staircase structural + shuttering details, to the office reference set
+    from . import stairstr as SS
+    pst = _stage_plan(plan_dict, "plan")
+    pst.stairs = src.stairs
+    pst.title.plan_name = "STAIRCASE STRUCTURAL DETAILS"
+    _add(SS.structural(pst, src.struct), "Staircase structural details",
+         "full section: flights, waist rebar, landing beams, levels")
+    pst2 = _stage_plan(plan_dict, "plan")
+    pst2.stairs = src.stairs
+    pst2.title.plan_name = "STAIRCASE SHUTTERING DETAILS"
+    _add(SS.shuttering(pst2, src.struct), "Staircase shuttering details",
+         "full section with shuttering top levels on every flight")
     _add(SD.terrace(_stage_plan(plan_dict, "plan"), src.struct),
          "Typical terrace section", "slab, waterproofing, parapet")
 
