@@ -3346,10 +3346,24 @@ function clampFurniture(plan) {
     const effW = (lw && lw < rm.w) ? lw : rm.w;
     const effH = (lh && lh < rm.h) ? lh : rm.h;
     const pad = 0.08;
-    if (f.w > effW - 2 * pad) f.w = Math.max(0.8, effW - 2 * pad);
-    if (f.h > effH - 2 * pad) f.h = Math.max(0.8, effH - 2 * pad);
-    f.x = Math.min(Math.max(+f.x || 0, rm.x + pad), rm.x + rm.w - f.w - pad);
-    f.y = Math.min(Math.max(+f.y || 0, rm.y + pad), rm.y + rm.h - f.h - pad);
+    // a 90/270 piece is DRAWN rotated about its centre — its footprint is
+    // h wide and w TALL, so the clamp must fit the DRAWN extents, not the
+    // stored fields (a 5-ft wardrobe at 90° overflowed a 4'-6" room)
+    const rot = Math.abs(((+f.angle || 0) % 180 + 180) % 180 - 90) < 45;
+    let dw = rot ? (+f.h || 1) : (+f.w || 1);   // drawn x-extent
+    let dh = rot ? (+f.w || 1) : (+f.h || 1);   // drawn y-extent
+    if (dw > effW - 2 * pad) dw = Math.max(0.8, effW - 2 * pad);
+    if (dh > effH - 2 * pad) dh = Math.max(0.8, effH - 2 * pad);
+    if (rot) { f.h = dw; f.w = dh; } else { f.w = dw; f.h = dh; }
+    // keep the DRAWN box inside the room (rotation is about the centre)
+    let ccx = (+f.x || 0) + (+f.w || 1) / 2;
+    let ccy = (+f.y || 0) + (+f.h || 1) / 2;
+    ccx = Math.min(Math.max(ccx, rm.x + pad + dw / 2),
+                   rm.x + rm.w - pad - dw / 2);
+    ccy = Math.min(Math.max(ccy, rm.y + pad + dh / 2),
+                   rm.y + rm.h - pad - dh / 2);
+    f.x = ccx - (+f.w || 1) / 2;
+    f.y = ccy - (+f.h || 1) / 2;
   }
 }
 
