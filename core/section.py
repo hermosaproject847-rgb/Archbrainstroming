@@ -180,6 +180,17 @@ def build(plan, p1, p2, params) -> tuple[DrawList, list]:
     wells = [(min(fl["ta"], fl["tb"]), max(fl["ta"], fl["tb"]))
              for fl in flights]
 
+    def _in_well(x, margin=0.3):
+        return any(wa + margin < x < wb - margin for wa, wb in wells)
+
+    # USER RULE: where the section cuts through the staircase, ONLY the
+    # staircase shows — no wall behind it, no door/window seen in elevation.
+    # The shaft's end walls (at the well boundary) stay; anything strictly
+    # inside the stair extent is hidden.
+    cuts_vis = [c for c in cuts if not _in_well(c[0])]
+    faces_vis = [f for f in faces
+                 if not any(f[0] < wb and f[1] > wa for wa, wb in wells)]
+
     def _spans(lo, hi):
         """The x-spans of [lo,hi] left after subtracting the stair wells."""
         segs = [(lo, hi)]
@@ -214,13 +225,14 @@ def build(plan, p1, p2, params) -> tuple[DrawList, list]:
                     if face_lo < e < face_hi:
                         dl.line(e, slab_bot, e, nxt, layer=L_CUT)
 
-        # facing openings in ELEVATION (behind the cut plane, occluded)
-        for (t0, t1, sill, lintel, kind, tag) in faces:
+        # facing openings in ELEVATION (behind the cut plane, occluded) —
+        # never inside the stair well: there only the staircase shows
+        for (t0, t1, sill, lintel, kind, tag) in faces_vis:
             _elev_opening(dl, t0, t1, ffl + sill,
                           min(ffl + lintel, slab_bot - beam),
                           kind, tag, L_CUT, L_TXT)
 
-        for t, th, ext, w, I in cuts:
+        for t, th, ext, w, I in cuts_vis:
             wx0, wx1 = t - th / 2, t + th / 2
             op = _opening_at(plan, w, I)
             # this wall's beam: depth, sideways offset (a flushed beam draws
@@ -280,7 +292,7 @@ def build(plan, p1, p2, params) -> tuple[DrawList, list]:
                      st["up_hi"], L_CUT)
 
     # the doors / windows seen in elevation on the first wall beyond the cut
-    for (t0, t1, sill, lintel, kind, tag) in faces:
+    for (t0, t1, sill, lintel, kind, tag) in faces_vis:
         cut_ops.append({"x": (t0 + t1) / 2, "tag": tag,
                         "door": kind == "door", "w": t1 - t0,
                         "sill_mm": round(sill * MM),
