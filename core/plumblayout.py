@@ -250,10 +250,13 @@ def design(plan_dict: dict) -> tuple[dict, list[str]]:
             add("SH", sx, sy, rn, "HW", P.D_HW_TAIL)
             add("SMX", sx, sy, rn, "CW", P.D_CW_TAIL)
             cx_, cy_ = sctr
-            if wc is not None:
-                # user rule: with a WC in the room the trap sits beside the
-                # WC (1500 mm to its left along the wall); the shower waste
-                # runs to it
+            if shower is not None:
+                # user rule: the shower's trap sits ON its own drain circle
+                # (the rose the symbol draws), in line with the fittings
+                nx = shower.x + shower.w * 0.15
+                ny = shower.y + shower.h * 0.85
+            elif wc is not None:
+                # synthetic shower zone: the trap stays beside the WC
                 wxx, wyy, wside = place(wc, 0.30)
                 nx, ny = _nt_beside_wc(clear, wxx, wyy, wside)
             else:
