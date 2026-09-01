@@ -89,8 +89,10 @@ def _surface(dl, p):
 
 def _cove(dl, p):
     ln = max(p.size, 2.0)
+    (ux, uy), (vx, vy) = _uv(p)
     for d in (-0.05, 0.05):
-        dl.line(p.x - ln / 2, p.y + d, p.x + ln / 2, p.y + d,
+        dl.line(p.x - ux * ln / 2 + vx * d, p.y - uy * ln / 2 + vy * d,
+                p.x + ux * ln / 2 + vx * d, p.y + uy * ln / 2 + vy * d,
                 layer=L, dashed=True)
 
 
@@ -132,30 +134,54 @@ def _chandelier(dl, p):
         dl.items.append(_circle(ex, ey, r * 0.22))
 
 
+def _uv(p):
+    """Length/breadth unit vectors for a linear fitting turned to p.angle,
+    so it can lie flush along any wall the user turns it to."""
+    a = math.radians(getattr(p, "angle", 0.0) or 0.0)
+    return (math.cos(a), math.sin(a)), (-math.sin(a), math.cos(a))
+
+
 def _mirror(dl, p):
-    """Mirror light: a slim linear fitting."""
+    """Mirror light: a slim linear fitting, turned to its angle."""
     w, h = 1.6, 0.24
-    dl.rect(p.x - w / 2, p.y - h / 2, w, h, layer=L)
+    (ux, uy), (vx, vy) = _uv(p)
+    c = [(p.x - ux * w / 2 - vx * h / 2, p.y - uy * w / 2 - vy * h / 2),
+         (p.x + ux * w / 2 - vx * h / 2, p.y + uy * w / 2 - vy * h / 2),
+         (p.x + ux * w / 2 + vx * h / 2, p.y + uy * w / 2 + vy * h / 2),
+         (p.x - ux * w / 2 + vx * h / 2, p.y - uy * w / 2 + vy * h / 2)]
+    dl.poly(c, layer=L, closed=True)
     for i in (0.25, 0.5, 0.75):
-        dl.line(p.x - w / 2 + w * i, p.y - h / 2,
-                p.x - w / 2 + w * i, p.y + h / 2, layer=L)
+        bx = p.x - ux * w / 2 + ux * w * i
+        by = p.y - uy * w / 2 + uy * w * i
+        dl.line(bx - vx * h / 2, by - vy * h / 2,
+                bx + vx * h / 2, by + vy * h / 2, layer=L)
 
 
 def _step(dl, p):
+    """Foot / step light: a small square with its mid bar, turned to angle."""
     s = 0.34
-    dl.rect(p.x - s / 2, p.y - s / 2, s, s, layer=L)
-    dl.line(p.x - s / 2, p.y, p.x + s / 2, p.y, layer=L)
+    (ux, uy), (vx, vy) = _uv(p)
+    c = [(p.x - ux * s / 2 - vx * s / 2, p.y - uy * s / 2 - vy * s / 2),
+         (p.x + ux * s / 2 - vx * s / 2, p.y + uy * s / 2 - vy * s / 2),
+         (p.x + ux * s / 2 + vx * s / 2, p.y + uy * s / 2 + vy * s / 2),
+         (p.x - ux * s / 2 + vx * s / 2, p.y - uy * s / 2 + vy * s / 2)]
+    dl.poly(c, layer=L, closed=True)
+    dl.line(p.x - ux * s / 2, p.y - uy * s / 2,
+            p.x + ux * s / 2, p.y + uy * s / 2, layer=L)
 
 
 def _track(dl, p):
-    """Track: the rail with its heads."""
+    """Track: the rail with its heads, turned to its angle."""
     ln = max(p.size, 2.5)
+    (ux, uy), (vx, vy) = _uv(p)
     for d in (-0.05, 0.05):
-        dl.line(p.x - ln / 2, p.y + d, p.x + ln / 2, p.y + d, layer=L)
+        dl.line(p.x - ux * ln / 2 + vx * d, p.y - uy * ln / 2 + vy * d,
+                p.x + ux * ln / 2 + vx * d, p.y + uy * ln / 2 + vy * d,
+                layer=L)
     n = max(2, int(ln / 1.0))
     for i in range(n):
         t = -ln / 2 + ln * (i + 0.5) / n
-        dl.items.append(_circle(p.x + t, p.y, 0.09))
+        dl.items.append(_circle(p.x + ux * t, p.y + uy * t, 0.09))
 
 
 # ------------------------------------------------------------------ fans
