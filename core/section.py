@@ -39,7 +39,7 @@ def _seg_x(a, b, c, d):
 
 def _open_levels(o):
     """(sill_ft, lintel_ft) above FFL for an opening."""
-    if getattr(o, "is_door", False):
+    if getattr(o, "is_door", False) or getattr(o, "type", "") == "open":
         sill = 0.0
         lintel = _mm_ft(o.lintel() if hasattr(o, "lintel") else 2100)
     else:
@@ -500,7 +500,9 @@ def _cut_column(dl, wx0, wx1, th, ffl, slab_bot, op, beam, dpc,
         sill, lintel = _open_levels(op)
         sy = min(ffl + sill, top_solid)
         ly = min(ffl + lintel, top_solid)
-        is_door = getattr(op, "is_door", False)
+        # an OPEN archway cuts like a door: floor-to-lintel gap, no sill
+        is_door = getattr(op, "is_door", False) or \
+            getattr(op, "type", "") == "open"
         runs = []                                    # brick leaves the band gaps
         if not is_door and sy - band > ffl + 1e-3:
             runs.append((ffl, sy - band))
@@ -1027,7 +1029,7 @@ def _facing_openings(plan, p1, p2, x_lo, x_hi, view, occlude=True):
         w = d["w"]
         wallseg = [(a, b) for (a, b) in d["vis"]]
         for o in plan.openings:
-            if o.wall_id != w.id or o.type in ("gate", "open"):
+            if o.wall_id != w.id or o.type == "gate":
                 continue
             a = w.point_at(o.pos)
             b = w.point_at(o.pos + o.width)
@@ -1041,8 +1043,9 @@ def _facing_openings(plan, p1, p2, x_lo, x_hi, view, occlude=True):
             if not any(a2 - 0.05 <= mid <= b2 + 0.05 for a2, b2 in wallseg):
                 continue                               # hidden behind a wall
             sill, lintel = _open_levels(o)
-            kind = "door" if getattr(o, "is_door", False) else (
-                "vent" if o.type == "vent" else "window")
+            kind = "open" if o.type == "open" else (
+                "door" if getattr(o, "is_door", False) else (
+                    "vent" if o.type == "vent" else "window"))
             out.append((t0, t1, sill, lintel, kind, o.tag or ""))
     return out
 
@@ -1071,6 +1074,10 @@ def _elev_opening(dl, x0, x1, y0, y1, kind, tag, layer, ltxt):
     handle."""
     W, H = x1 - x0, y1 - y0
     if H <= 0.1 or W <= 0.1:
+        return
+    if kind == "open":
+        # an OPEN archway seen beyond: the bare opening outline, no frame
+        dl.rect(x0, y0, W, H, layer=layer)
         return
     dl.rect(x0, y0, W, H, layer=layer)                     # outer frame
     fr = min(0.12, W * 0.12, H * 0.12)                     # frame thickness
@@ -1136,7 +1143,7 @@ def _opening_at(plan, wall, cross_pt):
     for o in plan.openings:
         if o.wall_id != wall.id:
             continue
-        if o.type in ("gate", "open"):
+        if o.type == "gate":
             continue
         if o.pos - 0.05 <= pos <= o.pos + o.width + 0.05:
             return o
