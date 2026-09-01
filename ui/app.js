@@ -3259,6 +3259,11 @@ function _lblFtV(s) {
   return null;
 }
 function snapRoomsToLabel(plan) {
+  // two passes: fixing one room can shift a neighbour, whose own pass then
+  // settles IT back onto its label as well
+  for (let pass = 0; pass < 2; pass++) _snapRoomsPass(plan);
+}
+function _snapRoomsPass(plan) {
   if (!plan) return;
   const rooms = plan.rooms || [], walls = plan.walls || [];
   const otherRoomAt = (x, y, skip) => rooms.some(r => r !== skip && !r.void &&
@@ -3279,7 +3284,8 @@ function snapRoomsToLabel(plan) {
       const farE = nearE + have;
       const spanLo = vert ? rm.y : rm.x;
       const spanHi = spanLo + (vert ? rm.h : rm.w);
-      // the wall sitting on an edge, spanning most of the room side
+      // the wall sitting on an edge — only a wall DEDICATED to this room
+      // side (not a long shared spine across the house) may be moved
       const wallAt = e => walls.find(w2 => {
         const isV = Math.abs(w2.x1 - w2.x2) < 0.05;
         if (isV !== vert) return false;
@@ -3287,28 +3293,53 @@ function snapRoomsToLabel(plan) {
         if (Math.abs(c - e) > 0.7) return false;
         const a1 = vert ? w2.y1 : w2.x1, a2 = vert ? w2.y2 : w2.x2;
         const lo = Math.min(a1, a2), hi = Math.max(a1, a2);
-        return lo < spanHi - 0.5 && hi > spanLo + 0.5;
+        if (!(lo < spanHi - 0.5 && hi > spanLo + 0.5)) return false;
+        return (hi - lo) <= (spanHi - spanLo) + 3.0;   // dedicated, not spine
       });
-      // prefer moving an edge whose OUTSIDE has no other room (exclusive)
+      // which edge to move? An edge with NO room beyond is free; a SHARED
+      // edge may still move when that helps (or at least does not hurt)
+      // the neighbour's own label — the misread wall is wrong for both.
       const mid = (spanLo + spanHi) / 2;
-      const farFree = !(vert ? otherRoomAt(farE + 0.6, mid, rm)
-                             : otherRoomAt(mid, farE + 0.6, rm));
-      const nearFree = !(vert ? otherRoomAt(nearE - 0.6, mid, rm)
-                              : otherRoomAt(mid, nearE - 0.6, rm));
-      let moveFar = farFree || !nearFree;
-      const wMove = wallAt(moveFar ? farE : nearE);
+      const roomBeyond = (e, dir) => rooms.find(r => r !== rm && !r.void &&
+        (vert ? (e + dir * 0.6 >= r.x - 0.2 && e + dir * 0.6 <= r.x + r.w + 0.2
+                 && mid >= r.y - 0.2 && mid <= r.y + r.h + 0.2)
+              : (mid >= r.x - 0.2 && mid <= r.x + r.w + 0.2
+                 && e + dir * 0.6 >= r.y - 0.2
+                 && e + dir * 0.6 <= r.y + r.h + 0.2))) || null;
+      const nbLabelGain = (nb, shift) => {
+        // + = the move brings the neighbour CLOSER to its own label
+        if (!nb) return 0.01;                       // free edge: tiny plus
+        const pp = String(nb.size_label || "").split(/[xX×]/);
+        const nbWant = vert ? _lblFtV(pp[0]) : _lblFtV(pp[1]);
+        const nbHave = vert ? +nb.w : +nb.h;
+        if (!nbWant) return 0;                      // unknown: neutral
+        return Math.abs(nbHave - nbWant) - Math.abs(nbHave - shift - nbWant);
+      };
+      const nbFar = roomBeyond(farE, 1), nbNear = roomBeyond(nearE, -1);
+      // rm grows by d at that edge → the neighbour there SHRINKS by d
+      const gFar = nbLabelGain(nbFar, d), gNear = nbLabelGain(nbNear, d);
+      const wFar = wallAt(farE), wNear = wallAt(nearE);
+      // THE LABEL IS SUPREME: always snap. Prefer the edge that HAS a
+      // movable (dedicated) wall; among those, the better neighbour gain.
+      let moveFar;
+      if (!!wFar !== !!wNear) moveFar = !!wFar;
+      else moveFar = gFar >= gNear;
+      const nb = moveFar ? nbFar : nbNear;
+      const wMove = moveFar ? wFar : wNear;
       if (moveFar) {
         rm[ax] = want;
-        if (wMove && farFree) {
-          if (vert) { wMove.x1 += d; wMove.x2 += d; }
-          else { wMove.y1 += d; wMove.y2 += d; }
+        if (wMove) { if (vert) { wMove.x1 += d; wMove.x2 += d; }
+                     else { wMove.y1 += d; wMove.y2 += d; } }
+        if (nb) {                                   // neighbour edge follows
+          if (vert) { nb.x += d; nb.w -= d; } else { nb.y += d; nb.h -= d; }
         }
       } else {
         if (vert) rm.x -= d; else rm.y -= d;
         rm[ax] = want;
-        if (wMove && nearFree) {
-          if (vert) { wMove.x1 -= d; wMove.x2 -= d; }
-          else { wMove.y1 -= d; wMove.y2 -= d; }
+        if (wMove) { if (vert) { wMove.x1 -= d; wMove.x2 -= d; }
+                     else { wMove.y1 -= d; wMove.y2 -= d; } }
+        if (nb) {
+          if (vert) nb.w -= d; else nb.h -= d;
         }
       }
     }
