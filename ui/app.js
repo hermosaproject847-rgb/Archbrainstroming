@@ -3245,6 +3245,76 @@ function takeAutosave() {
     return t ? JSON.parse(t) : null;
   } catch (e) { return null; }
 }
+/* THE ROOM LABEL IS THE DIMENSION (user rule): where the read walls give a
+   room a different clear size than its own printed label, the room is
+   snapped to the label — and the bounding wall moves with it when that wall
+   belongs to this room alone (a shared wall stays, so the neighbour's own
+   label is not broken). Runs once at load, in the client's data. */
+function _lblFtV(s) {
+  if (!s) return null; s = String(s).trim();
+  let m = s.match(/^(\d+)\s*'\s*-?\s*(\d+(?:\.\d+)?)?/);
+  if (m) return (+m[1]) + ((+m[2] || 0) / 12);
+  m = s.match(/^(\d+(?:\.\d+)?)/);
+  if (m) { const v = +m[1]; return v > 50 ? v / 304.8 : v; }
+  return null;
+}
+function snapRoomsToLabel(plan) {
+  if (!plan) return;
+  const rooms = plan.rooms || [], walls = plan.walls || [];
+  const otherRoomAt = (x, y, skip) => rooms.some(r => r !== skip && !r.void &&
+    x >= r.x - 0.2 && x <= r.x + r.w + 0.2 &&
+    y >= r.y - 0.2 && y <= r.y + r.h + 0.2);
+  for (const rm of rooms) {
+    if (rm.void) continue;
+    const parts = String(rm.size_label || "").split(/[xX×]/);
+    const lw = _lblFtV(parts[0]), lh = _lblFtV(parts[1]);
+    for (const ax of ["w", "h"]) {
+      const want = ax === "w" ? lw : lh;
+      if (!want) continue;
+      const have = +rm[ax] || 0;
+      const d = want - have;
+      if (Math.abs(d) < 0.17 || Math.abs(d) > 3.0) continue;  // sane fixes only
+      const vert = ax === "w";                 // moving a VERTICAL wall
+      const nearE = vert ? rm.x : rm.y;
+      const farE = nearE + have;
+      const spanLo = vert ? rm.y : rm.x;
+      const spanHi = spanLo + (vert ? rm.h : rm.w);
+      // the wall sitting on an edge, spanning most of the room side
+      const wallAt = e => walls.find(w2 => {
+        const isV = Math.abs(w2.x1 - w2.x2) < 0.05;
+        if (isV !== vert) return false;
+        const c = vert ? w2.x1 : w2.y1;
+        if (Math.abs(c - e) > 0.7) return false;
+        const a1 = vert ? w2.y1 : w2.x1, a2 = vert ? w2.y2 : w2.x2;
+        const lo = Math.min(a1, a2), hi = Math.max(a1, a2);
+        return lo < spanHi - 0.5 && hi > spanLo + 0.5;
+      });
+      // prefer moving an edge whose OUTSIDE has no other room (exclusive)
+      const mid = (spanLo + spanHi) / 2;
+      const farFree = !(vert ? otherRoomAt(farE + 0.6, mid, rm)
+                             : otherRoomAt(mid, farE + 0.6, rm));
+      const nearFree = !(vert ? otherRoomAt(nearE - 0.6, mid, rm)
+                              : otherRoomAt(mid, nearE - 0.6, rm));
+      let moveFar = farFree || !nearFree;
+      const wMove = wallAt(moveFar ? farE : nearE);
+      if (moveFar) {
+        rm[ax] = want;
+        if (wMove && farFree) {
+          if (vert) { wMove.x1 += d; wMove.x2 += d; }
+          else { wMove.y1 += d; wMove.y2 += d; }
+        }
+      } else {
+        if (vert) rm.x -= d; else rm.y -= d;
+        rm[ax] = want;
+        if (wMove && nearFree) {
+          if (vert) { wMove.x1 -= d; wMove.x2 -= d; }
+          else { wMove.y1 -= d; wMove.y2 -= d; }
+        }
+      }
+    }
+  }
+}
+
 /* a piece can never be bigger than its room or hang outside it — clamp in
    the CLIENT's own data (once, at load / after the furniture stage), so the
    drawn sheet, the size labels and the gizmo all read the same numbers */
@@ -3289,7 +3359,7 @@ function loadAnyJson(j, name) {
     name: (f && f.name) || _nextFloorNameAt(i),
     plan: (f && f.plan) || null,
   }));
-  S.floors.forEach(f => clampFurniture(f.plan));
+  S.floors.forEach(f => { snapRoomsToLabel(f.plan); clampFurniture(f.plan); });
   S.active = Math.min(Math.max(0, +j.active || 0), S.floors.length - 1);
   if (!S.floors[S.active].plan)                 // land on a floor that has one
     S.active = Math.max(0, S.floors.findIndex(f => f.plan));
@@ -3309,6 +3379,7 @@ function setPlan(plan) {
   if ($("#gizmo")) $("#gizmo").classList.add("hidden");
   S.forceFit = true;        // a fresh plan starts fitted to the pane
   ensureDefaultSections(plan);   // 2 vertical + 2 horizontal cut lines by default
+  snapRoomsToLabel(plan);        // the room LABEL is the dimension (user rule)
   clampFurniture(plan);          // pieces fit their rooms, data-level
   if (!Array.isArray(plan.refs)) plan.refs = [];   // user-placed reference guides
   S.refSel = null;
