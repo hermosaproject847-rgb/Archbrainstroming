@@ -1177,6 +1177,9 @@ function applyDrag(d, mx, my) {
       it.x = r4(Math.min(fx, nx)); it.y = r4(Math.min(fy, ny));
       it.w = r4(Math.max(0.3, Math.abs(nx - fx))); it.h = r4(Math.max(0.3, Math.abs(ny - fy)));
     }
+    // a hand-resized piece prints the size you gave it — drop the stale
+    // label cap so the printed size follows the handles (furniture only)
+    if ("size_w" in it || "size_h" in it) { delete it.size_w; delete it.size_h; }
   }
 }
 function clearGuides() { const g = document.getElementById("plGuides"); if (g) g.remove(); }
