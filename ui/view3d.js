@@ -1875,12 +1875,15 @@
   function addTerraceRing(g, terrPlan, belowPlan, z0, P, M, dAl) {
     dAl = dAl || { x: 0, y: 0 };
     const tw = (terrPlan.walls || []).filter(w => !w.railing);
+    // each floor was read from its own drawing, so the same edge can sit a
+    // foot apart between plans — a wall within 1.6 ft COVERS the stretch,
+    // else the ring doubles up beside the real parapet (user: double wall)
     const covered = (x, y) => tw.some(w => {
       const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
       const L2 = dx * dx + dy * dy || 1e-9;
       let t = ((x - w.x1) * dx + (y - w.y1) * dy) / L2;
       t = Math.max(0, Math.min(1, t));
-      return Math.hypot(w.x1 + dx * t - x, w.y1 + dy * t - y) < 0.9;
+      return Math.hypot(w.x1 + dx * t - x, w.y1 + dy * t - y) < 1.6;
     });
     const H = Math.max(P.para, 3.0), t2 = 0.4;
     for (const w0 of (belowPlan.walls || [])) {
@@ -1911,14 +1914,15 @@
   // an upper floor's OPEN TERRACE gets a parapet along every edge of the
   // room that has no wall of its own in the drawing (the AI often leaves
   // those edges wall-less) - a coping-topped strip, like a real parapet
-  function addRoomParapets(g, plan, z0, P, M) {
-    const walls = (plan.walls || []).filter(w => !w.railing);
+  function addRoomParapets(g, plan, z0, P, M, extraWalls) {
+    const walls = (plan.walls || []).filter(w => !w.railing)
+      .concat(extraWalls || []);
     const near = (x, y) => walls.some(w => {
       const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
       const L2 = dx * dx + dy * dy || 1e-9;
       let t = ((x - w.x1) * dx + (y - w.y1) * dy) / L2;
       t = Math.max(0, Math.min(1, t));
-      return Math.hypot(w.x1 + dx * t - x, w.y1 + dy * t - y) < 0.9;
+      return Math.hypot(w.x1 + dx * t - x, w.y1 + dy * t - y) < 1.6;
     });
     const H = Math.max(P.para, 3.0), t2 = 0.38;
     for (const r of (plan.rooms || [])) {
@@ -2671,7 +2675,12 @@
           y: (FL_ALIGN[f - 1] || { y: 0 }).y - (FL_ALIGN[f] || { y: 0 }).y,
         };
         addTerraceRing(L.walls, plan, below, z0, P, M, dAl);
-        addRoomParapets(L.walls, plan, z0, P, M);
+        // the ring's own lines count as walls here, so the room-edge
+        // parapet never doubles beside the ring
+        addRoomParapets(L.walls, plan, z0, P, M,
+          ((below || {}).walls || []).map(w2 => ({
+            x1: w2.x1 + dAl.x, y1: w2.y1 + dAl.y,
+            x2: w2.x2 + dAl.x, y2: w2.y2 + dAl.y })));
         // the stair from the floor BELOW arrives here — its well is cut out
         // of the terrace / mumty floor finish
         addFlooring(L.floor, plan, z0, ((below || {}).stairs || []).map(st =>
