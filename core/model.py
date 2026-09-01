@@ -535,6 +535,27 @@ class Plan:
         p.struct = dict(d.get("struct") or {})
         p.section_params = dict(d.get("section_params") or {})
         p.furniture = [mk(Furniture, f) for f in d.get("furniture", [])]
+        # a piece can NEVER be bigger than its room or hang outside it — the
+        # reader sometimes writes a wardrobe longer than the room is deep
+        # (drawn rect crossed the wall while its label read the raw size).
+        # Clamp size to the room and pull the piece back inside.
+        for f in p.furniture:
+            room = next((r for r in p.rooms if (f.room or "").strip().lower()
+                         == (r.name or "").strip().lower()), None)
+            if room is None:
+                cxf, cyf = f.x + f.w / 2, f.y + f.h / 2
+                room = next((r for r in p.rooms
+                             if r.x - 0.6 <= cxf <= r.x + r.w + 0.6
+                             and r.y - 0.6 <= cyf <= r.y + r.h + 0.6), None)
+            if room is None or room.void:
+                continue
+            pad = 0.08
+            if f.w > room.w - 2 * pad:
+                f.w = max(0.8, room.w - 2 * pad)
+            if f.h > room.h - 2 * pad:
+                f.h = max(0.8, room.h - 2 * pad)
+            f.x = min(max(f.x, room.x + pad), room.x + room.w - f.w - pad)
+            f.y = min(max(f.y, room.y + pad), room.y + room.h - f.h - pad)
         for e in d.get("elec", []):
             pt = mk(ElecPoint, e)
             pt.controls = list(e.get("controls") or [])

@@ -571,8 +571,24 @@
   const lam = c => new THREE.MeshLambertMaterial({ color: c });
   function addFurniture(g, plan, z0) {
     for (const f of (plan.furniture || [])) {
-      const w = +f.w || 1, h = +f.h || 1;
-      const cx = (+f.x || 0) + w / 2, cy = (+f.y || 0) + h / 2;
+      let w = +f.w || 1, h = +f.h || 1;
+      let fx = +f.x || 0, fy = +f.y || 0;
+      // a piece can never be bigger than its room or hang outside it —
+      // clamp to the room like the server does, so 3D matches the plan
+      const rm = (plan.rooms || []).find(r =>
+        (f.room || "").trim().toLowerCase() ===
+        (r.name || "").trim().toLowerCase()) ||
+        (plan.rooms || []).find(r =>
+          fx + w / 2 >= r.x - 0.6 && fx + w / 2 <= r.x + r.w + 0.6 &&
+          fy + h / 2 >= r.y - 0.6 && fy + h / 2 <= r.y + r.h + 0.6);
+      if (rm && !rm.void) {
+        const pad = 0.08;
+        if (w > rm.w - 2 * pad) w = Math.max(0.8, rm.w - 2 * pad);
+        if (h > rm.h - 2 * pad) h = Math.max(0.8, rm.h - 2 * pad);
+        fx = Math.min(Math.max(fx, rm.x + pad), rm.x + rm.w - w - pad);
+        fy = Math.min(Math.max(fy, rm.y + pad), rm.y + rm.h - h - pad);
+      }
+      const cx = fx + w / 2, cy = fy + h / 2;
       const grp = new THREE.Group();
       // local frame: piece centred at origin, x = its w, y(plan) = its h.
       // `bk` = which local side its BACK is on (facing = the wall side).
