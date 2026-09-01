@@ -143,29 +143,46 @@
   function addWall(g, plan, w, z0, H0, P, M, cxAll, cyAll, BW) {
     const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
     const L = Math.hypot(dx, dy); if (L < 0.05) return;
-    // WALLS JOIN SOLID (user rule: no loose stubs / slivers at a junction):
-    // each end that meets another wall or a column extends by half that
-    // member's thickness, so corners and T-joints close instead of leaving
-    // a notch at the centre-line
-    const endExt = (px, py) => {
+    // WALLS JOIN SOLID (user rule: clean model, no stubs, no slivers).
+    // DIRECTIONAL closing only: an end extends ONLY when, continuing
+    // straight ahead, it lands ON a roughly-perpendicular wall (or a
+    // column) just past the end — and then exactly far enough to reach
+    // that member's far face. A wall merely NEAR something never grows,
+    // so nothing pokes out where there is no junction.
+    const uxE = dx / L, uyE = dy / L;
+    const endExt = (px, py, ox2, oy2) => {     // (end point, outward dir)
       let e = 0;
       for (const o of (plan.walls || [])) {
         if (o === w || o.railing) continue;
         const odx = o.x2 - o.x1, ody = o.y2 - o.y1;
-        const L2 = odx * odx + ody * ody || 1e-9;
-        let tt = ((px - o.x1) * odx + (py - o.y1) * ody) / L2;
-        tt = Math.max(0, Math.min(1, tt));
-        const d = Math.hypot(px - (o.x1 + odx * tt), py - (o.y1 + ody * tt));
-        if (d < 0.8) e = Math.max(e, ((+o.thickness_in || 4.5) / 24) + 0.02);
+        const oL = Math.hypot(odx, ody); if (oL < 0.1) continue;
+        const oux = odx / oL, ouy = ody / oL;
+        if (Math.abs(oux * ox2 + ouy * oy2) > 0.7) continue; // not across
+        const onx = -ouy, ony = oux;           // o's unit normal
+        const denom = ox2 * onx + oy2 * ony;
+        if (Math.abs(denom) < 0.5) continue;
+        const s = ((o.x1 - px) * onx + (o.y1 - py) * ony) / denom;
+        const ot = ((+o.thickness_in || 4.5) / 12) / 2;
+        if (s < -ot - 0.05 || s > ot + 0.55) continue;  // not ending on it
+        const hx = px + ox2 * s, hy = py + oy2 * s;
+        const tt = (hx - o.x1) * oux + (hy - o.y1) * ouy;
+        if (tt < -0.3 || tt > oL + 0.3) continue;        // off its length
+        e = Math.max(e, Math.min(1.0, s + ot + 0.02));
       }
       for (const c of (plan.columns || [])) {
-        const d = Math.hypot(px - (+c.x), py - (+c.y));
-        if (d < 1.1) e = Math.max(e,
-          Math.max(+c.w || 0.8, +c.h || 0.8) / 2 + 0.02);
+        const hw = (+c.w || 0.8) / 2, hh = (+c.h || 0.8) / 2;
+        const along = Math.abs(ox2) > 0.5 ? hw : hh;     // half-size ahead
+        const across = Math.abs(ox2) > 0.5 ? hh : hw;
+        const s = ((+c.x) - px) * ox2 + ((+c.y) - py) * oy2;
+        const q = Math.abs(((+c.x) - px) * -oy2 + ((+c.y) - py) * ox2);
+        if (s > -along && s < along + 0.55 &&
+            q < across + ((+w.thickness_in || 5) / 12) / 2)
+          e = Math.max(e, Math.min(1.2, s + along + 0.02));
       }
-      return e;
+      return Math.max(0, e);
     };
-    const e0 = endExt(w.x1, w.y1), e1 = endExt(w.x2, w.y2);
+    const e0 = endExt(w.x1, w.y1, -uxE, -uyE);
+    const e1 = endExt(w.x2, w.y2, uxE, uyE);
     // a wall can carry its OWN height (click it in 3D and type one) — that is
     // how a parapet stretch, a half wall or a raised feature wall is made
     const H = (+w.height_ft > 0.3) ? +w.height_ft : H0;
