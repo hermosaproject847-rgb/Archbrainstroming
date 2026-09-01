@@ -3295,13 +3295,38 @@ function furnScale(plan, f) {
     cx - dw / 2 >= r.x - 0.6 && cx + dw / 2 <= r.x + r.w + 0.6 &&
     cy - dh / 2 >= r.y - 0.6 && cy + dh / 2 <= r.y + r.h + 0.6);
   if (!rm) return { kw: 1, kh: 1 };
+  // room rects span wall CENTERLINES, labels state the CLEAR size — compare
+  // clear vs label, so a correctly-read room scales by exactly 1
+  const cb = roomClearBox(plan, rm);
   const parts = String(rm.size_label || "").split(/[xX×]/);
   const lw = _lblFtV(parts[0]), lh = _lblFtV(parts[1]);
-  let sx = (lw && lw < rm.w) ? rm.w / lw : 1;
-  let sy = (lh && lh < rm.h) ? rm.h / lh : 1;
+  const cw = cb.x1 - cb.x0, ch = cb.y1 - cb.y0;
+  let sx = (lw && lw < cw - 0.05) ? cw / lw : 1;
+  let sy = (lh && lh < ch - 0.05) ? ch / lh : 1;
   if (!(sx >= 1 && sx <= 1.6)) sx = 1;   // a misparsed label must not warp
   if (!(sy >= 1 && sy <= 1.6)) sy = 1;
   return rot ? { kw: sy, kh: sx } : { kw: sx, kh: sy };
+}
+
+/* a room's CLEAR inside box — rect minus half of each bounding wall */
+function roomClearBox(plan, rm) {
+  const half = (vert, at, lo, hi) => {
+    const w2 = ((plan && plan.walls) || []).find(w => {
+      const isv = Math.abs(w.x1 - w.x2) < 0.05;
+      if (isv !== vert) return false;
+      const c = vert ? w.x1 : w.y1;
+      if (Math.abs(c - at) > 0.45) return false;
+      const a1 = vert ? w.y1 : w.x1, a2 = vert ? w.y2 : w.x2;
+      return Math.min(a1, a2) < hi - 0.3 && Math.max(a1, a2) > lo + 0.3;
+    });
+    return ((w2 && +w2.thickness_in) || 4.5) / 24;    // half thickness, feet
+  };
+  return {
+    x0: rm.x + half(true, rm.x, rm.y, rm.y + rm.h),
+    x1: rm.x + rm.w - half(true, rm.x + rm.w, rm.y, rm.y + rm.h),
+    y0: rm.y + half(false, rm.y, rm.x, rm.x + rm.w),
+    y1: rm.y + rm.h - half(false, rm.y + rm.h, rm.x, rm.x + rm.w),
+  };
 }
 
 /* a piece can never be bigger than its room or hang outside it — clamp in
@@ -3319,44 +3344,32 @@ function clampFurniture(plan) {
       (f.room || "").trim().toLowerCase() ===
       (r.name || "").trim().toLowerCase());
     if (!rm || rm.void) continue;
-    // the room's SIZE LABEL is the sheet's own truth — when the read walls
-    // sit wider than the label says, a piece still respects the label, so
-    // a 4'-6" deep dress never grows a 5'-2" wardrobe
-    const lblFt = s => {
-      if (!s) return null; s = String(s).trim();
-      let m = s.match(/^(\d+)\s*'\s*-?\s*(\d+(?:\.\d+)?)?/);
-      if (m) return (+m[1]) + ((+m[2] || 0) / 12);
-      m = s.match(/^(\d+(?:\.\d+)?)/);
-      if (m) { const v = +m[1]; return v > 50 ? v / 304.8 : v; }
-      return null;
-    };
-    const parts = String(rm.size_label || "").split(/[xX×]/);
-    const lw = lblFt(parts[0]), lh = lblFt(parts[1]);
-    const effW = (lw && lw < rm.w) ? lw : rm.w;
-    const effH = (lh && lh < rm.h) ? lh : rm.h;
+    // the room's CLEAR inside box: rects span wall centerlines, but a piece
+    // lives between the wall FACES — and the size label states exactly that
+    const cb = roomClearBox(plan, rm);
+    const clrW = cb.x1 - cb.x0, clrH = cb.y1 - cb.y0;
     // a 90/270 piece is DRAWN rotated about its centre — its footprint is
     // h wide and w TALL, so work in DRAWN extents, not the stored fields
     const rot = Math.abs(((+f.angle || 0) % 180 + 180) % 180 - 90) < 45;
     let dw = rot ? (+f.h || 1) : (+f.w || 1);   // drawn x-extent
     let dh = rot ? (+f.w || 1) : (+f.h || 1);   // drawn y-extent
-    // the DRAWN box works like the room itself: the sketch geometry is
-    // proportional, so a piece meant to span the room spans the DRAWN room
-    // flush to its walls — no dead gap where the sketch reads a little big
-    if (dw >= effW - 0.3) dw = rm.w;
-    if (dh >= effH - 0.3) dh = rm.h;
+    // a piece meant to span the room spans the CLEAR room, face to face —
+    // no dead gap at the wall, no overhang into it
+    if (dw >= clrW - 0.3) dw = clrW;
+    if (dh >= clrH - 0.3) dh = clrH;
     if (rot) { f.h = dw; f.w = dh; } else { f.w = dw; f.h = dh; }
     // printed size is DERIVED live (drawn ÷ room scale) — drop stale caches
     delete f.size_w; delete f.size_h;
-    // keep the DRAWN box inside the room (rotation is about the centre);
-    // a full-span axis sits flush, a loose one keeps a small clearance
-    const padX = dw >= rm.w - 0.01 ? 0 : 0.08;
-    const padY = dh >= rm.h - 0.01 ? 0 : 0.08;
+    // keep the DRAWN box inside the clear room (rotation is about the
+    // centre); a full-span axis sits flush, a loose one keeps a clearance
+    const padX = dw >= clrW - 0.01 ? 0 : 0.08;
+    const padY = dh >= clrH - 0.01 ? 0 : 0.08;
     let ccx = (+f.x || 0) + (+f.w || 1) / 2;
     let ccy = (+f.y || 0) + (+f.h || 1) / 2;
-    ccx = Math.min(Math.max(ccx, rm.x + padX + dw / 2),
-                   rm.x + rm.w - padX - dw / 2);
-    ccy = Math.min(Math.max(ccy, rm.y + padY + dh / 2),
-                   rm.y + rm.h - padY - dh / 2);
+    ccx = Math.min(Math.max(ccx, cb.x0 + padX + dw / 2),
+                   cb.x1 - padX - dw / 2);
+    ccy = Math.min(Math.max(ccy, cb.y0 + padY + dh / 2),
+                   cb.y1 - padY - dh / 2);
     f.x = ccx - (+f.w || 1) / 2;
     f.y = ccy - (+f.h || 1) / 2;
   }

@@ -234,17 +234,46 @@ def room_scale(plan, f) -> tuple[float, float]:
             break
     if rm is None:
         return 1.0, 1.0
+    # the room rect spans wall CENTERLINES; the label states the CLEAR size.
+    # Clear = rect minus half of each bounding wall — usually they agree
+    # exactly, and only a genuinely misdrawn room scales its furniture.
+    cw, ch = clear_wh(plan, rm)
     parts = re.split(r"[xX×]", str(getattr(rm, "size_label", "") or ""))
     lw = _label_ft(parts[0]) if parts else None
     lh = _label_ft(parts[1]) if len(parts) > 1 else None
-    sx = rm.w / lw if (lw and lw < rm.w) else 1.0
-    sy = rm.h / lh if (lh and lh < rm.h) else 1.0
+    sx = cw / lw if (lw and lw < cw - 0.05) else 1.0
+    sy = ch / lh if (lh and lh < ch - 0.05) else 1.0
     # a misparsed label must not warp sizes — only a mild read-stretch is real
     if not (1.0 <= sx <= 1.6):
         sx = 1.0
     if not (1.0 <= sy <= 1.6):
         sy = 1.0
     return (sy, sx) if rot else (sx, sy)         # stored-axis order
+
+
+def _half_wall(plan, vert: bool, at: float, lo: float, hi: float) -> float:
+    """Half the thickness (feet) of the wall lying on a room edge line."""
+    for w in plan.walls:
+        isv = abs(w.x1 - w.x2) < 0.05
+        if isv != vert:
+            continue
+        c = w.x1 if vert else w.y1
+        if abs(c - at) > 0.45:
+            continue
+        a1, a2 = (w.y1, w.y2) if vert else (w.x1, w.x2)
+        if min(a1, a2) < hi - 0.3 and max(a1, a2) > lo + 0.3:
+            return (getattr(w, "thickness_in", 4.5) or 4.5) / 24.0
+    return 4.5 / 24.0
+
+
+def clear_wh(plan, rm) -> tuple[float, float]:
+    """A room's CLEAR inside size (feet) — rect span minus half of each
+    bounding wall, since rects are read wall-centerline to centerline."""
+    hl = _half_wall(plan, True, rm.x, rm.y, rm.y + rm.h)
+    hr = _half_wall(plan, True, rm.x + rm.w, rm.y, rm.y + rm.h)
+    hb = _half_wall(plan, False, rm.y, rm.x, rm.x + rm.w)
+    ht = _half_wall(plan, False, rm.y + rm.h, rm.x, rm.x + rm.w)
+    return rm.w - hl - hr, rm.h - hb - ht
 
 
 def printed_wh(plan, f) -> tuple[float, float]:
