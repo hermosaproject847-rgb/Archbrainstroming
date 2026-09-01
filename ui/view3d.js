@@ -2030,13 +2030,23 @@
       }
     }
     // 3) drop tiny orphans that touch nothing
+    // a short piece must touch a REAL WALL to live — two broken fragments
+    // propping each other up in the middle of the terrace both go
+    const wallsT = (targets || []);
+    const touchesWall = s => wallsT.some(o => {
+      const odx = o.x2 - o.x1, ody = o.y2 - o.y1;
+      const L2 = odx * odx + ody * ody || 1e-9;
+      return [[s.x1, s.y1], [s.x2, s.y2]].some(p => {
+        let t = ((p[0] - o.x1) * odx + (p[1] - o.y1) * ody) / L2;
+        t = Math.max(0, Math.min(1, t));
+        return Math.hypot(o.x1 + odx * t - p[0],
+                          o.y1 + ody * t - p[1]) < 1.2;
+      });
+    });
     list = list.filter(s => {
       const L = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
-      if (L > 2.5) return true;
-      return tgt.some(o => o !== s &&
-        [[s.x1, s.y1], [s.x2, s.y2]].some(p =>
-          [[o.x1, o.y1], [o.x2, o.y2]].some(q =>
-            Math.hypot(p[0] - q[0], p[1] - q[1]) < 1.2)));
+      if (L > 4.0) return true;
+      return touchesWall(s);
     });
     // 4) build
     for (const s of list) {
