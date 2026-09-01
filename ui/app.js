@@ -3245,12 +3245,36 @@ function takeAutosave() {
     return t ? JSON.parse(t) : null;
   } catch (e) { return null; }
 }
+/* a piece can never be bigger than its room or hang outside it — clamp in
+   the CLIENT's own data (once, at load / after the furniture stage), so the
+   drawn sheet, the size labels and the gizmo all read the same numbers */
+function clampFurniture(plan) {
+  if (!plan) return;
+  for (const f of (plan.furniture || [])) {
+    const w = +f.w || 1, h = +f.h || 1;
+    const cx = (+f.x || 0) + w / 2, cy = (+f.y || 0) + h / 2;
+    let rm = (plan.rooms || []).find(r =>
+      cx >= r.x - 0.6 && cx <= r.x + r.w + 0.6 &&
+      cy >= r.y - 0.6 && cy <= r.y + r.h + 0.6);
+    if (!rm) rm = (plan.rooms || []).find(r =>
+      (f.room || "").trim().toLowerCase() ===
+      (r.name || "").trim().toLowerCase());
+    if (!rm || rm.void) continue;
+    const pad = 0.08;
+    if (f.w > rm.w - 2 * pad) f.w = Math.max(0.8, rm.w - 2 * pad);
+    if (f.h > rm.h - 2 * pad) f.h = Math.max(0.8, rm.h - 2 * pad);
+    f.x = Math.min(Math.max(+f.x || 0, rm.x + pad), rm.x + rm.w - f.w - pad);
+    f.y = Math.min(Math.max(+f.y || 0, rm.y + pad), rm.y + rm.h - f.h - pad);
+  }
+}
+
 function loadAnyJson(j, name) {
   if (!isProjectFile(j)) { setPlan(j); return 1; }
   S.floors = j.floors.map((f, i) => ({
     name: (f && f.name) || _nextFloorNameAt(i),
     plan: (f && f.plan) || null,
   }));
+  S.floors.forEach(f => clampFurniture(f.plan));
   S.active = Math.min(Math.max(0, +j.active || 0), S.floors.length - 1);
   if (!S.floors[S.active].plan)                 // land on a floor that has one
     S.active = Math.max(0, S.floors.findIndex(f => f.plan));
@@ -3270,6 +3294,7 @@ function setPlan(plan) {
   if ($("#gizmo")) $("#gizmo").classList.add("hidden");
   S.forceFit = true;        // a fresh plan starts fitted to the pane
   ensureDefaultSections(plan);   // 2 vertical + 2 horizontal cut lines by default
+  clampFurniture(plan);          // pieces fit their rooms, data-level
   if (!Array.isArray(plan.refs)) plan.refs = [];   // user-placed reference guides
   S.refSel = null;
   S.plan = plan;
@@ -4007,6 +4032,8 @@ $("#btnFurn").onclick = async () => {
   const res = await forEachFloorPlan(p => api().furnish(p));
   busy(false);
   const bad = stageFailed(res); if (bad) return fail(bad);
+  if (S.floors && S.floors.length) S.floors.forEach(f => clampFurniture(f.plan));
+  else clampFurniture(S.plan);
   markDirty(); buildTables(); redraw();
   tab("furniture");
   const total = stageTotal(res, "count");
