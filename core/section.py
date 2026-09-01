@@ -162,7 +162,8 @@ def build(plan, p1, p2, params) -> tuple[DrawList, list]:
     faces = _facing_openings(plan, p1, p2, x_lo, x_hi, view)
 
     # staircases / entry steps the section line passes through
-    flights = _flights_in_section(plan, x1, y1, ux, uy, p1, p2, x_lo, x_hi)
+    flights = _flights_in_section(plan, x1, y1, ux, uy, p1, p2, x_lo, x_hi,
+                                  view)
     esteps = _steps_in_section(plan, x1, y1, ux, uy, p1, p2, x_lo, x_hi)
 
     # centroid of the walls — a chajja projects to the side AWAY from it
@@ -179,17 +180,22 @@ def build(plan, p1, p2, params) -> tuple[DrawList, list]:
     # draws the opening with the arrival flush at its edge
     wells = [(min(fl["ta"], fl["tb"]), max(fl["ta"], fl["tb"]))
              for fl in flights]
+    # hiding walls/doors applies only when the cut runs ALONG the stair (the
+    # flights fill the view); ACROSS the stair the viewer looks INTO the well
+    # — the toilet door, the well wall and the risers all show (user rule)
+    wells_par = [(min(fl["ta"], fl["tb"]), max(fl["ta"], fl["tb"]))
+                 for fl in flights if not fl.get("crosswise")]
 
     def _in_well(x, margin=0.3):
-        return any(wa + margin < x < wb - margin for wa, wb in wells)
+        return any(wa + margin < x < wb - margin for wa, wb in wells_par)
 
-    # USER RULE: where the section cuts through the staircase, ONLY the
+    # USER RULE: where the section cuts ALONG the staircase, ONLY the
     # staircase shows — no wall behind it, no door/window seen in elevation.
     # The shaft's end walls (at the well boundary) stay; anything strictly
     # inside the stair extent is hidden.
     cuts_vis = [c for c in cuts if not _in_well(c[0])]
     faces_vis = [f for f in faces
-                 if not any(f[0] < wb and f[1] > wa for wa, wb in wells)]
+                 if not any(f[0] < wb and f[1] > wa for wa, wb in wells_par)]
 
     def _spans(lo, hi):
         """The x-spans of [lo,hi] left after subtracting the stair wells."""
@@ -1151,7 +1157,8 @@ def _seg_hits_rect(a, b, rx, ry, rw, rh):
     return any(_seg_x(a, b, e0, e1) is not None for e0, e1 in edges)
 
 
-def _flights_in_section(plan, x1s, y1s, ux, uy, p1, p2, x_lo, x_hi):
+def _flights_in_section(plan, x1s, y1s, ux, uy, p1, p2, x_lo, x_hi,
+                        view=(0.0, 0.0)):
     out = []
     for s in getattr(plan, "stairs", None) or []:
         if not _seg_hits_rect(p1, p2, s.x, s.y, s.w, s.h):
@@ -1190,26 +1197,39 @@ def _flights_in_section(plan, x1s, y1s, ux, uy, p1, p2, x_lo, x_hi):
             n2 = int(fls[1]["steps"]) if len(fls) > 1 else n1
             wind = int(getattr(s, "winders", 0) or 0)
             base = [0, n1 + wind]           # risers climbed before each flight
+            # which way does the viewer look along the RUN?
+            vrun = (view[0] if run_x else view[1]) or 1.0
             for i, f2 in enumerate(fls[:2]):
                 rx, ry, rw, rh = f2["rect"]
                 lo = rx if run_x else ry
                 ln = rw if run_x else rh
-                if not (lo - 0.05 <= cpos <= lo + ln + 0.05):
-                    continue
                 nf = max(1, int(f2["steps"]))
                 tread = ln / nf
-                d2 = (cpos - lo) if f2.get("dir", 1) > 0 else (lo + ln - cpos)
-                k = max(0, min(nf - 1, int(d2 / max(tread, 1e-6))))
+                d = 1 if f2.get("dir", 1) > 0 else -1
                 c0, c1 = _project_rect(x1s, y1s, ux, uy, rx, ry, rw, rh)
-                strips.append({"t0": c0, "t1": c1,
-                               "ris": base[min(i, 1)] + k + 1})
+                if lo - 0.05 <= cpos <= lo + ln + 0.05:
+                    d2 = (cpos - lo) if d > 0 else (lo + ln - cpos)
+                    k = max(0, min(nf - 1, int(d2 / max(tread, 1e-6))))
+                    strips.append({"t0": c0, "t1": c1,
+                                   "ris": base[min(i, 1)] + k + 1})
+                # the RISERS of this flight seen FACE-ON beyond the plane —
+                # every riser whose run position lies the way the viewer looks
+                vis = []
+                for j in range(nf + 1):
+                    rp = lo + (j * tread if d > 0 else ln - j * tread)
+                    if (rp - cpos) * vrun > 0.02:
+                        vis.append(base[min(i, 1)] + j + 1)
+                if vis:
+                    strips.append({"t0": c0, "t1": c1, "beyond": vis})
             if land is not None:
                 lx, ly, lw, lh = land
                 lo = lx if run_x else ly
                 ln = lw if run_x else lh
+                c0, c1 = _project_rect(x1s, y1s, ux, uy, lx, ly, lw, lh)
                 if lo - 0.05 <= cpos <= lo + ln + 0.05:
-                    c0, c1 = _project_rect(x1s, y1s, ux, uy, lx, ly, lw, lh)
                     strips.append({"t0": c0, "t1": c1, "ris": n1 + wind})
+                elif ((lo + ln / 2) - cpos) * vrun > 0:
+                    strips.append({"t0": c0, "t1": c1, "land": n1 + wind})
             strips.append({"total": n1 + n2 + wind + 1})
         out.append({"ta": ta, "tb": tb, "up_hi": (ax * ux + ay * uy) >= 0,
                     "turn_hi": (tvx * ux + tvy * uy) >= 0, "s": s,
@@ -1274,38 +1294,51 @@ def _polyline(dl, pts, layer):
 
 
 def _draw_stair_crosswise(dl, fl, y_low, rise, layer):
-    """The section cuts ACROSS the stair run: each flight the plane slices
-    shows as its cut WAIST STRIP — two thin lines + concrete dots, at the
-    height the flight has reached at the cut position — plus the railing at
-    the well edge. No profile, no fake zigzag."""
-    strips = [st for st in fl.get("strips") or [] if "t0" in st]
-    total = next((st["total"] for st in fl.get("strips") or []
-                  if "total" in st), 0)
-    if not strips or total <= 0 or rise <= 0:
+    """The section cuts ACROSS the stair run — drawn the way a real section
+    shows it: the flight the plane slices as its cut WAIST STRIP (two thin
+    lines + concrete dots at the height reached at the cut), and everything
+    BEYOND the plane in elevation — the other flight's RISERS face-on (the
+    stack of horizontal step lines), the landing edge, and the railing at
+    the well edge. The toilet door / well wall behind stay visible."""
+    all_st = fl.get("strips") or []
+    total = next((st["total"] for st in all_st if "total" in st), 0)
+    if total <= 0 or rise <= 0:
         return
     riser = rise / total
     wt = _mm_ft(150)
     tops = []
-    for st in strips:
-        h = y_low + st["ris"] * riser
+    for st in all_st:
+        if "t0" not in st:
+            continue
         lo, hi = min(st["t0"], st["t1"]), max(st["t0"], st["t1"])
-        dl.line(lo, h, hi, h, layer=layer)
-        dl.line(lo, h - wt, hi, h - wt, layer=layer)
-        dl.line(lo, h, lo, h - wt, layer=layer)
-        dl.line(hi, h, hi, h - wt, layer=layer)
-        n = max(2, int((hi - lo) / 0.55))
-        for i in range(n):
-            cx = lo + (hi - lo) * (i + 0.5) / n
-            dl.arc(cx, h - wt * (0.35 if i % 2 == 0 else 0.7), 0.03, 0, 360,
-                   layer=layer)
-        tops.append((lo, hi, h))
-    # railing on the well edge of every cut strip (1m high + top rail)
-    if len(tops) >= 2:
+        if "ris" in st:                       # the CUT strip
+            h = y_low + st["ris"] * riser
+            dl.line(lo, h, hi, h, layer=layer)
+            dl.line(lo, h - wt, hi, h - wt, layer=layer)
+            dl.line(lo, h, lo, h - wt, layer=layer)
+            dl.line(hi, h, hi, h - wt, layer=layer)
+            n = max(2, int((hi - lo) / 0.55))
+            for i in range(n):
+                cx = lo + (hi - lo) * (i + 0.5) / n
+                dl.arc(cx, h - wt * (0.35 if i % 2 == 0 else 0.7),
+                       0.03, 0, 360, layer=layer)
+            tops.append((lo, hi, h))
+        elif "beyond" in st:                  # risers seen FACE-ON
+            zs = [y_low + r * riser for r in st["beyond"]]
+            for z in zs:
+                dl.line(lo, z, hi, z, layer=layer)
+            z0, z1 = min(zs), max(zs)
+            dl.line(lo, z0 - riser, lo, z1, layer=layer)
+            dl.line(hi, z0 - riser, hi, z1, layer=layer)
+        elif "land" in st:                    # the landing edge beyond
+            z = y_low + st["land"] * riser
+            dl.line(lo, z, hi, z, layer=layer)
+            dl.line(lo, z - wt, hi, z - wt, layer=layer)
+    # railing at the well edge over the cut strip
+    if tops:
         tops.sort(key=lambda t: t[2])
         lo0, hi0, h0 = tops[0]
-        lo1, hi1, h1 = tops[-1]
-        # the well lies between the two strips — rail the lower strip's edge
-        e = hi0 if hi0 <= lo1 + 0.05 else lo0
+        e = hi0 if len(tops) == 1 or hi0 <= tops[-1][0] + 0.05 else lo0
         dl.line(e, h0, e, h0 + 3.0, layer="SEC-DIM")
         dl.line(e - 0.5, h0 + 3.0, e + 0.5, h0 + 3.0, layer="SEC-DIM")
 
