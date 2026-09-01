@@ -1902,13 +1902,9 @@
         else if (run) { if (run[1] - run[0] > 1.2) spans.push(run); run = null; }
       }
       if (run && run[1] - run[0] > 1.2) { run[1] = L; spans.push(run); }
-      for (const [a, b] of spans) {
-        const mx = w.x1 + ux * (a + b) / 2, my = w.y1 + uy * (a + b) / 2;
-        const m = box(b - a, t2, H, mx, my, z0 + H / 2, M.ext);
-        m.rotation.y = ang; g.add(m);
-        const c = box(b - a, t2 + 0.2, 0.22, mx, my, z0 + H + 0.11, M.cap);
-        c.rotation.y = ang; g.add(c);
-      }
+      for (const [a, b] of spans)
+        g.push({ x1: w.x1 + ux * a, y1: w.y1 + uy * a,
+                 x2: w.x1 + ux * b, y2: w.y1 + uy * b, H, t2 });
     }
   }
   // an upper floor's OPEN TERRACE gets a parapet along every edge of the
@@ -1943,14 +1939,99 @@
           else if (run) { if (run[1] - run[0] > 1.5) spans.push(run); run = null; }
         }
         if (run && run[1] - run[0] > 1.5) { run[1] = L; spans.push(run); }
-        for (const [a, b] of spans) {
-          const mx = ex0 + ux * (a + b) / 2, my = ey0 + uy * (a + b) / 2;
-          const m = box(b - a, t2, H, mx, my, z0 + H / 2, M.ext);
-          m.rotation.y = ang; g.add(m);
-          const c = box(b - a, t2 + 0.2, 0.22, mx, my, z0 + H + 0.11, M.cap);
-          c.rotation.y = ang; g.add(c);
+        for (const [a, b] of spans)
+          g.push({ x1: ex0 + ux * a, y1: ey0 + uy * a,
+                   x2: ex0 + ux * b, y2: ey0 + uy * b, H, t2 });
+      }
+    }
+  }
+  // ---- the PARAPET NETWORK: every candidate stretch (ring + room edges)
+  // lands in ONE list, which is then SOLVED like a real drawing — collinear
+  // pieces merged, ends extended to meet crossing runs (mitred corners),
+  // tiny orphans dropped — and only then built. No more open ends, double
+  // strips or floating stubs (user: "joining system ko serious lo").
+  function drawParapetNet(g, segs, z0, M) {
+    const dirOf = s => {
+      const L = Math.hypot(s.x2 - s.x1, s.y2 - s.y1) || 1e-9;
+      return [(s.x2 - s.x1) / L, (s.y2 - s.y1) / L, L];
+    };
+    // 1) merge collinear neighbours (same line within 0.8, gap/overlap ≤ 1.6)
+    let list = segs.filter(s => Math.hypot(s.x2 - s.x1, s.y2 - s.y1) > 0.4);
+    let changed = true, guard = 0;
+    while (changed && guard++ < 40) {
+      changed = false;
+      outer:
+      for (let i = 0; i < list.length; i++)
+        for (let j = i + 1; j < list.length; j++) {
+          const A = list[i], B = list[j];
+          const [uax, uay] = dirOf(A), [ubx, uby] = dirOf(B);
+          if (Math.abs(uax * ubx + uay * uby) < 0.98) continue;
+          // lateral offset of B's mid from A's line
+          const mbx = (B.x1 + B.x2) / 2, mby = (B.y1 + B.y2) / 2;
+          const off = Math.abs((mbx - A.x1) * -uay + (mby - A.y1) * uax);
+          if (off > 0.8) continue;
+          // project all four ends on A's axis
+          const t = (x, y) => (x - A.x1) * uax + (y - A.y1) * uay;
+          const ts = [t(A.x1, A.y1), t(A.x2, A.y2), t(B.x1, B.y1), t(B.x2, B.y2)];
+          const a0 = Math.min(ts[0], ts[1]), a1 = Math.max(ts[0], ts[1]);
+          const b0 = Math.min(ts[2], ts[3]), b1 = Math.max(ts[2], ts[3]);
+          if (b0 > a1 + 1.6 || a0 > b1 + 1.6) continue;   // truly apart
+          const lo = Math.min(a0, b0), hi = Math.max(a1, b1);
+          list[i] = { x1: A.x1 + uax * lo, y1: A.y1 + uay * lo,
+                      x2: A.x1 + uax * hi, y2: A.y1 + uay * hi,
+                      H: Math.max(A.H, B.H), t2: Math.max(A.t2, B.t2) };
+          list.splice(j, 1);
+          changed = true;
+          break outer;
+        }
+    }
+    // 2) extend every end to meet a crossing run (mitred corner)
+    for (const s of list) {
+      const [ux, uy] = dirOf(s);
+      for (const endIdx of [0, 1]) {
+        const px = endIdx ? s.x2 : s.x1, py = endIdx ? s.y2 : s.y1;
+        const ox = endIdx ? ux : -ux, oy = endIdx ? uy : -uy;
+        let best = null;
+        for (const o of list) {
+          if (o === s) continue;
+          const [vx, vy, oL] = dirOf(o);
+          if (Math.abs(vx * ox + vy * oy) > 0.7) continue;
+          const nx2 = -vy, ny2 = vx;
+          const den = ox * nx2 + oy * ny2;
+          if (Math.abs(den) < 0.5) continue;
+          const d2 = ((o.x1 - px) * nx2 + (o.y1 - py) * ny2) / den;
+          if (d2 < -0.4 || d2 > 1.8) continue;
+          const hx = px + ox * d2, hy = py + oy * d2;
+          const tt = (hx - o.x1) * vx + (hy - o.y1) * vy;
+          if (tt < -0.6 || tt > oL + 0.6) continue;
+          if (best == null || d2 < best) best = d2;
+        }
+        if (best != null && best > 0) {
+          const e = best + (s.t2 || 0.4) / 2;
+          if (endIdx) { s.x2 += ux * e; s.y2 += uy * e; }
+          else { s.x1 -= ux * e; s.y1 -= uy * e; }
         }
       }
+    }
+    // 3) drop tiny orphans that touch nothing
+    list = list.filter(s => {
+      const L = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
+      if (L > 2.5) return true;
+      return list.some(o => o !== s &&
+        [[s.x1, s.y1], [s.x2, s.y2]].some(p =>
+          [[o.x1, o.y1], [o.x2, o.y2]].some(q =>
+            Math.hypot(p[0] - q[0], p[1] - q[1]) < 1.2)));
+    });
+    // 4) build
+    for (const s of list) {
+      const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
+      const L = Math.hypot(dx, dy); if (L < 0.4) continue;
+      const ang = Math.atan2(-dy / L, dx / L);
+      const mx = (s.x1 + s.x2) / 2, my = (s.y1 + s.y2) / 2;
+      const m = box(L, s.t2, s.H, mx, my, z0 + s.H / 2, M.ext);
+      m.rotation.y = ang; g.add(m);
+      const c = box(L, s.t2 + 0.2, 0.22, mx, my, z0 + s.H + 0.11, M.cap);
+      c.rotation.y = ang; g.add(c);
     }
   }
   function addBoundary(g, plan, M, cx, cy, ids) {
@@ -2674,13 +2755,14 @@
           x: (FL_ALIGN[f - 1] || { x: 0 }).x - (FL_ALIGN[f] || { x: 0 }).x,
           y: (FL_ALIGN[f - 1] || { y: 0 }).y - (FL_ALIGN[f] || { y: 0 }).y,
         };
-        addTerraceRing(L.walls, plan, below, z0, P, M, dAl);
-        // the ring's own lines count as walls here, so the room-edge
-        // parapet never doubles beside the ring
-        addRoomParapets(L.walls, plan, z0, P, M,
+        // all parapet candidates go into ONE network, solved then built
+        const pNet = [];
+        addTerraceRing(pNet, plan, below, z0, P, M, dAl);
+        addRoomParapets(pNet, plan, z0, P, M,
           ((below || {}).walls || []).map(w2 => ({
             x1: w2.x1 + dAl.x, y1: w2.y1 + dAl.y,
             x2: w2.x2 + dAl.x, y2: w2.y2 + dAl.y })));
+        drawParapetNet(L.walls, pNet, z0, M);
         // the stair from the floor BELOW arrives here — its well is cut out
         // of the terrace / mumty floor finish
         addFlooring(L.floor, plan, z0, ((below || {}).stairs || []).map(st =>
@@ -2772,7 +2854,11 @@
             (sx0 + sx1) / 2, (sy0 + sy1) / 2, mz + mh + P.slab / 2, M.slab));
         }
       }
-      if (f > 0) addRoomParapets(L.walls, plan, z0, P, M);
+      if (f > 0) {
+        const pNet2 = [];
+        addRoomParapets(pNet2, plan, z0, P, M);
+        drawParapetNet(L.walls, pNet2, z0, M);
+      }
       addStairs(L.stairs, plan, z0, H, M);
       if (f === 0) addSteps(L.stairs, plan, z0, M);   // entrance steps
       // on an upper floor the stair from BELOW arrives through the floor —
