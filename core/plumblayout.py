@@ -117,6 +117,77 @@ def _yard(plan: Plan, y: float, side: str, out=2.6):
     return (x0 - out if side == "W" else x1 + out), y
 
 
+def _stair_boxes(plan: Plan, m: float = 0.35):
+    """Every stair footprint — NO pipe of any system may cross it. Each entry
+    is (padded box for crossing tests, raw box for endpoint tests): a stack
+    sitting against the wall just off the stair must still be reachable."""
+    out = []
+    for s in plan.stairs:
+        if (s.w or 0) > 0.5 and (s.h or 0) > 0.5:
+            out.append(((s.x - m, s.y - m, s.x + s.w + m, s.y + s.h + m),
+                        (s.x, s.y, s.x + s.w, s.y + s.h)))
+    return out
+
+
+def _seg_detour(a, b, box):
+    """If the axis-aligned segment a-b crosses the padded box, the points
+    that carry it round the nearer edge instead; None when it does not cross
+    (or an end sits inside the RAW stair — a fitting there can't move)."""
+    (x0, y0, x1, y1), (rx0, ry0, rx1, ry1) = box
+    (ax, ay), (bx, by) = a, b
+    inside_raw = lambda px, py: rx0 < px < rx1 and ry0 < py < ry1
+    if inside_raw(ax, ay) or inside_raw(bx, by):
+        return None
+    # a pipe is wrong only when it crosses the RAW stair; the detour itself
+    # sits on the PADDED edge so it keeps a clearance off the flight
+    if abs(ay - by) < 1e-6:                       # horizontal
+        if not (ry0 < ay < ry1):
+            return None
+        lo, hi = min(ax, bx), max(ax, bx)
+        if hi <= rx0 + 1e-6 or lo >= rx1 - 1e-6:
+            return None
+        yd = y0 if abs(ay - y0) <= abs(ay - y1) else y1
+        xa, xb2 = (x0, x1) if ax < bx else (x1, x0)
+        return [a, (xa, ay), (xa, yd), (xb2, yd), (xb2, ay), b]
+    if abs(ax - bx) < 1e-6:                       # vertical
+        if not (rx0 < ax < rx1):
+            return None
+        lo, hi = min(ay, by), max(ay, by)
+        if hi <= ry0 + 1e-6 or lo >= ry1 - 1e-6:
+            return None
+        xd = x0 if abs(ax - x0) <= abs(ax - x1) else x1
+        ya, yb2 = (y0, y1) if ay < by else (y1, y0)
+        return [a, (ax, ya), (xd, ya), (xd, yb2), (ax, yb2), b]
+    return None
+
+
+def _avoid_stairs(plan: Plan, pts_):
+    """Reroute every leg of a run around the stair footprints — pipes never
+    cross a staircase, whatever the system (user rule)."""
+    boxes = _stair_boxes(plan)
+    if not boxes:
+        return pts_
+    for _ in range(3):                 # a detour may meet the next stair
+        changed = False
+        for box in boxes:
+            out = [pts_[0]]
+            for i in range(1, len(pts_)):
+                det = _seg_detour(tuple(out[-1]), tuple(pts_[i]), box)
+                if det:
+                    out.extend(det[1:])
+                    changed = True
+                else:
+                    out.append(tuple(pts_[i]))
+            pts_ = out
+        if not changed:
+            break
+    dedup = [pts_[0]]
+    for q in pts_[1:]:
+        if abs(q[0] - dedup[-1][0]) > 1e-6 or abs(q[1] - dedup[-1][1]) > 1e-6:
+            dedup.append(q)
+    return dedup
+
+
 def _ortho(a, b):
     """An L-route between two points. Pipes run ALONG the building, never
     diagonally across it — a diagonal drain through a bedroom is not a run
@@ -175,6 +246,7 @@ def design(plan_dict: dict) -> tuple[dict, list[str]]:
         # corners are left alone.
         pts_ = _ortho(tuple(coords[0]), tuple(coords[1])) \
             if len(coords) == 2 else [tuple(c) for c in coords]
+        pts_ = _avoid_stairs(plan, pts_)   # never through a staircase
         runs.append(PlumbRun(system=system, pts=pts_, dia_mm=dia,
                              slope=P.slope_for(system, dia), note=note))
 
@@ -724,6 +796,22 @@ def _riser_point(plan, side, cx, cy, d):
     return cx, y1 + d
 
 
+def _stair_exit(plan, x, y, tx, ty, m=0.35):
+    """The point on the stair's padded edge where a pipe leaving the point
+    (x, y) INSIDE the stair (the OHT above the stairwell) should surface,
+    headed for (tx, ty). Keeps everything but that one short tail off the
+    flights. None when (x, y) is not inside a stair."""
+    for st in (plan.stairs or []):
+        if st.x < x < st.x + st.w and st.y < y < st.y + st.h:
+            x0, y0 = st.x - m, st.y - m
+            x1, y1 = st.x + st.w + m, st.y + st.h + m
+            dx, dy = tx - x, ty - y
+            if abs(dx) >= abs(dy):
+                return ((x1 if dx > 0 else x0), y)
+            return (x, (y1 if dy > 0 else y0))
+    return None
+
+
 def _supply(plan, pts, runs, side, add, pipe):
     """§3, §10 — UG tank outside the footprint, pump, OHT, down-takes. All
     figures computed, and the tank kept clear of the drainage line."""
@@ -786,7 +874,13 @@ def _supply(plan, pts, runs, side, add, pipe):
         pipe("CW", [(tx, ty), (px_, py_)], P.D_CW_MAIN, "UG tank to the pump")
     add("OHT", ohx, ohy, "", "CW", P.D_CW_MAIN)
     if not upper:
-        pipe("CW", [(px_, py_), (px_, ohy), (ohx, ohy)], P.D_CW_MAIN,
+        # the delivery meets the OHT from the stair EDGE nearest the pump —
+        # only that one short tail sits over the stairwell, never a full run
+        ep = _stair_exit(plan, ohx, ohy, px_, py_)
+        route = [(px_, py_), (px_, ohy), (ohx, ohy)] if ep is None else \
+            ([(px_, py_), (px_, ep[1]), ep, (ohx, ohy)] if abs(ep[1] - ohy) > 1e-6
+             else [(px_, py_), (px_, ohy), ep, (ohx, ohy)])
+        pipe("CW", route, P.D_CW_MAIN,
              "pump delivery riser to the OHT, NRV at delivery"
              + (" — riser up in the porch, run at terrace level"
                 if porch is not None else ""))
@@ -828,7 +922,14 @@ def _supply(plan, pts, runs, side, add, pipe):
             pipe("CW", [(ohx, ohy), (ohx, top), (rx, top), (rx, ry)],
                  P.D_CW_DOWN, "cold water down-take, outside the building")
         else:
-            pipe("CW", [(ohx, ohy), (ohx, ry), (rx, ry)], P.D_CW_DOWN,
+            # leave the stairwell by its nearest EDGE, then run round — the
+            # feed never crosses the flights (user rule)
+            ep = _stair_exit(plan, ohx, ohy, rx, ry)
+            route = [(ohx, ohy), (ohx, ry), (rx, ry)] if ep is None else \
+                ([(ohx, ohy), ep, (ep[0], ry), (rx, ry)]
+                 if abs(ep[0] - ohx) > 1e-6
+                 else [(ohx, ohy), ep, (rx, ep[1]), (rx, ry)])
+            pipe("CW", route, P.D_CW_DOWN,
                  "cold water feed at TERRACE level to the down-take riser "
                  "— inside the plot line")
 
