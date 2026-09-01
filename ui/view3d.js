@@ -157,12 +157,23 @@
         const odx = o.x2 - o.x1, ody = o.y2 - o.y1;
         const oL = Math.hypot(odx, ody); if (oL < 0.1) continue;
         const oux = odx / oL, ouy = ody / oL;
-        if (Math.abs(oux * ox2 + ouy * oy2) > 0.7) continue; // not across
+        const ot = ((+o.thickness_in || 4.5) / 12) / 2;
+        if (Math.abs(oux * ox2 + ouy * oy2) > 0.7) {
+          // CONTINUING wall on (nearly) the same line: bridge the small
+          // gap / thickness jog so the facade shows one smooth wall, not
+          // a slit between the two panels
+          for (const q of [[o.x1, o.y1], [o.x2, o.y2]]) {
+            const s2 = (q[0] - px) * ox2 + (q[1] - py) * oy2;
+            const lat = Math.abs((q[0] - px) * -oy2 + (q[1] - py) * ox2);
+            if (s2 > -0.3 && s2 < 1.4 && lat < ot + 0.45)
+              e = Math.max(e, Math.min(1.4, s2 + 0.06));
+          }
+          continue;
+        }
         const onx = -ouy, ony = oux;           // o's unit normal
         const denom = ox2 * onx + oy2 * ony;
         if (Math.abs(denom) < 0.5) continue;
         const s = ((o.x1 - px) * onx + (o.y1 - py) * ony) / denom;
-        const ot = ((+o.thickness_in || 4.5) / 12) / 2;
         if (s < -ot - 0.05 || s > ot + 0.55) continue;  // not ending on it
         const hx = px + ox2 * s, hy = py + oy2 * s;
         const tt = (hx - o.x1) * oux + (hy - o.y1) * ouy;
@@ -1950,7 +1961,7 @@
   // pieces merged, ends extended to meet crossing runs (mitred corners),
   // tiny orphans dropped — and only then built. No more open ends, double
   // strips or floating stubs (user: "joining system ko serious lo").
-  function drawParapetNet(g, segs, z0, M) {
+  function drawParapetNet(g, segs, z0, M, targets) {
     const dirOf = s => {
       const L = Math.hypot(s.x2 - s.x1, s.y2 - s.y1) || 1e-9;
       return [(s.x2 - s.x1) / L, (s.y2 - s.y1) / L, L];
@@ -1985,14 +1996,19 @@
           break outer;
         }
     }
-    // 2) extend every end to meet a crossing run (mitred corner)
+    // 2) extend every end to meet a crossing run (mitred corner) — the
+    // storey's real WALLS count as crossing runs too, so a parapet always
+    // lands INTO the wall it meets, never short of it
+    const tgt = list.concat((targets || []).map(w2 => ({
+      x1: w2.x1, y1: w2.y1, x2: w2.x2, y2: w2.y2,
+      t2: ((+w2.thickness_in || 4.5) / 12) })));
     for (const s of list) {
       const [ux, uy] = dirOf(s);
       for (const endIdx of [0, 1]) {
         const px = endIdx ? s.x2 : s.x1, py = endIdx ? s.y2 : s.y1;
         const ox = endIdx ? ux : -ux, oy = endIdx ? uy : -uy;
         let best = null;
-        for (const o of list) {
+        for (const o of tgt) {
           if (o === s) continue;
           const [vx, vy, oL] = dirOf(o);
           if (Math.abs(vx * ox + vy * oy) > 0.7) continue;
@@ -2017,7 +2033,7 @@
     list = list.filter(s => {
       const L = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
       if (L > 2.5) return true;
-      return list.some(o => o !== s &&
+      return tgt.some(o => o !== s &&
         [[s.x1, s.y1], [s.x2, s.y2]].some(p =>
           [[o.x1, o.y1], [o.x2, o.y2]].some(q =>
             Math.hypot(p[0] - q[0], p[1] - q[1]) < 1.2)));
@@ -2762,7 +2778,12 @@
           ((below || {}).walls || []).map(w2 => ({
             x1: w2.x1 + dAl.x, y1: w2.y1 + dAl.y,
             x2: w2.x2 + dAl.x, y2: w2.y2 + dAl.y })));
-        drawParapetNet(L.walls, pNet, z0, M);
+        drawParapetNet(L.walls, pNet, z0, M,
+          (plan.walls || []).filter(w2 => !w2.railing).concat(
+            ((below || {}).walls || []).map(w2 => ({
+              x1: w2.x1 + dAl.x, y1: w2.y1 + dAl.y,
+              x2: w2.x2 + dAl.x, y2: w2.y2 + dAl.y,
+              thickness_in: w2.thickness_in }))));
         // the stair from the floor BELOW arrives here — its well is cut out
         // of the terrace / mumty floor finish
         addFlooring(L.floor, plan, z0, ((below || {}).stairs || []).map(st =>
@@ -2857,7 +2878,8 @@
       if (f > 0) {
         const pNet2 = [];
         addRoomParapets(pNet2, plan, z0, P, M);
-        drawParapetNet(L.walls, pNet2, z0, M);
+        drawParapetNet(L.walls, pNet2, z0, M,
+          (plan.walls || []).filter(w2 => !w2.railing));
       }
       addStairs(L.stairs, plan, z0, H, M);
       if (f === 0) addSteps(L.stairs, plan, z0, M);   // entrance steps
