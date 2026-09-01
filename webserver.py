@@ -26,6 +26,11 @@ import bottle
 from bottle import (Bottle, request, response, redirect, static_file,
                     HTTPResponse)
 
+# Bottle parses request.json only up to MEMFILE_MAX (default 100 KB) and
+# answers 413 'Request entity too large' beyond it — a multi-floor project
+# ("All floors on one sheet") posts the WHOLE project JSON, megabytes of it.
+bottle.BaseRequest.MEMFILE_MAX = 256 * 1024 * 1024
+
 import app as APP
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
