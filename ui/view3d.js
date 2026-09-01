@@ -214,7 +214,12 @@
       put(cur, o.a, 0, H, mat);
       const head = Math.min(o.head, H);
       if (o.sill > 0.05) put(o.a, o.b, 0, Math.min(o.sill, H), mat);
-      if (head < H - 0.05) put(o.a, o.b, head, H, mat);
+      // a HIGH opening (ventilator, lintel near the slab) leaves only a
+      // sliver of brick to the slab — drawing it reads as a loose stub
+      // hanging at slab level (user: "ye kya nikla hua hai"), and the
+      // beam / slab band caps the opening anyway. Only a real depth of
+      // brick above the head is built.
+      if (head < H - 2.6) put(o.a, o.b, head, H, mat);
       const fw = 0.16, ft2 = t * 0.55;
       if (o.win) {
         wob(o.a, o.b, o.sill, o.sill + fw, ft2, 0, M.frame);
@@ -3413,6 +3418,49 @@
           const bb = new THREE.Box3().setFromObject(o);
           out.push([+bb.min.x.toFixed(1), +bb.min.y.toFixed(1), +bb.min.z.toFixed(1),
                     +bb.max.x.toFixed(1), +bb.max.y.toFixed(1), +bb.max.z.toFixed(1)]);
+        }
+      });
+      return out;
+    };
+    window.__v3find = (y0, y1, maxSz) => {
+      const out = [];
+      for (const k in G) G[k].traverse(o => {
+        if (!o.isMesh) return;
+        const bb = new THREE.Box3().setFromObject(o);
+        const sx = bb.max.x - bb.min.x, sy = bb.max.y - bb.min.y,
+              sz = bb.max.z - bb.min.z;
+        if (bb.min.y >= y0 && bb.max.y <= y1 &&
+            Math.max(sx, sz) <= (maxSz || 4) && sy <= 3) {
+          let fl = null, p = o;
+          while (p) { if (p.userData && p.userData.floor != null) { fl = p.userData.floor; break; } p = p.parent; }
+          out.push({ g: k, fl, x: +bb.min.x.toFixed(1), y: +bb.min.y.toFixed(2),
+                     z: +bb.min.z.toFixed(1), sx: +sx.toFixed(2),
+                     sy: +sy.toFixed(2), sz: +sz.toFixed(2),
+                     lx: +o.position.x.toFixed(1), lz: +o.position.z.toFixed(1),
+                     col: o.material && o.material.color
+                       ? o.material.color.getHexString() : "",
+                     kind: (o.userData.edit || {}).kind || "" });
+        }
+      });
+      return out;
+    };
+    window.__v3chain = (y0, y1) => {
+      const out = [];
+      G.walls.traverse(o => {
+        if (!o.isMesh) return;
+        const bb = new THREE.Box3().setFromObject(o);
+        if (bb.min.y >= y0 && bb.max.y <= y1 &&
+            (bb.max.x - bb.min.x) <= 3 && (bb.max.z - bb.min.z) <= 3) {
+          const ch = [];
+          let p = o;
+          while (p) {
+            ch.push([p.type, +p.position.x.toFixed(1),
+                     +p.position.z.toFixed(1),
+                     p.userData ? p.userData.floor : null]);
+            p = p.parent;
+          }
+          out.push({ lx: +o.position.x.toFixed(1),
+                     lz: +o.position.z.toFixed(1), chain: ch });
         }
       });
       return out;
