@@ -83,12 +83,16 @@ def _slide_off_opening(plan, clear, x, y):
 
 
 def _nt_beside_wc(clear, wx, wy, side):
-    """User rule: the nahani trap sits JUST BESIDE the WC on the SAME wall —
-    1500 mm to the WC's left along the wall (flipped right when the wall
-    ends), hugging it. Never on top of the WC, never on another wall."""
+    """User rule: the nahani trap sits JUST BESIDE the WC on its own wall —
+    about 1.5 ft to the WC's left along the wall (just past its body,
+    flipped right when the wall ends) and 150 mm CLEAR OF THE WALL. Never
+    on top of the WC, never in a far corner, never on another wall."""
     left = {"N": (-1, 0), "S": (1, 0), "E": (0, 1), "W": (0, -1)}[side]
-    off = 1500.0 / 304.8
-    nx, ny = wx + left[0] * off, wy + left[1] * off
+    perp = {"N": (0, -1), "S": (0, 1), "E": (-1, 0), "W": (1, 0)}[side]
+    off = 1.5                           # just past the WC body
+    clr = 150.0 / 304.8 - 0.30          # wx/wy already sit 0.30 off the wall
+    nx = wx + left[0] * off + perp[0] * clr
+    ny = wy + left[1] * off + perp[1] * clr
     bx0, by0, bx1, by1 = clear.bounds
     if left[0]:
         if not (bx0 + 0.4 <= nx <= bx1 - 0.4):
