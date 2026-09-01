@@ -275,8 +275,12 @@ def build(plan, p1, p2, params) -> tuple[DrawList, list]:
                     rep.setdefault("sill_y", sy)
         # staircase flights rising through this storey
         for fl in flights:
-            _draw_stair_section(dl, fl["ta"], fl["tb"], ffl, nxt - ffl,
-                                fl["s"], fl["turn_hi"], fl["up_hi"], L_CUT)
+            if fl.get("crosswise"):
+                _draw_stair_crosswise(dl, fl, ffl, nxt - ffl, L_CUT)
+            else:
+                _draw_stair_section(dl, fl["ta"], fl["tb"], ffl, nxt - ffl,
+                                    fl["s"], fl["turn_hi"], fl["up_hi"],
+                                    L_CUT)
             if k == 0:
                 _mask_text(dl, (fl["ta"] + fl["tb"]) / 2,
                            ffl + (nxt - ffl) * 0.5, fl["label"], 0.3, L_TXT)
@@ -1159,9 +1163,58 @@ def _flights_in_section(plan, x1s, y1s, ux, uy, p1, p2, x_lo, x_hi):
                              getattr(s, "run_axis", "y"))
         tvx, tvy = _side_dir(getattr(s, "turn_side", "right"))
         n = (getattr(s, "steps_f1", 0) or getattr(s, "treads", 0) or 0)
+        # WHICH WAY does the cut run against the stair? Parallel to the run
+        # -> the flights show in PROFILE (the dog-leg). ACROSS the run -> the
+        # plane slices the flights: each shows as its cut waist STRIP at the
+        # height the stair has reached AT THE CUT POSITION - never a fake
+        # profile squeezed across the width.
+        run_x = getattr(s, "run_axis", "y") == "x"
+        rvx, rvy = (1.0, 0.0) if run_x else (0.0, 1.0)
+        crosswise = abs(rvx * ux + rvy * uy) < 0.5
+        strips = []
+        if crosswise:
+            # the cut position along the run: the stair-centre projected onto
+            # the section line, taken back to plan coords
+            cx0, cy0 = s.x + s.w / 2, s.y + s.h / 2
+            tt = (cx0 - x1s) * ux + (cy0 - y1s) * uy
+            px0, py0 = x1s + ux * tt, y1s + uy * tt
+            cpos = px0 if run_x else py0
+            try:
+                from . import stairs as _ST
+                g = _ST.build(s)
+                fls = g.get("flights") or []
+                land = g.get("landing")
+            except Exception:
+                fls, land = [], None
+            n1 = int(fls[0]["steps"]) if fls else max(1, n)
+            n2 = int(fls[1]["steps"]) if len(fls) > 1 else n1
+            wind = int(getattr(s, "winders", 0) or 0)
+            base = [0, n1 + wind]           # risers climbed before each flight
+            for i, f2 in enumerate(fls[:2]):
+                rx, ry, rw, rh = f2["rect"]
+                lo = rx if run_x else ry
+                ln = rw if run_x else rh
+                if not (lo - 0.05 <= cpos <= lo + ln + 0.05):
+                    continue
+                nf = max(1, int(f2["steps"]))
+                tread = ln / nf
+                d2 = (cpos - lo) if f2.get("dir", 1) > 0 else (lo + ln - cpos)
+                k = max(0, min(nf - 1, int(d2 / max(tread, 1e-6))))
+                c0, c1 = _project_rect(x1s, y1s, ux, uy, rx, ry, rw, rh)
+                strips.append({"t0": c0, "t1": c1,
+                               "ris": base[min(i, 1)] + k + 1})
+            if land is not None:
+                lx, ly, lw, lh = land
+                lo = lx if run_x else ly
+                ln = lw if run_x else lh
+                if lo - 0.05 <= cpos <= lo + ln + 0.05:
+                    c0, c1 = _project_rect(x1s, y1s, ux, uy, lx, ly, lw, lh)
+                    strips.append({"t0": c0, "t1": c1, "ris": n1 + wind})
+            strips.append({"total": n1 + n2 + wind + 1})
         out.append({"ta": ta, "tb": tb, "up_hi": (ax * ux + ay * uy) >= 0,
                     "turn_hi": (tvx * ux + tvy * uy) >= 0, "s": s,
-                    "n": (n + 1) if n else 0,
+                    "n": (n + 1) if n else 0, "crosswise": crosswise,
+                    "strips": strips,
                     "label": (getattr(s, "label", "") or "STAIRCASE").upper()})
     return out
 
@@ -1218,6 +1271,43 @@ def _nosing_pts(x0, y0, going, riser, n, sign):
 def _polyline(dl, pts, layer):
     for a, b in zip(pts, pts[1:]):
         dl.line(a[0], a[1], b[0], b[1], layer=layer)
+
+
+def _draw_stair_crosswise(dl, fl, y_low, rise, layer):
+    """The section cuts ACROSS the stair run: each flight the plane slices
+    shows as its cut WAIST STRIP — two thin lines + concrete dots, at the
+    height the flight has reached at the cut position — plus the railing at
+    the well edge. No profile, no fake zigzag."""
+    strips = [st for st in fl.get("strips") or [] if "t0" in st]
+    total = next((st["total"] for st in fl.get("strips") or []
+                  if "total" in st), 0)
+    if not strips or total <= 0 or rise <= 0:
+        return
+    riser = rise / total
+    wt = _mm_ft(150)
+    tops = []
+    for st in strips:
+        h = y_low + st["ris"] * riser
+        lo, hi = min(st["t0"], st["t1"]), max(st["t0"], st["t1"])
+        dl.line(lo, h, hi, h, layer=layer)
+        dl.line(lo, h - wt, hi, h - wt, layer=layer)
+        dl.line(lo, h, lo, h - wt, layer=layer)
+        dl.line(hi, h, hi, h - wt, layer=layer)
+        n = max(2, int((hi - lo) / 0.55))
+        for i in range(n):
+            cx = lo + (hi - lo) * (i + 0.5) / n
+            dl.arc(cx, h - wt * (0.35 if i % 2 == 0 else 0.7), 0.03, 0, 360,
+                   layer=layer)
+        tops.append((lo, hi, h))
+    # railing on the well edge of every cut strip (1m high + top rail)
+    if len(tops) >= 2:
+        tops.sort(key=lambda t: t[2])
+        lo0, hi0, h0 = tops[0]
+        lo1, hi1, h1 = tops[-1]
+        # the well lies between the two strips — rail the lower strip's edge
+        e = hi0 if hi0 <= lo1 + 0.05 else lo0
+        dl.line(e, h0, e, h0 + 3.0, layer="SEC-DIM")
+        dl.line(e - 0.5, h0 + 3.0, e + 0.5, h0 + 3.0, layer="SEC-DIM")
 
 
 def _draw_stair_section(dl, ta, tb, y_low, rise, s, turn_hi, up_hi, layer):
