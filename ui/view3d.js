@@ -2102,7 +2102,8 @@
       stairs: new THREE.Group(), floor: new THREE.Group(), furn: new THREE.Group(),
       plumb: new THREE.Group(), elec: new THREE.Group(), top: new THREE.Group(),
       mumty: new THREE.Group(), bwall: new THREE.Group(),
-      faces: new THREE.Group(), facade: new THREE.Group() };
+      faces: new THREE.Group(), facade: new THREE.Group(),
+      found: new THREE.Group() };
 
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
     (base.walls || []).forEach(w => {
@@ -2148,6 +2149,49 @@
       G.struct.add(box(r.w, r.h, 0.18, r.x + r.w / 2, r.y + r.h / 2, 0.09, pv));
     }
     window.__openGround = openGround.map(r => r.name);
+
+    // ---- SUB-STRUCTURE, exactly the storey the SECTION shows below the
+    // floor: P.C.C. + rubble soling under the plinth, a plinth beam + DPC
+    // along every wall, RR-masonry strip footings stepping out under the
+    // walls and spread footings with pedestals under the columns
+    {
+      const mSoling = new THREE.MeshLambertMaterial({ color: 0xc8bfa0 });
+      const mPCC = new THREE.MeshLambertMaterial({ color: 0xb5b9be });
+      const mFound = new THREE.MeshLambertMaterial({ color: 0xcbbda2 });
+      const mBeam = new THREE.MeshLambertMaterial({ color: 0x8d939c });
+      const mDPC = new THREE.MeshLambertMaterial({ color: 0x3a3f45 });
+      for (const q of pr) {
+        if (q[2] - q[0] < 0.15 || q[3] - q[1] < 0.15) continue;
+        const w = q[2] - q[0], d = q[3] - q[1];
+        const qx = (q[0] + q[2]) / 2, qy = (q[1] + q[3]) / 2;
+        G.found.add(box(w, d, 0.4, qx, qy, -0.2, mPCC));            // P.C.C. 100-150
+        G.found.add(box(w, d, 0.75, qx, qy, -0.775, mSoling));      // soling 230
+      }
+      for (const w of (base.walls || [])) {
+        if (w.railing) continue;
+        const th = ((+w.thickness_in || 4.5) / 12);
+        const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
+        const len = Math.hypot(dx, dy); if (len < 0.3) continue;
+        const wx = (w.x1 + w.x2) / 2, wy = (w.y1 + w.y2) / 2;
+        const horiz = Math.abs(dx) >= Math.abs(dy);
+        const seg = (wid, hgt, zc, mat) => G.found.add(horiz
+          ? box(len, wid, hgt, wx, wy, zc, mat)
+          : box(wid, len, hgt, wx, wy, zc, mat));
+        seg(0.75, 1.0, plH - 0.58, mBeam);            // plinth beam 230x300
+        seg(th + 0.05, 0.075, plH - 0.04, mDPC);      // D.P.C. 75 thk
+        // RR stone masonry strip footing, stepping out on the way down
+        seg(th + 0.5, 2.0, -1.0, mFound);
+        seg(th + 1.1, 1.6, -2.8, mFound);
+        seg(th + 1.7, 0.35, -3.78, mFound);
+      }
+      for (const c of (base.columns || [])) {
+        const cw = Math.max(+c.w || 0.8, 0.3), ch = Math.max(+c.h || 0.8, 0.3);
+        G.found.add(box(cw + 0.3, ch + 0.3, 1.6, c.x, c.y, -0.8, mBeam));
+        G.found.add(box(cw + 1.3, ch + 1.3, 1.6, c.x, c.y, -2.4, mFound));
+        G.found.add(box(cw + 2.5, ch + 2.5, 0.9, c.x, c.y, -3.65, mFound));
+        G.found.add(box(cw + 3.0, ch + 3.0, 0.35, c.x, c.y, -4.27, mPCC));
+      }
+    }
 
     // every layer holds one sub-group PER FLOOR, so a floor can be hidden,
     // locked or nudged as a whole while the layer toggles still work
@@ -2515,6 +2559,7 @@
     const wOp = elecOn ? (+((($("#v3intop") || {}).value)) || 0.3) : 1;
     intMats.forEach(m => { m.opacity = wOp; m.needsUpdate = true; });
     G.floor.visible = on("#v3floor");
+    if (G.found) G.found.visible = on("#v3found");
     if (G.bwall) G.bwall.visible = on("#v3bwall");
     if (G.faces) G.faces.visible = on("#v3faces");
     if (G.facade) G.facade.visible = on("#v3facade");
@@ -3411,7 +3456,7 @@
     const op = $("#v3op");
     if (op) op.oninput = () => setOpacity(op.value / 100);
     ["#v3walls", "#v3struct", "#v3stairs", "#v3roof", "#v3mumty", "#v3furn",
-     "#v3plumb", "#v3elec", "#v3floor"].forEach(id =>
+     "#v3plumb", "#v3elec", "#v3floor", "#v3found"].forEach(id =>
       on(id, syncLayers, "onchange"));
     on("#v3intop", syncLayers, "oninput");   // wall x-ray (electrical)
     on("#v3flop", syncLayers, "oninput");    // floor x-ray (plumbing)
