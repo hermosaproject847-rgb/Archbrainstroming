@@ -540,13 +540,17 @@ class Plan:
         # (drawn rect crossed the wall while its label read the raw size).
         # Clamp size to the room and pull the piece back inside.
         for f in p.furniture:
-            room = next((r for r in p.rooms if (f.room or "").strip().lower()
-                         == (r.name or "").strip().lower()), None)
+            # WHERE the piece actually sits wins — clamping to the room its
+            # NAME said made a dragged piece snap back to its old room (the
+            # box followed the cursor, the furniture did not)
+            cxf, cyf = f.x + f.w / 2, f.y + f.h / 2
+            room = next((r for r in p.rooms
+                         if r.x - 0.6 <= cxf <= r.x + r.w + 0.6
+                         and r.y - 0.6 <= cyf <= r.y + r.h + 0.6), None)
             if room is None:
-                cxf, cyf = f.x + f.w / 2, f.y + f.h / 2
                 room = next((r for r in p.rooms
-                             if r.x - 0.6 <= cxf <= r.x + r.w + 0.6
-                             and r.y - 0.6 <= cyf <= r.y + r.h + 0.6), None)
+                             if (f.room or "").strip().lower()
+                             == (r.name or "").strip().lower()), None)
             if room is None or room.void:
                 continue
             pad = 0.08

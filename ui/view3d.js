@@ -576,11 +576,11 @@
       // a piece can never be bigger than its room or hang outside it —
       // clamp to the room like the server does, so 3D matches the plan
       const rm = (plan.rooms || []).find(r =>
-        (f.room || "").trim().toLowerCase() ===
-        (r.name || "").trim().toLowerCase()) ||
-        (plan.rooms || []).find(r =>
           fx + w / 2 >= r.x - 0.6 && fx + w / 2 <= r.x + r.w + 0.6 &&
-          fy + h / 2 >= r.y - 0.6 && fy + h / 2 <= r.y + r.h + 0.6);
+          fy + h / 2 >= r.y - 0.6 && fy + h / 2 <= r.y + r.h + 0.6) ||
+        (plan.rooms || []).find(r =>
+          (f.room || "").trim().toLowerCase() ===
+          (r.name || "").trim().toLowerCase());
       if (rm && !rm.void) {
         const pad = 0.08;
         if (w > rm.w - 2 * pad) w = Math.max(0.8, rm.w - 2 * pad);
