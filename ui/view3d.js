@@ -38,7 +38,10 @@
   function params() {
     const p = (S.plan && (S.plan.section_params || {})) || {};
     const mm = v => (+v || 0) * MM;
-    const floors = Math.max(1, +(p.floors || (S.floors || []).filter(f => f.plan).length || 1));
+    // the REAL floor list wins: with 2+ read floors the model is that many
+    // storeys, whatever the section dialog's own floors figure says
+    const nPlans = (S.floors || []).filter(f => f.plan).length;
+    const floors = Math.max(1, nPlans > 1 ? nPlans : +(p.floors || 1));
     return {
       plinth: p.plinth_mm != null ? mm(p.plinth_mm) : mm(450),
       fh: mm(p.floor_height_mm) || mm(3000),
@@ -2349,18 +2352,19 @@
         }
         addWall(L.walls, plan, w, zW, HW + (z0 - zW), P, M, cx, cy, bw);
       });
-      (terrF ? [] : (plan.columns || [])).forEach(c => {
-        // A COLUMN IS A FRAME MEMBER: it must stand on the column below it.
-        // Each floor was read from its own drawing, so the same column can
-        // land a foot apart; upstairs we take the ground-floor column's line
-        // and size whenever one clearly matches (same id, or nearest within
-        // 2.5 ft), and only a genuinely new column keeps its own position.
-        const g0 = colBelow(c, f);
-        const cw = Math.max(+(g0 ? g0.w : c.w) || 0.8, 0.3);
-        const ch = Math.max(+(g0 ? g0.h : c.h) || 0.8, 0.3);
-        const cx2 = g0 ? +g0.x : +c.x, cy2 = g0 ? +g0.y : +c.y;
+      // USER RULE: columns are ONE frame — every storey carries the GROUND
+      // floor's column grid exactly, so a column moved on the ground floor
+      // moves on every floor and they always stack. Each floor group is
+      // shifted by its stair-anchored align offset, so the ground coords are
+      // counter-shifted back into this floor's own frame. (Terrace: none.)
+      const alF = FL_ALIGN[f] || { x: 0, y: 0 };
+      (terrF ? [] : (f ? baseCols : (plan.columns || []))).forEach(c => {
+        const cw = Math.max(+c.w || 0.8, 0.3);
+        const ch = Math.max(+c.h || 0.8, 0.3);
+        const cx2 = (+c.x) - (f ? alF.x : 0);
+        const cy2 = (+c.y) - (f ? alF.y : 0);
         const cm = box(cw, ch, H, cx2, cy2, z0 + H / 2, M.conc);
-        cm.userData.edit = { kind: "col", ref: c, plan };
+        cm.userData.edit = { kind: "col", ref: c, plan: f ? base : plan };
         L.struct.add(cm);
       });
       (terrF ? [] : (plan.beams || [])).forEach(b => {
