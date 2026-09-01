@@ -3258,93 +3258,12 @@ function _lblFtV(s) {
   if (m) { const v = +m[1]; return v > 50 ? v / 304.8 : v; }
   return null;
 }
-function snapRoomsToLabel(plan) {
-  // two passes: fixing one room can shift a neighbour, whose own pass then
-  // settles IT back onto its label as well
-  for (let pass = 0; pass < 2; pass++) _snapRoomsPass(plan);
-}
-function _snapRoomsPass(plan) {
-  if (!plan) return;
-  const rooms = plan.rooms || [], walls = plan.walls || [];
-  const otherRoomAt = (x, y, skip) => rooms.some(r => r !== skip && !r.void &&
-    x >= r.x - 0.2 && x <= r.x + r.w + 0.2 &&
-    y >= r.y - 0.2 && y <= r.y + r.h + 0.2);
-  for (const rm of rooms) {
-    if (rm.void) continue;
-    const parts = String(rm.size_label || "").split(/[xX×]/);
-    const lw = _lblFtV(parts[0]), lh = _lblFtV(parts[1]);
-    for (const ax of ["w", "h"]) {
-      const want = ax === "w" ? lw : lh;
-      if (!want) continue;
-      const have = +rm[ax] || 0;
-      const d = want - have;
-      if (Math.abs(d) < 0.17 || Math.abs(d) > 3.0) continue;  // sane fixes only
-      const vert = ax === "w";                 // moving a VERTICAL wall
-      const nearE = vert ? rm.x : rm.y;
-      const farE = nearE + have;
-      const spanLo = vert ? rm.y : rm.x;
-      const spanHi = spanLo + (vert ? rm.h : rm.w);
-      // the wall sitting on an edge — only a wall DEDICATED to this room
-      // side (not a long shared spine across the house) may be moved
-      const wallAt = e => walls.find(w2 => {
-        const isV = Math.abs(w2.x1 - w2.x2) < 0.05;
-        if (isV !== vert) return false;
-        const c = vert ? w2.x1 : w2.y1;
-        if (Math.abs(c - e) > 0.7) return false;
-        const a1 = vert ? w2.y1 : w2.x1, a2 = vert ? w2.y2 : w2.x2;
-        const lo = Math.min(a1, a2), hi = Math.max(a1, a2);
-        if (!(lo < spanHi - 0.5 && hi > spanLo + 0.5)) return false;
-        return (hi - lo) <= (spanHi - spanLo) + 3.0;   // dedicated, not spine
-      });
-      // which edge to move? An edge with NO room beyond is free; a SHARED
-      // edge may still move when that helps (or at least does not hurt)
-      // the neighbour's own label — the misread wall is wrong for both.
-      const mid = (spanLo + spanHi) / 2;
-      const roomBeyond = (e, dir) => rooms.find(r => r !== rm && !r.void &&
-        (vert ? (e + dir * 0.6 >= r.x - 0.2 && e + dir * 0.6 <= r.x + r.w + 0.2
-                 && mid >= r.y - 0.2 && mid <= r.y + r.h + 0.2)
-              : (mid >= r.x - 0.2 && mid <= r.x + r.w + 0.2
-                 && e + dir * 0.6 >= r.y - 0.2
-                 && e + dir * 0.6 <= r.y + r.h + 0.2))) || null;
-      const nbLabelGain = (nb, shift) => {
-        // + = the move brings the neighbour CLOSER to its own label
-        if (!nb) return 0.01;                       // free edge: tiny plus
-        const pp = String(nb.size_label || "").split(/[xX×]/);
-        const nbWant = vert ? _lblFtV(pp[0]) : _lblFtV(pp[1]);
-        const nbHave = vert ? +nb.w : +nb.h;
-        if (!nbWant) return 0;                      // unknown: neutral
-        return Math.abs(nbHave - nbWant) - Math.abs(nbHave - shift - nbWant);
-      };
-      const nbFar = roomBeyond(farE, 1), nbNear = roomBeyond(nearE, -1);
-      // rm grows by d at that edge → the neighbour there SHRINKS by d
-      const gFar = nbLabelGain(nbFar, d), gNear = nbLabelGain(nbNear, d);
-      const wFar = wallAt(farE), wNear = wallAt(nearE);
-      // THE LABEL IS SUPREME: always snap. Prefer the edge that HAS a
-      // movable (dedicated) wall; among those, the better neighbour gain.
-      let moveFar;
-      if (!!wFar !== !!wNear) moveFar = !!wFar;
-      else moveFar = gFar >= gNear;
-      const nb = moveFar ? nbFar : nbNear;
-      const wMove = moveFar ? wFar : wNear;
-      if (moveFar) {
-        rm[ax] = want;
-        if (wMove) { if (vert) { wMove.x1 += d; wMove.x2 += d; }
-                     else { wMove.y1 += d; wMove.y2 += d; } }
-        if (nb) {                                   // neighbour edge follows
-          if (vert) { nb.x += d; nb.w -= d; } else { nb.y += d; nb.h -= d; }
-        }
-      } else {
-        if (vert) rm.x -= d; else rm.y -= d;
-        rm[ax] = want;
-        if (wMove) { if (vert) { wMove.x1 -= d; wMove.x2 -= d; }
-                     else { wMove.y1 -= d; wMove.y2 -= d; } }
-        if (nb) {
-          if (vert) nb.w -= d; else nb.h -= d;
-        }
-      }
-    }
-  }
-}
+/* Room GEOMETRY is never auto-edited to match the size label: the read
+   sketch is a single glued network (walls + rects + doors + columns), and
+   moving any of it programmatically detached fills from walls and left the
+   plan visibly corrupted. The label stays the TRUTH for every NUMBER —
+   the printed size, the furniture clamp below, unit conversions — while a
+   genuinely misread wall is fixed by hand or by re-reading the sheet. */
 
 /* a piece can never be bigger than its room or hang outside it — clamp in
    the CLIENT's own data (once, at load / after the furniture stage), so the
@@ -3404,7 +3323,7 @@ function loadAnyJson(j, name) {
     name: (f && f.name) || _nextFloorNameAt(i),
     plan: (f && f.plan) || null,
   }));
-  S.floors.forEach(f => { snapRoomsToLabel(f.plan); clampFurniture(f.plan); });
+  S.floors.forEach(f => clampFurniture(f.plan));
   S.active = Math.min(Math.max(0, +j.active || 0), S.floors.length - 1);
   if (!S.floors[S.active].plan)                 // land on a floor that has one
     S.active = Math.max(0, S.floors.findIndex(f => f.plan));
@@ -3424,8 +3343,7 @@ function setPlan(plan) {
   if ($("#gizmo")) $("#gizmo").classList.add("hidden");
   S.forceFit = true;        // a fresh plan starts fitted to the pane
   ensureDefaultSections(plan);   // 2 vertical + 2 horizontal cut lines by default
-  snapRoomsToLabel(plan);        // the room LABEL is the dimension (user rule)
-  clampFurniture(plan);          // pieces fit their rooms, data-level
+  clampFurniture(plan);          // pieces respect the room LABEL, data-level
   if (!Array.isArray(plan.refs)) plan.refs = [];   // user-placed reference guides
   S.refSel = null;
   S.plan = plan;
