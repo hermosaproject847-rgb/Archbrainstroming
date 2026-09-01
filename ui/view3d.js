@@ -143,6 +143,29 @@
   function addWall(g, plan, w, z0, H0, P, M, cxAll, cyAll, BW) {
     const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
     const L = Math.hypot(dx, dy); if (L < 0.05) return;
+    // WALLS JOIN SOLID (user rule: no loose stubs / slivers at a junction):
+    // each end that meets another wall or a column extends by half that
+    // member's thickness, so corners and T-joints close instead of leaving
+    // a notch at the centre-line
+    const endExt = (px, py) => {
+      let e = 0;
+      for (const o of (plan.walls || [])) {
+        if (o === w || o.railing) continue;
+        const odx = o.x2 - o.x1, ody = o.y2 - o.y1;
+        const L2 = odx * odx + ody * ody || 1e-9;
+        let tt = ((px - o.x1) * odx + (py - o.y1) * ody) / L2;
+        tt = Math.max(0, Math.min(1, tt));
+        const d = Math.hypot(px - (o.x1 + odx * tt), py - (o.y1 + ody * tt));
+        if (d < 0.8) e = Math.max(e, ((+o.thickness_in || 4.5) / 24) + 0.02);
+      }
+      for (const c of (plan.columns || [])) {
+        const d = Math.hypot(px - (+c.x), py - (+c.y));
+        if (d < 1.1) e = Math.max(e,
+          Math.max(+c.w || 0.8, +c.h || 0.8) / 2 + 0.02);
+      }
+      return e;
+    };
+    const e0 = endExt(w.x1, w.y1), e1 = endExt(w.x2, w.y2);
     // a wall can carry its OWN height (click it in 3D and type one) — that is
     // how a parapet stretch, a half wall or a raised feature wall is made
     const H = (+w.height_ft > 0.3) ? +w.height_ft : H0;
@@ -209,7 +232,7 @@
       }
     };
 
-    let cur = 0;
+    let cur = -e0;                              // start half a member early
     for (const o of ops) {
       put(cur, o.a, 0, H, mat);
       const head = Math.min(o.head, H);
@@ -256,7 +279,7 @@
       }
       cur = o.b;
     }
-    put(cur, L, 0, H, mat);
+    put(cur, L + e1, 0, H, mat);                // and run half a member past
   }
 
   /* ----------------------------------------------- staircase (true U/U3) */
