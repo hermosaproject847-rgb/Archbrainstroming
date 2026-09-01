@@ -1013,7 +1013,8 @@ def draw_furniture(plan: Plan, dl: DrawList) -> None:
         label = furn.LABEL.get(f.kind, f.kind.upper())
         dl.text(cx, cy + 0.25, f.tag or label, h=0.34, layer="FURNTAG")
         dl.text(cx, cy - 0.28,
-                f"{_fmt_ft(f.w)} x {_fmt_ft(f.h)}", h=0.26, layer="FURNTAG")
+                f"{_fmt_ft(f.size_w or f.w)} x {_fmt_ft(f.size_h or f.h)}",
+                h=0.26, layer="FURNTAG")
 
 
 def draw_plumbing(plan: Plan, dl: DrawList) -> None:

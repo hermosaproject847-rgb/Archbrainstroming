@@ -109,7 +109,7 @@ def build(plan: Plan) -> tuple[DrawList, list[dict]]:
 
         legend.append({
             "tag": tag, "kind": f.kind, "room": f.room,
-            "size": f"{_ft_in(f.w)} x {_ft_in(f.h)}",
+            "size": f"{_ft_in(f.size_w or f.w)} x {_ft_in(f.size_h or f.h)}",
             "left": dl_left, "right": dl_right, "bot": dl_bot, "top": dl_top,
         })
     _legend(dl, plan, legend)

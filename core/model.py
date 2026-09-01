@@ -314,6 +314,11 @@ class Furniture:
     reason: str = ""
     note: str = ""
     chairs: int = 0             # dining: seat count (0 = the kind's default)
+    # printed size (feet). The drawn box may be stretched to the room the way
+    # the sketch drew it, while the NUMBER stays the room-label truth. 0 = the
+    # drawn size IS the printed size.
+    size_w: float = 0.0
+    size_h: float = 0.0
 
     @property
     def centre(self) -> tuple[float, float]:

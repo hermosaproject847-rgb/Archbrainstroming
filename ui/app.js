@@ -2230,7 +2230,12 @@ function makeFieldEl(key, row, col) {
     if (kind === "num") {
       el.type = "number"; el._isNum = true;
       el.step = isFeetLen(path) ? unitStepAttr() : stepFor(path);
-      el.value = isFeetLen(path) ? toDisp(dig(row, path)) : (dig(row, path) ?? "");
+      // furniture shows its PRINTED size (label-true) — the drawn box may
+      // be stretched wall-to-wall like the sketch, the number is the truth
+      let dv = dig(row, path);
+      if (key === "furniture" && path === "w" && row.size_w) dv = row.size_w;
+      if (key === "furniture" && path === "h" && row.size_h) dv = row.size_h;
+      el.value = isFeetLen(path) ? toDisp(dv) : (dv ?? "");
     } else {
       el.value = dig(row, path) ?? "";
     }
@@ -2244,6 +2249,10 @@ function makeFieldEl(key, row, col) {
     pushUndo();
     if (calc) { calc.set(row, v); markDirty(); refreshKey(key); redraw(); return; }
     put(row, path, v);
+    if (key === "furniture" && (path === "w" || path === "h")) {
+      // a hand-typed size is explicit: it becomes drawn AND printed size
+      delete row.size_w; delete row.size_h;
+    }
     if (key === "flooring" && path === "material") {
       const dfl = FLOOR_DEFAULTS[v]; if (dfl) Object.assign(row, dfl); refreshKey(key);
     }
@@ -3295,23 +3304,33 @@ function clampFurniture(plan) {
     const lw = lblFt(parts[0]), lh = lblFt(parts[1]);
     const effW = (lw && lw < rm.w) ? lw : rm.w;
     const effH = (lh && lh < rm.h) ? lh : rm.h;
-    const pad = 0.08;
     // a 90/270 piece is DRAWN rotated about its centre — its footprint is
-    // h wide and w TALL, so the clamp must fit the DRAWN extents, not the
-    // stored fields (a 5-ft wardrobe at 90° overflowed a 4'-6" room)
+    // h wide and w TALL, so work in DRAWN extents, not the stored fields
     const rot = Math.abs(((+f.angle || 0) % 180 + 180) % 180 - 90) < 45;
     let dw = rot ? (+f.h || 1) : (+f.w || 1);   // drawn x-extent
     let dh = rot ? (+f.w || 1) : (+f.h || 1);   // drawn y-extent
-    if (dw > effW - 2 * pad) dw = Math.max(0.8, effW - 2 * pad);
-    if (dh > effH - 2 * pad) dh = Math.max(0.8, effH - 2 * pad);
+    // the PRINTED size never exceeds the room's label envelope — the label
+    // is the truth (a 4'-6" dress prints its wardrobe at 1372, never more)
+    const sw = Math.min(dw, effW), sh = Math.min(dh, effH);
+    // the DRAWN box works like the room itself: the sketch geometry is
+    // proportional, so a piece meant to span the room spans the DRAWN room
+    // flush to its walls — no dead gap where the sketch reads a little big
+    if (dw >= effW - 0.3) dw = rm.w;
+    if (dh >= effH - 0.3) dh = rm.h;
+    const pw = rot ? sh : sw, ph = rot ? sw : sh;   // stored-axis order
     if (rot) { f.h = dw; f.w = dh; } else { f.w = dw; f.h = dh; }
-    // keep the DRAWN box inside the room (rotation is about the centre)
+    f.size_w = +pw.toFixed(3);
+    f.size_h = +ph.toFixed(3);
+    // keep the DRAWN box inside the room (rotation is about the centre);
+    // a full-span axis sits flush, a loose one keeps a small clearance
+    const padX = dw >= rm.w - 0.01 ? 0 : 0.08;
+    const padY = dh >= rm.h - 0.01 ? 0 : 0.08;
     let ccx = (+f.x || 0) + (+f.w || 1) / 2;
     let ccy = (+f.y || 0) + (+f.h || 1) / 2;
-    ccx = Math.min(Math.max(ccx, rm.x + pad + dw / 2),
-                   rm.x + rm.w - pad - dw / 2);
-    ccy = Math.min(Math.max(ccy, rm.y + pad + dh / 2),
-                   rm.y + rm.h - pad - dh / 2);
+    ccx = Math.min(Math.max(ccx, rm.x + padX + dw / 2),
+                   rm.x + rm.w - padX - dw / 2);
+    ccy = Math.min(Math.max(ccy, rm.y + padY + dh / 2),
+                   rm.y + rm.h - padY - dh / 2);
     f.x = ccx - (+f.w || 1) / 2;
     f.y = ccy - (+f.h || 1) / 2;
   }
