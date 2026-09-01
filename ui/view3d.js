@@ -195,8 +195,12 @@
     const e0 = endExt(w.x1, w.y1, -uxE, -uyE);
     const e1 = endExt(w.x2, w.y2, uxE, uyE);
     // a wall can carry its OWN height (click it in 3D and type one) — that is
-    // how a parapet stretch, a half wall or a raised feature wall is made
-    const H = (+w.height_ft > 0.3) ? +w.height_ft : H0;
+    // how a parapet stretch, a half wall or a raised feature wall is made.
+    // The reader sometimes writes MILLIMETRES into height_ft (a "900" mm
+    // parapet became a 900 FT tower) — anything over 30 is read as mm.
+    let hf = +w.height_ft || 0;
+    if (hf > 30) hf = hf * MM;
+    const H = (hf > 0.3) ? hf : H0;
     const wg = new THREE.Group();                 // one wall = one selection
     wg.userData.edit = { kind: "wall", ref: w, plan, storeyH: H0 };
     g.add(wg);
@@ -3802,6 +3806,25 @@
                      col: o.material && o.material.color
                        ? o.material.color.getHexString() : "",
                      kind: (o.userData.edit || {}).kind || "" });
+        }
+      });
+      return out;
+    };
+    window.__v3tall = hMin => {
+      const out = [];
+      G.walls.traverse(o => {
+        if (!o.isMesh) return;
+        const bb = new THREE.Box3().setFromObject(o);
+        const h = bb.max.y - bb.min.y;
+        if (h > (hMin || 13)) {
+          let p = o, ed = null;
+          while (p) { if (p.userData && p.userData.edit) { ed = p.userData.edit; break; } p = p.parent; }
+          out.push({ h: +h.toFixed(1), y0: +bb.min.y.toFixed(1),
+                     x: +bb.min.x.toFixed(1), z: +bb.min.z.toFixed(1),
+                     sx: +(bb.max.x - bb.min.x).toFixed(2),
+                     sz: +(bb.max.z - bb.min.z).toFixed(2),
+                     wid: ed && ed.ref ? (ed.ref.id || "") : "",
+                     hft: ed && ed.ref ? ed.ref.height_ft : null });
         }
       });
       return out;
