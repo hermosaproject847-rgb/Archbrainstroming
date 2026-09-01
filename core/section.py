@@ -1212,15 +1212,13 @@ def _flights_in_section(plan, x1s, y1s, ux, uy, p1, p2, x_lo, x_hi,
                     k = max(0, min(nf - 1, int(d2 / max(tread, 1e-6))))
                     strips.append({"t0": c0, "t1": c1,
                                    "ris": base[min(i, 1)] + k + 1})
-                # the RISERS of this flight seen FACE-ON beyond the plane —
-                # every riser whose run position lies the way the viewer looks
-                vis = []
-                for j in range(nf + 1):
-                    rp = lo + (j * tread if d > 0 else ln - j * tread)
-                    if (rp - cpos) * vrun > 0.02:
-                        vis.append(base[min(i, 1)] + j + 1)
-                if vis:
-                    strips.append({"t0": c0, "t1": c1, "beyond": vis})
+                # a flight seen FACE-ON beyond the plane: the COMPLETE
+                # anchored ladder (all its risers, base to top), never a
+                # floating handful of lines
+                inside = lo - 0.05 <= cpos <= lo + ln + 0.05
+                if inside or ((lo + ln / 2) - cpos) * vrun > 0:
+                    strips.append({"t0": c0, "t1": c1,
+                                   "flight": (base[min(i, 1)], nf)})
             if land is not None:
                 lx, ly, lw, lh = land
                 lo = lx if run_x else ly
@@ -1323,13 +1321,14 @@ def _draw_stair_crosswise(dl, fl, y_low, rise, layer):
                 dl.arc(cx, h - wt * (0.35 if i % 2 == 0 else 0.7),
                        0.03, 0, 360, layer=layer)
             tops.append((lo, hi, h))
-        elif "beyond" in st:                  # risers seen FACE-ON
-            zs = [y_low + r * riser for r in st["beyond"]]
-            for z in zs:
-                dl.line(lo, z, hi, z, layer=layer)
-            z0, z1 = min(zs), max(zs)
-            dl.line(lo, z0 - riser, lo, z1, layer=layer)
-            dl.line(hi, z0 - riser, hi, z1, layer=layer)
+        elif "flight" in st:                  # the whole flight FACE-ON
+            b0, nf = st["flight"]
+            zb = y_low + b0 * riser           # its base: floor or landing
+            zt = y_low + (b0 + nf + 1) * riser
+            for j in range(1, nf + 2):        # every riser line, base to top
+                dl.line(lo, zb + j * riser, hi, zb + j * riser, layer=layer)
+            dl.line(lo, zb, lo, zt, layer=layer)
+            dl.line(hi, zb, hi, zt, layer=layer)
         elif "land" in st:                    # the landing edge beyond
             z = y_low + st["land"] * riser
             dl.line(lo, z, hi, z, layer=layer)
