@@ -1390,7 +1390,7 @@
   }
 
   /* ---------------------------------- flooring with REAL-looking texture */
-  function addFlooring(g, plan, z0) {
+  function addFlooring(g, plan, z0, wells) {
     const rooms = plan.rooms || [];
     const GRND_RE = /porch|parking|drive|court|lawn|garden|entry|ramp/i;
     for (const r of rooms) {
@@ -1407,8 +1407,26 @@
       t.repeat.set(Math.max(1, r.w / tileFt), Math.max(1, r.h / tileFt));
       const mat = new THREE.MeshLambertMaterial({ map: t, transparent: true, opacity: 1 });
       floorMats.push(mat);
-      g.add(box(r.w - 0.2, r.h - 0.2, 0.07, r.x + r.w / 2, r.y + r.h / 2,
-        z0 + 0.045, mat));
+      // the STAIR WELL is a hole in the floor finish too — the tiles are
+      // cut round it exactly like the slab (user rule: mumty me cutout)
+      let pieces = [[r.x + 0.1, r.y + 0.1, r.x + r.w - 0.1, r.y + r.h - 0.1]];
+      for (const hv of (wells || [])) {
+        const np = [];
+        for (const q of pieces) {
+          if (hv[2] <= q[0] || hv[0] >= q[2] || hv[3] <= q[1] || hv[1] >= q[3]) { np.push(q); continue; }
+          if (hv[0] > q[0]) np.push([q[0], q[1], hv[0], q[3]]);
+          if (hv[2] < q[2]) np.push([hv[2], q[1], q[2], q[3]]);
+          const ix0 = Math.max(q[0], hv[0]), ix1 = Math.min(q[2], hv[2]);
+          if (hv[1] > q[1]) np.push([ix0, q[1], ix1, hv[1]]);
+          if (hv[3] < q[3]) np.push([ix0, hv[3], ix1, q[3]]);
+        }
+        pieces = np;
+      }
+      for (const q of pieces) {
+        if (q[2] - q[0] < 0.12 || q[3] - q[1] < 0.12) continue;
+        g.add(box(q[2] - q[0], q[3] - q[1], 0.07, (q[0] + q[2]) / 2,
+          (q[1] + q[3]) / 2, z0 + 0.045, mat));
+      }
       // SKIRTING: a darker strip round the room, 75 mm high — BROKEN at every
       // door (skirting never runs across an opening) and carried AROUND every
       // column standing in the room
@@ -2100,7 +2118,11 @@
     floorMats.push(M.slab);
     const P = params();
     const root = new THREE.Group();
-    const base = S.plan; if (!base) return root;
+    // the model's frame is the GROUND floor's — the active tab can be any
+    // floor, but the plinth, the column grid and the foundation all belong
+    // to the ground plan (user rule: one frame, footings only at ground)
+    const base = (((S.floors || [])[0] || {}).plan) || S.plan;
+    if (!base) return root;
     G = { walls: new THREE.Group(), roof: new THREE.Group(), struct: new THREE.Group(),
       stairs: new THREE.Group(), floor: new THREE.Group(), furn: new THREE.Group(),
       plumb: new THREE.Group(), elec: new THREE.Group(), top: new THREE.Group(),
@@ -2156,8 +2178,11 @@
     // ---- SUB-STRUCTURE, exactly the storey the SECTION shows below the
     // floor: P.C.C. + rubble soling under the plinth, a plinth beam + DPC
     // along every wall, RR-masonry strip footings stepping out under the
-    // walls and spread footings with pedestals under the columns
+    // walls and spread footings with pedestals under the columns.
+    // ALWAYS from the GROUND floor's plan — the active tab can be an upper
+    // floor, and footings exist ONLY under the ground floor (user rule).
     {
+      const gfPlan = ((S.floors || [])[0] && S.floors[0].plan) || base;
       const mSoling = new THREE.MeshLambertMaterial({ color: 0xc8bfa0 });
       const mPCC = new THREE.MeshLambertMaterial({ color: 0xb5b9be });
       const mFound = new THREE.MeshLambertMaterial({ color: 0xcbbda2 });
@@ -2170,7 +2195,7 @@
         G.found.add(box(w, d, 0.4, qx, qy, -0.2, mPCC));            // P.C.C. 100-150
         G.found.add(box(w, d, 0.75, qx, qy, -0.775, mSoling));      // soling 230
       }
-      for (const w of (base.walls || [])) {
+      for (const w of (gfPlan.walls || [])) {
         if (w.railing) continue;
         const th = ((+w.thickness_in || 4.5) / 12);
         const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
@@ -2187,7 +2212,7 @@
         seg(th + 1.1, 1.6, -2.8, mFound);
         seg(th + 1.7, 0.35, -3.78, mFound);
       }
-      for (const c of (base.columns || [])) {
+      for (const c of (gfPlan.columns || [])) {
         const cw = Math.max(+c.w || 0.8, 0.3), ch = Math.max(+c.h || 0.8, 0.3);
         G.found.add(box(cw + 0.3, ch + 0.3, 1.6, c.x, c.y, -0.8, mBeam));
         G.found.add(box(cw + 1.3, ch + 1.3, 1.6, c.x, c.y, -2.4, mFound));
@@ -2363,7 +2388,11 @@
         const ch = Math.max(+c.h || 0.8, 0.3);
         const cx2 = (+c.x) - (f ? alF.x : 0);
         const cy2 = (+c.y) - (f ? alF.y : 0);
-        const cm = box(cw, ch, H, cx2, cy2, z0 + H / 2, M.conc);
+        // a GROUND column runs from the GROUND (0), never floats on the
+        // plinth edge over a porch — its footing carries it below
+        const zb = f ? z0 : 0;
+        const cm = box(cw, ch, z0 + H - zb, cx2, cy2, (zb + z0 + H) / 2,
+          M.conc);
         cm.userData.edit = { kind: "col", ref: c, plan: f ? base : plan };
         L.struct.add(cm);
       });
@@ -2426,7 +2455,11 @@
         };
         addTerraceRing(L.walls, plan, below, z0, P, M, dAl);
         addRoomParapets(L.walls, plan, z0, P, M);
-        addFlooring(L.floor, plan, z0);
+        // the stair from the floor BELOW arrives here — its well is cut out
+        // of the terrace / mumty floor finish
+        addFlooring(L.floor, plan, z0, ((below || {}).stairs || []).map(st =>
+          [st.x + dAl.x, st.y + dAl.y,
+           st.x + st.w + dAl.x, st.y + st.h + dAl.y]));
         addFurniture(L.furn, plan, z0);
         addPipes(L.plumb, plan, z0, H, {
         floor: f,
@@ -2516,7 +2549,19 @@
       if (f > 0) addRoomParapets(L.walls, plan, z0, P, M);
       addStairs(L.stairs, plan, z0, H, M);
       if (f === 0) addSteps(L.stairs, plan, z0, M);   // entrance steps
-      addFlooring(L.floor, plan, z0);
+      // on an upper floor the stair from BELOW arrives through the floor —
+      // its well is cut out of the finish (the ground floor has no well)
+      const fwells = f > 0 ? (() => {
+        const below2 = ((S.floors || [])[f - 1] && S.floors[f - 1].plan) || null;
+        const dA2 = {
+          x: (FL_ALIGN[f - 1] || { x: 0 }).x - (FL_ALIGN[f] || { x: 0 }).x,
+          y: (FL_ALIGN[f - 1] || { y: 0 }).y - (FL_ALIGN[f] || { y: 0 }).y,
+        };
+        return (((below2 || {}).stairs) || []).map(st =>
+          [st.x + dA2.x, st.y + dA2.y,
+           st.x + st.w + dA2.x, st.y + st.h + dA2.y]);
+      })() : [];
+      addFlooring(L.floor, plan, z0, fwells);
       addFurniture(L.furn, plan, z0);
       addPipes(L.plumb, plan, z0, H);
       addElec(L.elec, plan, z0, H);
