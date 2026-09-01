@@ -140,7 +140,7 @@
   }
 
   /* ---- one wall with detailed openings (frame, mullions, glass, chajja) */
-  function addWall(g, plan, w, z0, H0, P, M, cxAll, cyAll, BW) {
+  function addWall(g, plan, w, z0, H0, P, M, cxAll, cyAll, BW, COLS) {
     const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
     const L = Math.hypot(dx, dy); if (L < 0.05) return;
     // WALLS JOIN SOLID (user rule: clean model, no stubs, no slivers).
@@ -169,15 +169,15 @@
         if (tt < -0.3 || tt > oL + 0.3) continue;        // off its length
         e = Math.max(e, Math.min(1.0, s + ot + 0.02));
       }
-      for (const c of (plan.columns || [])) {
+      for (const c of (COLS || plan.columns || [])) {
         const hw = (+c.w || 0.8) / 2, hh = (+c.h || 0.8) / 2;
         const along = Math.abs(ox2) > 0.5 ? hw : hh;     // half-size ahead
         const across = Math.abs(ox2) > 0.5 ? hh : hw;
         const s = ((+c.x) - px) * ox2 + ((+c.y) - py) * oy2;
         const q = Math.abs(((+c.x) - px) * -oy2 + ((+c.y) - py) * ox2);
-        if (s > -along && s < along + 0.55 &&
-            q < across + ((+w.thickness_in || 5) / 12) / 2)
-          e = Math.max(e, Math.min(1.2, s + along + 0.02));
+        if (s > -along - 0.3 && s < along + 0.8 &&
+            q < across + ((+w.thickness_in || 5) / 12) / 2 + 0.2)
+          e = Math.max(e, Math.min(1.4, s + along + 0.02));
       }
       return Math.max(0, e);
     };
@@ -2555,6 +2555,14 @@
       const L = floorSet(f);
       const z0 = P.plinth + f * P.fh;
       const H = P.fh;
+      // the columns AS DRAWN on this floor (the ground grid, counter-shifted
+      // into this floor's frame) — wall ends close against THESE, not the
+      // floor's own possibly-offset column list
+      const alF = FL_ALIGN[f] || { x: 0, y: 0 };
+      const effCols = terrF ? [] : (f
+        ? baseCols.map(c => ({ x: (+c.x) - alF.x, y: (+c.y) - alF.y,
+                               w: c.w, h: c.h }))
+        : (plan.columns || []));
       (plan.walls || []).forEach(w => {
         if (w.railing) return;
         if (f === 0 && BW_IDS.has(w.id)) return;     // it is the boundary wall
@@ -2584,14 +2592,14 @@
           if (nearEnc) { HW = MUMTY_H; bw = null; }
           else { HW = Math.max(P.para, 3.0); bw = { spans: [[0, 1e6]], h: HW }; HW += 0.4; }
         }
-        addWall(L.walls, plan, w, zW, HW + (z0 - zW), P, M, cx, cy, bw);
+        addWall(L.walls, plan, w, zW, HW + (z0 - zW), P, M, cx, cy, bw,
+                effCols);
       });
       // USER RULE: columns are ONE frame — every storey carries the GROUND
       // floor's column grid exactly, so a column moved on the ground floor
       // moves on every floor and they always stack. Each floor group is
       // shifted by its stair-anchored align offset, so the ground coords are
       // counter-shifted back into this floor's own frame. (Terrace: none.)
-      const alF = FL_ALIGN[f] || { x: 0, y: 0 };
       (terrF ? [] : (f ? baseCols : (plan.columns || []))).forEach(c => {
         const cw = Math.max(+c.w || 0.8, 0.3);
         const ch = Math.max(+c.h || 0.8, 0.3);
