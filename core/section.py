@@ -1212,17 +1212,22 @@ def _draw_stair_section(dl, ta, tb, y_low, rise, s, turn_hi, up_hi, layer):
         # made the two bands cross mid-air into an unreadable X
         _polyline(dl, f1, layer)
         _landing_slab(dl, la[0], lb[0], ymid, _mm_ft(150), layer)  # mid-landing SLAB
-        # the LANDING BEAM under the landing's well edge, as the GFC
-        # staircase sheets show it (a real hatched member, not a bare line)
+        # the LANDING BEAM under the landing's well edge — an OUTLINED,
+        # diagonally hatched member, as the sheets draw it (never a fill)
         bw, bd = _mm_ft(150), _mm_ft(450)
         sgn = 1 if lb[0] > la[0] else -1
         bx0, bx1 = sorted((la[0], la[0] + sgn * bw))
         by1 = ymid - _mm_ft(150)
-        dl.fill([(bx0, by1 - bd), (bx1, by1 - bd), (bx1, by1), (bx0, by1)],
-                color="#b7bcc8", layer="SEC-SLAB")
         dl.rect(bx0, by1 - bd, bx1 - bx0, bd, layer=layer)
+        _hatch(dl, bx0, by1 - bd, bx1, by1, layer, step=0.16)
+        # the small base beam PEDESTAL under the first riser at the floor
+        px0 = f1[0][0]
+        dl.rect(px0 - _mm_ft(75), y_low - _mm_ft(300), _mm_ft(150),
+                _mm_ft(300), layer=layer)
+        _hatch(dl, px0 - _mm_ft(75), y_low - _mm_ft(300),
+               px0 + _mm_ft(75), y_low, layer, step=0.16)
         _polyline(dl, f2, layer)
-        _waist_band(dl, f1[0][0], f1[0][1], f1[-1][0], f1[-1][1], _mm_ft(150), layer)
+        _stepped_band(dl, f1, _mm_ft(115), layer)   # rcc steps 4½" thk.
         dl.line(f2[0][0], f2[0][1], f2[-1][0], f2[-1][1], layer=layer)  # thin soffit
         return
 
@@ -1246,43 +1251,64 @@ def _draw_stair_section(dl, ta, tb, y_low, rise, s, turn_hi, up_hi, layer):
     for i, pl in enumerate((f1, mid, f2)):
         _polyline(dl, pl, layer)
         if i == 0:
-            _waist_band(dl, pl[0][0], pl[0][1], pl[-1][0], pl[-1][1], _mm_ft(150), layer)
+            _stepped_band(dl, pl, _mm_ft(115), layer)
         else:
             dl.line(pl[0][0], pl[0][1], pl[-1][0], pl[-1][1], layer=layer)
 
 
 def _landing_slab(dl, x0, x1, y, wt, layer):
-    """A LANDING / mid-landing as a real RCC slab: the solid concrete grey
-    with a fine diagonal hatch, as the GFC staircase sheets draw it."""
+    """A LANDING / mid-landing exactly as the office GFC staircase sheets
+    draw it: two thin parallel lines with small concrete dots between —
+    NO grey fill, no diagonal hatch."""
     if abs(x1 - x0) < 1e-6:
         return
     lo, hi = min(x0, x1), max(x0, x1)
-    poly = [(lo, y), (hi, y), (hi, y - wt), (lo, y - wt)]
-    dl.fill(poly, color="#b7bcc8", layer="SEC-SLAB")
-    try:
-        dl.hatch([poly], kind="diag45", step=0.4, layer="SEC-SLAB")
-    except Exception:
-        pass
-    dl.poly(poly, layer=layer, closed=True)
+    dl.line(lo, y, hi, y, layer=layer)
+    dl.line(lo, y - wt, hi, y - wt, layer=layer)
+    dl.line(lo, y, lo, y - wt, layer=layer)
+    dl.line(hi, y, hi, y - wt, layer=layer)
+    n = max(2, int((hi - lo) / 0.55))
+    for i in range(n):
+        cx = lo + (hi - lo) * (i + 0.5) / n
+        cy = y - wt * (0.35 if i % 2 == 0 else 0.7)
+        dl.arc(cx, cy, 0.03, 0, 360, layer=layer)
+
+
+def _stepped_band(dl, pts, wt, layer):
+    """The flight exactly as the sheets draw it — 'rcc steps 4½\" thk.':
+    the stepped soffit PARALLEL to the stepped top (the same polyline offset
+    down the pitch normal), closed at both ends, with small concrete dots
+    between the two lines. No straight waist plank, no grey fill."""
+    if len(pts) < 2:
+        return
+    ax, ay = pts[0]
+    bx, by = pts[-1]
+    L = math.hypot(bx - ax, by - ay) or 1e-9
+    ux, uy = (bx - ax) / L, (by - ay) / L
+    px, py = uy, -ux
+    if py > 0:                                        # normal points DOWN
+        px, py = -px, -py
+    off = [(x + px * wt, y + py * wt) for x, y in pts]
+    _polyline(dl, off, layer)
+    dl.line(pts[0][0], pts[0][1], off[0][0], off[0][1], layer=layer)
+    dl.line(pts[-1][0], pts[-1][1], off[-1][0], off[-1][1], layer=layer)
+    # concrete dots between the two stepped lines, one per segment
+    for i, (a, b) in enumerate(zip(pts, pts[1:])):
+        mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
+        f = 0.35 if i % 2 == 0 else 0.65
+        dl.arc(mx + px * wt * f, my + py * wt * f, 0.03, 0, 360, layer=layer)
 
 
 def _waist_band(dl, ax, ay, bx, by, wt, layer):
-    """The sloped RCC WAIST SLAB under a flight: solid concrete grey with a
-    fine diagonal hatch from the pitch line (ax,ay)->(bx,by) down
-    perpendicular by `wt` — so the stair reads as a real slab, matching the
-    staircase structural-details sheet."""
+    """Kept for callers that only have the two pitch ends — a thin parallel
+    soffit line (no fill), as the sheets draw a flight seen beyond the cut."""
     L = math.hypot(bx - ax, by - ay) or 1e-9
     ux, uy = (bx - ax) / L, (by - ay) / L
     px, py = uy, -ux                                 # perpendicular
     if py > 0:                                        # make it point DOWN
         px, py = -px, -py
-    poly = [(ax, ay), (bx, by), (bx + px * wt, by + py * wt), (ax + px * wt, ay + py * wt)]
-    dl.fill(poly, color="#b7bcc8", layer="SEC-SLAB")
-    try:
-        dl.hatch([poly], kind="diag45", step=0.4, layer="SEC-SLAB")
-    except Exception:
-        pass
-    dl.poly(poly, layer=layer, closed=True)
+    dl.line(ax + px * wt, ay + py * wt, bx + px * wt, by + py * wt,
+            layer=layer)
 
 
 def _draw_flight(dl, ta, tb, y_low, rise, n, up_hi, layer):
@@ -1300,13 +1326,8 @@ def _draw_flight(dl, ta, tb, y_low, rise, n, up_hi, layer):
         x, y, step = ta, y_low, going
     else:                                            # low at tb, high at ta
         x, y, step = tb, y_low, -going
-    # RCC waist slab first (pitch line runs a riser below the top nosing)
-    wt = _mm_ft(150)
-    if up_hi:
-        _waist_band(dl, ta, y_low, tb, y_low + rise - riser, wt, layer)
-    else:
-        _waist_band(dl, tb, y_low, ta, y_low + rise - riser, wt, layer)
-    # stepped tread / riser nosing line on top
+    # stepped tread / riser nosing line, then the parallel stepped soffit
+    # ('rcc steps 4½" thk.'), as the office sheets draw it
     pts = [(x, y)]
     for _ in range(n):
         y += riser
@@ -1315,6 +1336,7 @@ def _draw_flight(dl, ta, tb, y_low, rise, n, up_hi, layer):
         pts.append((x, y))                           # tread
     for A, B in zip(pts, pts[1:]):
         dl.line(A[0], A[1], B[0], B[1], layer=layer)
+    _stepped_band(dl, pts, _mm_ft(115), layer)
     # arrival LANDING slab at the top of the flight (a real slab, not a line)
     _landing_slab(dl, x, x + (1 if step > 0 else -1) * _mm_ft(1000), y, wt, layer)
 
