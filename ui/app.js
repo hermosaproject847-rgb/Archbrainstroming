@@ -3260,9 +3260,24 @@ function clampFurniture(plan) {
       (f.room || "").trim().toLowerCase() ===
       (r.name || "").trim().toLowerCase());
     if (!rm || rm.void) continue;
+    // the room's SIZE LABEL is the sheet's own truth — when the read walls
+    // sit wider than the label says, a piece still respects the label, so
+    // a 4'-6" deep dress never grows a 5'-2" wardrobe
+    const lblFt = s => {
+      if (!s) return null; s = String(s).trim();
+      let m = s.match(/^(\d+)\s*'\s*-?\s*(\d+(?:\.\d+)?)?/);
+      if (m) return (+m[1]) + ((+m[2] || 0) / 12);
+      m = s.match(/^(\d+(?:\.\d+)?)/);
+      if (m) { const v = +m[1]; return v > 50 ? v / 304.8 : v; }
+      return null;
+    };
+    const parts = String(rm.size_label || "").split(/[xX×]/);
+    const lw = lblFt(parts[0]), lh = lblFt(parts[1]);
+    const effW = (lw && lw < rm.w) ? lw : rm.w;
+    const effH = (lh && lh < rm.h) ? lh : rm.h;
     const pad = 0.08;
-    if (f.w > rm.w - 2 * pad) f.w = Math.max(0.8, rm.w - 2 * pad);
-    if (f.h > rm.h - 2 * pad) f.h = Math.max(0.8, rm.h - 2 * pad);
+    if (f.w > effW - 2 * pad) f.w = Math.max(0.8, effW - 2 * pad);
+    if (f.h > effH - 2 * pad) f.h = Math.max(0.8, effH - 2 * pad);
     f.x = Math.min(Math.max(+f.x || 0, rm.x + pad), rm.x + rm.w - f.w - pad);
     f.y = Math.min(Math.max(+f.y || 0, rm.y + pad), rm.y + rm.h - f.h - pad);
   }
