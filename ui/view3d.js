@@ -853,20 +853,71 @@
         const zBase = (isACD ? z0 + 7.1
           : r.system === "HW" ? z0 + fh - 1.05
           : r.system === "VENT" ? z0 + fh - 0.50
-          : z0 + fh - 1.62) - lk * 0.28;    // clashing runs step clear too
-        const fHi = isACD ? 1 / 50 : 0;
+          : z0 + fh - 1.62) - lk * 0.45;    // clashing runs step WELL clear
+        // NEVER through the open stair well (user rule): inside a stair's
+        // footprint a ceiling run DUCKS below the flight soffit — it stays
+        // on its route line but drops to toilet-ceiling height, with a
+        // vertical at each edge, like a real concealed service
+        const sBoxes = (plan.stairs || []).map(s2 =>
+          [s2.x - 0.4, s2.y - 0.4, s2.x + s2.w + 0.4, s2.y + s2.h + 0.4]);
+        const inBox = p => sBoxes.some(b2 =>
+          p[0] > b2[0] && p[0] < b2[2] && p[1] > b2[1] && p[1] < b2[3]);
+        // split every segment where it crosses a stair-box edge
+        const P2 = [P[0]];
         for (let i = 0; i < P.length - 1; i++) {
-          const zA = zBase - cum[i] * fHi, zB = zBase - cum[i + 1] * fHi;
-          const c = cylBetween(P[i][0], P[i][1], zA, P[i + 1][0], P[i + 1][1], zB, rad, mat);
-          if (c) rg.add(c);
-          if (i > 0 && turnAt(P, i) > 0.26) {
-            addFit(rg, P[i][0], P[i][1], zA, fitR(rad), mat);
+          const a = P[i], b = P[i + 1];
+          const cuts = [];
+          for (const b2 of sBoxes) {
+            for (const e of [b2[0], b2[2]]) {          // vertical edges
+              if ((a[0] - e) * (b[0] - e) < 0) {
+                const t2 = (e - a[0]) / (b[0] - a[0]);
+                const y2 = a[1] + (b[1] - a[1]) * t2;
+                if (y2 > b2[1] - 0.01 && y2 < b2[3] + 0.01) cuts.push(t2);
+              }
+            }
+            for (const e of [b2[1], b2[3]]) {          // horizontal edges
+              if ((a[1] - e) * (b[1] - e) < 0) {
+                const t2 = (e - a[1]) / (b[1] - a[1]);
+                const x2 = a[0] + (b[0] - a[0]) * t2;
+                if (x2 > b2[0] - 0.01 && x2 < b2[2] + 0.01) cuts.push(t2);
+              }
+            }
           }
+          cuts.sort((u, v) => u - v);
+          for (const t2 of cuts)
+            P2.push([a[0] + (b[0] - a[0]) * t2, a[1] + (b[1] - a[1]) * t2]);
+          P2.push(b);
+        }
+        const zDuck = Math.min(zBase, z0 + 6.3 - lk * 0.45);
+        const zAt = (p, q) =>
+          (inBox([(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]) ? zDuck : zBase);
+        const cum2 = [0];
+        for (let i = 1; i < P2.length; i++)
+          cum2[i] = cum2[i - 1] +
+            Math.hypot(P2[i][0] - P2[i - 1][0], P2[i][1] - P2[i - 1][1]);
+        const fHi = isACD ? 1 / 50 : 0;
+        let prevZ = null;
+        for (let i = 0; i < P2.length - 1; i++) {
+          const lvl = zAt(P2[i], P2[i + 1]);
+          const zA = lvl - cum2[i] * fHi, zB = lvl - cum2[i + 1] * fHi;
+          if (prevZ != null && Math.abs(prevZ - zA) > 0.05) {
+            const v = cylBetween(P2[i][0], P2[i][1], prevZ,
+              P2[i][0], P2[i][1], zA, rad, mat);
+            if (v) rg.add(v);
+          }
+          const c = cylBetween(P2[i][0], P2[i][1], zA,
+            P2[i + 1][0], P2[i + 1][1], zB, rad, mat);
+          if (c) rg.add(c);
+          if (i > 0 && turnAt(P2, i) > 0.26) {
+            addFit(rg, P2[i][0], P2[i][1], zA, fitR(rad), mat);
+          }
+          prevZ = zB;
         }
         if (supply) {
           const ends = [P[0], P[P.length - 1]].filter(e => inTap(e[0], e[1]));
           for (const e of (ends.length ? ends : [P[P.length - 1]])) {
-            const d = cylBetween(e[0], e[1], zBase, e[0], e[1], z0 + 1.5, rad * 0.9, mat);
+            const eLvl = inBox(e) ? zDuck : zBase;   // start at the run's level
+            const d = cylBetween(e[0], e[1], eLvl, e[0], e[1], z0 + 1.5, rad * 0.9, mat);
             if (d) rg.add(d);                  // down the wall chase to the tap
           }
         }
@@ -890,10 +941,11 @@
             if (d > 0.25 && d < 6.0 && (!bst || d < bst.d)) bst = { d, x: qx, y: qy };
           }
           if (bst) {
-            const c2 = cylBetween(e0[0], e0[1], zBase, bst.x, bst.y, zBase, rad, mat);
+            const e0Lvl = inBox(e0) ? zDuck : zBase;
+            const c2 = cylBetween(e0[0], e0[1], e0Lvl, bst.x, bst.y, e0Lvl, rad, mat);
             if (c2) rg.add(c2);
             const ball = new THREE.Mesh(new THREE.SphereGeometry(fitR(rad), 10, 10), mat);
-            ball.position.set(bst.x, zBase, -bst.y);
+            ball.position.set(bst.x, e0Lvl, -bst.y);
             rg.add(ball);
           }
         }
