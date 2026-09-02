@@ -863,7 +863,10 @@ function pipeVisible(r) {
 }
 
 /* --- snapping ------------------------------------------------------- */
-const GRID = 0.25, ORTHO = 7, ALIGN = 0.4;      // ft grid, ° ortho, ft align
+// FINE dragging (user rule): stretch moves in 1-inch grid steps, and a line
+// aligns onto another line only when it comes CLOSE (0.22 ft ≈ 2.6"), so a
+// handle no longer jumps half a foot between far-away catches.
+const GRID = 1 / 12, ORTHO = 7, ALIGN = 0.22;   // ft grid, ° ortho, ft align
 const snapG = v => Math.round(v / GRID) * GRID;
 let _guides = [];                                // alignment guide lines during a drag
 /* candidate coords to align to — walls, columns, box edges/centres, lights,
