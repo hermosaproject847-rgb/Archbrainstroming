@@ -769,6 +769,11 @@ function zoomAt(k, factor, cx, cy) {
   s.y = cy - (cy - s.y) * (nz / s.z);
   s.z = nz;
   apply(k);
+  // grips stay screen-sized: rebuild them at the new zoom
+  if (k === "pl") {
+    if (typeof buildHandles === "function" && S.plInfo) buildHandles(S.plInfo);
+    if (typeof drawRefs === "function" && S.plInfo) drawRefs(S.plInfo);
+  }
 }
 ["sk", "pl"].forEach(k => {
   const v = viewOf(k);
@@ -1049,7 +1054,10 @@ function buildHandles(info) {
   ov.setAttribute("height", draw.getAttribute("height"));
   ov.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;overflow:visible";
   holder.appendChild(ov);
-  const G = Math.max(1.7, info.w_mm * 0.009);
+  // grip size is CONSTANT ON SCREEN: divide by the current zoom, so zooming
+  // in no longer blows the boxes up over the very thing being edited
+  const _z = (S.pl && S.pl.z) || 1;
+  const G = Math.max(0.55, Math.max(1.7, info.w_mm * 0.009) / _z);
 
   const grip = (mx, my, cls, spec) => {
     const [sx, sy] = m2s(info, mx, my);
@@ -1444,7 +1452,10 @@ function drawRefs(info) {
   ov.setAttribute("height", draw.getAttribute("height"));
   ov.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;overflow:visible";
   holder.appendChild(ov);
-  const G = Math.max(1.7, info.w_mm * 0.009);
+  // grip size is CONSTANT ON SCREEN: divide by the current zoom, so zooming
+  // in no longer blows the boxes up over the very thing being edited
+  const _z = (S.pl && S.pl.z) || 1;
+  const G = Math.max(0.55, Math.max(1.7, info.w_mm * 0.009) / _z);
   S.plan.refs.forEach((r, i) => {
     let x1, y1, x2, y2;
     if (r.axis === "v") { const sx = r.at * info.k + info.ox; x1 = x2 = sx; y1 = 0; y2 = info.h_mm; }
