@@ -1469,14 +1469,14 @@ function _dragMove(e) {
   const m = screenToModel(p.clientX, p.clientY); if (!m) return;
   applyDrag(_hdrag, m[0], m[1]);
   markDirty();
-  // The grips + guides follow the finger every frame (cheap, client-side). The
-  // heavy plan redraw (server round-trip — the real source of lag, esp. on the
-  // electrical sheet) is throttled to ~11/s; the final one lands on release.
+  // The grips + guides + gizmo follow the finger every frame — all cheap,
+  // client-side. NO server redraw happens mid-drag at all: over the live
+  // host each round-trip took seconds, so the box moved first and the
+  // drawing caught up later (user: "box pehle shift, edit baad me"). The
+  // one real render lands on release, in _dragEnd.
   buildHandles(S.plInfo);
   drawGuides(S.plInfo);
   if (typeof updateGizmoCoords === "function") updateGizmoCoords();
-  const now = Date.now();
-  if (now - _lastDragRender > 90) { _lastDragRender = now; redraw(); }
   if (e.cancelable) e.preventDefault();
 }
 function _dragEnd() {
