@@ -18,11 +18,39 @@ const FEET_LEN = new Set(["x", "y", "w", "h", "x1", "y1", "x2", "y2", "pos",
 const isFeetLen = path => FEET_LEN.has(String(path || ""));
 const toDisp = f => {
   const v = (+f || 0) * unitFactor();
-  return DUNIT === "mm" ? Math.round(v)
-    : DUNIT === "m" ? Math.round(v * 1000) / 1000
-      : Math.round(v * 10000) / 10000;
+  if (DUNIT === "mm") return Math.round(v);
+  if (DUNIT === "m") return Math.round(v * 1000) / 1000;
+  // FEET-INCH text (user rule): the box shows 2'-1", never 2.0833 — feet
+  // and inches read and type separately, no decimal converting by hand
+  const neg = v < 0 ? "-" : "";
+  let a = Math.abs(v);
+  let ft = Math.floor(a + 1e-9);
+  let inch = Math.round((a - ft) * 12 * 100) / 100;
+  if (inch >= 11.995) { ft += 1; inch = 0; }
+  const is = Math.abs(inch - Math.round(inch)) < 0.005
+    ? String(Math.round(inch))
+    : inch.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  return `${neg}${ft}'-${is}"`;
 };
-const fromDisp = d => (parseFloat(d) || 0) / unitFactor();
+/* accepts: 2'1 · 2'-1" · 2' 1.5" · 2ft 1in · 13" · "2 1" (=2'-1") · plain
+   2.5 (feet) — and in mm/m modes a plain number as before */
+const fromDisp = d => {
+  if (typeof d === "number") return d / unitFactor();
+  const s0 = String(d == null ? "" : d).trim();
+  if (!s0) return 0;
+  if (DUNIT !== "ft") return (parseFloat(s0) || 0) / unitFactor();
+  const neg = /^-/.test(s0) ? -1 : 1;
+  const t = s0.replace(/^-/, "").replace(/[’′]/g, "'").replace(/[”″]/g, '"');
+  let m = t.match(/^(\d+(?:\.\d+)?)\s*(?:'|ft)\s*-?\s*(\d+(?:\.\d+)?)?\s*(?:"|in)?\s*$/i);
+  if (m) return neg * ((+m[1]) + (+(m[2] || 0)) / 12);
+  m = t.match(/^(\d+(?:\.\d+)?)\s*(?:"|in)\s*$/i);
+  if (m) return neg * (+m[1]) / 12;
+  m = t.match(/^(\d+)\s+(\d+(?:\.\d+)?)$/);          // "2 1" = 2 ft 1 in
+  if (m) return neg * ((+m[1]) + (+m[2]) / 12);
+  return neg * (parseFloat(t) || 0);
+};
+/* number box in mm/m, free-typing text box in feet-inch mode */
+const lenInputType = () => (DUNIT === "ft" ? "text" : "number");
 const STEP_PRESETS = {
   ft: [["1\"", 0.0833], ["3\"", 0.25], ["6\"", 0.5], ["1'", 1], ["2'", 2]],
   mm: [["10", 10], ["25", 25], ["50", 50], ["100", 100], ["300", 300]],
@@ -464,6 +492,9 @@ function showGizmo(){
   $("#gizXWrap").classList.toggle("hidden", !xy);
   $("#gizYWrap").classList.toggle("hidden", !xy);
   $("#gizPosWrap").classList.toggle("hidden", !pos);
+  ["gizX", "gizY", "gizPos"].forEach(id => {
+    const e = $("#" + id); if (e) e.type = lenInputType();
+  });
   if (xy){ $("#gizX").value = toDisp(it.x); $("#gizY").value = toDisp(it.y); }
   if (pos){ $("#gizPos").value = toDisp(it.pos); }
   $("#gizRotL").classList.toggle("hidden", !cfg.rot);
@@ -501,7 +532,7 @@ function showGizmo(){
       const lab = document.createElement("label"); lab.className = "giz-field";
       const s = document.createElement("span"); s.textContent = lbl + " (" + DUNIT + ")";
       const inp = document.createElement("input");
-      inp.type = "number"; inp.step = unitStepAttr();
+      inp.type = lenInputType(); inp.step = unitStepAttr();
       if (nw) inp.value = toDisp(Math.abs(nw.dist));
       else { inp.placeholder = "no wall"; inp.disabled = true; }
       inp.onchange = () => { const v = fromDisp(inp.value); if (!isNaN(v)) setWallDist(ax, v); };
@@ -2369,7 +2400,7 @@ function makeFieldEl(key, row, col) {
     el.value = String(calc.get(row));
   } else if (calc) {
     el = document.createElement("input");
-    el.type = "number";
+    el.type = isFeetLen(path) ? lenInputType() : "number";
     el.step = isFeetLen(path) ? unitStepAttr() : "0.05";
     el.value = isFeetLen(path) ? toDisp(calc.get(row)) : calc.get(row);
     el._isNum = true;
@@ -2397,7 +2428,8 @@ function makeFieldEl(key, row, col) {
   } else {
     el = document.createElement("input");
     if (kind === "num") {
-      el.type = "number"; el._isNum = true;
+      el.type = isFeetLen(path) ? lenInputType() : "number";
+      el._isNum = true;
       el.step = isFeetLen(path) ? unitStepAttr() : stepFor(path);
       // furniture shows its PRINTED size (drawn ÷ room scale) — the drawn
       // box carries the sketch's own stretch, the number is the truth
