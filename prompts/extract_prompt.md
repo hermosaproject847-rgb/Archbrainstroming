@@ -187,6 +187,14 @@ invented suffix does not match the drawing.
    written on a strip on the OUTER side of the building, list its boundary
    walls with `"height_ft": 1` — a low planter kerb, not a full wall.
 
+   **Helper annotations are for YOUR understanding only.** The arrow texts
+   the sketch carries — "CHAJJA", "BOUNDARY WALL", "FABRICATION JAALI",
+   "PERGOLA IN FABRICATION", "SEMI COVERED", "ELE/ELV" and the like — exist
+   so you classify the element correctly. USE them to set the right flags
+   and names, but do NOT copy them into `notes` or `texts`, and do not
+   invent extra labels from them: the software draws each element's own
+   representation. Only real room names and size labels print on the sheet.
+
    **The boundary / compound wall belongs to the GROUND floor only.** An
    upper floor's sheet (FIRST / SECOND / TERRACE) usually still shows the
    plot-line or compound-wall rectangle running around the plan — that is

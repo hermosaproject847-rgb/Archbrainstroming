@@ -781,15 +781,14 @@ def draw_rooms(plan: Plan, dl: DrawList) -> None:
     for r in plan.rooms:
         cx, cy = r.centre
         # a CHAJJA is an overhead projection, not a floor: a dashed outline
-        # and its name — no fill, no tiles, no furniture (user rule)
+        # only — no fill, no tiles, no furniture, and NO text (the sketch's
+        # "chajja" annotation was for interpretation, never for the sheet)
         if "chajja" in (r.name or "").lower():
             pts = [(r.x, r.y), (r.x + r.w, r.y),
                    (r.x + r.w, r.y + r.h), (r.x, r.y + r.h)]
             for i in range(4):
                 a, b = pts[i], pts[(i + 1) % 4]
                 dl.line(a[0], a[1], b[0], b[1], layer="TEXT-SUB", dashed=True)
-            ang = 0 if r.w >= r.h else 90
-            dl.text(cx, cy, "CHAJJA", h=0.42, layer="TEXT-SUB", angle=ang)
             continue
         # A stair that fills its own room would sit under that room's label, so
         # the label moves clear. Only when the stair really does fill the room:
