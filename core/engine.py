@@ -1316,10 +1316,43 @@ def draw_elec_loops(plan: Plan, dl: DrawList) -> None:
                           f.x, f.y, -1)
 
 
+_FLOOR_CACHE = {"key": None, "items": None}
+
+
 def draw_flooring(plan: Plan, dl: DrawList) -> None:
-    """The tile grid, spacers, start point, skirting and level for each room."""
+    """The tile grid, spacers, start point, skirting and level for each room.
+
+    CACHED between renders: the grid is the most expensive layer (~60% of a
+    render) yet a furniture/electrical drag never changes it — recomputing
+    it on every nudge is what made edits crawl on the small server. The
+    cache key hashes everything the grid depends on; any wall/room/spec
+    edit rebuilds it."""
     from . import floorlayout
-    floorlayout.draw(plan, dl)
+    import hashlib
+    import json as _j
+    from dataclasses import asdict as _ad
+    key = None
+    try:
+        sig = _j.dumps([
+            [_ad(s) for s in plan.flooring],
+            [_ad(r) for r in plan.rooms],
+            [_ad(w) for w in plan.walls],
+            [_ad(o) for o in plan.openings],
+            [_ad(c) for c in plan.columns],
+            [_ad(st) for st in getattr(plan, "steps", [])],
+        ], sort_keys=True, default=str)
+        key = hashlib.md5(sig.encode("utf-8")).hexdigest()
+    except Exception:
+        key = None
+    if key and _FLOOR_CACHE["key"] == key:
+        dl.items.extend(_FLOOR_CACHE["items"])   # compose copies, never mutates
+        return
+    tmp = DrawList()
+    floorlayout.draw(plan, tmp)
+    if key:
+        _FLOOR_CACHE["key"] = key
+        _FLOOR_CACHE["items"] = tmp.items
+    dl.items.extend(tmp.items)
 
 
 def draw_raw(plan: Plan, dl: DrawList) -> None:

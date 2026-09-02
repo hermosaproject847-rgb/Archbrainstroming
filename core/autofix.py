@@ -18,9 +18,12 @@ STEP = 0.25          # sampling step along a wall, feet
 
 
 def _rooms_at(plan: Plan, pt) -> list:
-    p = Point(pt)
+    # plain arithmetic — building a shapely box per room per sample summed to
+    # 40,000+ boxes per validation pass and was the whole reason every edit
+    # felt stuck on the small server
+    x, y = pt
     return [r for r in plan.rooms
-            if box(r.x, r.y, r.x + r.w, r.y + r.h).contains(p)]
+            if r.x <= x <= r.x + r.w and r.y <= y <= r.y + r.h]
 
 
 def _sides_of(plan: Plan, w, d: float):
