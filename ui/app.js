@@ -71,9 +71,21 @@ async function _rpc(method, args, _try) {
   _try = _try || 0;
   let r;
   try {
+    // GZIP the request body too — an edit re-sends the whole plan (~70 KB);
+    // compressed it is ~8 KB, which is what keeps edits snappy over the
+    // tunnel / free host. Falls back to plain JSON where unsupported.
+    let body = JSON.stringify(args || []);
+    const headers = { "Content-Type": "application/json" };
+    if (typeof CompressionStream !== "undefined" && body.length > 4096) {
+      try {
+        const cs = new Blob([body]).stream()
+          .pipeThrough(new CompressionStream("gzip"));
+        body = await new Response(cs).arrayBuffer();
+        headers["Content-Encoding"] = "gzip";
+      } catch (e2) { body = JSON.stringify(args || []); }
+    }
     r = await fetch("/rpc/" + method, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(args || []),
+      method: "POST", headers, body,
     });
   } catch (e) {
     if (_try < 4) { await _sleep(1500); return _rpc(method, args, _try + 1); }

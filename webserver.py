@@ -293,29 +293,53 @@ def admin_passwd():
 
 
 # ---------------------------------------------------------------- app API
+def _rpc_reply(payload: dict):
+    """JSON out — GZIPPED whenever the browser accepts it. A render answer
+    is a ~300 KB SVG; over the tunnel/Render uncompressed it is what made
+    every edit lag. Gzip cuts it ~10x, so edits feel instant again."""
+    import gzip as _gz
+    body = _json.dumps(payload).encode("utf-8")
+    if len(body) > 2048 and "gzip" in (
+            request.headers.get("Accept-Encoding") or ""):
+        response.content_type = "application/json"
+        response.set_header("Content-Encoding", "gzip")
+        return _gz.compress(body, 5)
+    response.content_type = "application/json"
+    return body
+
+
 @web.post("/rpc/<method>")
 def rpc(method):
     if not _current():
-        return {"ok": False, "auth": False, "error": "Please sign in again."}
+        return _rpc_reply({"ok": False, "auth": False,
+                           "error": "Please sign in again."})
     try:
-        args = request.json
+        # the client gzips large request bodies (a whole plan per edit)
+        if (request.headers.get("Content-Encoding") or "").lower() == "gzip":
+            import gzip as _gz
+            raw = _gz.decompress(request.body.read())
+            args = _json.loads(raw.decode("utf-8") or "null")
+        else:
+            args = request.json
         if args is None:
             args = []
         if not isinstance(args, list):
             args = [args]
         if method in _DESKTOP_ONLY:
-            return {"ok": False, "web": True,
-                    "error": "Use the browser's file picker (Open) / Download."}
+            return _rpc_reply({"ok": False, "web": True,
+                               "error": "Use the browser's file picker "
+                                        "(Open) / Download."})
         fn = getattr(api, method, None)
         if not callable(fn):
-            return {"ok": False, "error": f"unknown method: {method}"}
+            return _rpc_reply({"ok": False,
+                               "error": f"unknown method: {method}"})
         result = fn(*args)
         if isinstance(result, dict):
-            return result
-        return {"ok": True, "result": result}
+            return _rpc_reply(result)
+        return _rpc_reply({"ok": True, "result": result})
     except Exception as e:
         traceback.print_exc()
-        return {"ok": False, "error": str(e)}
+        return _rpc_reply({"ok": False, "error": str(e)})
 
 
 @web.post("/upload")
