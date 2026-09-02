@@ -1704,6 +1704,7 @@ const COLS = {
     ["size_label", "Size label", "text", 1.5],
     ["open_area", "Open", "bool"],
     ["void", "Shaft", "bool"],
+    ["double_height", "Dbl height", "bool"],   // full-room X = no slab over
   ],
   walls: [
     ["id", "No.", "text"],

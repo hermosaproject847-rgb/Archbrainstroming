@@ -80,6 +80,9 @@ class Room:
     h: float
     size_label: str = ""       # e.g. "12'-0\" x 10'-6\"" as written on the sketch
     open_area: bool = False    # parking / yard / "5' wide open" -> NO enclosing walls
+    # a full-room X on a lower floor (living/dining crossed corner to corner)
+    # = DOUBLE HEIGHT: the volume runs two storeys, NO slab over it
+    double_height: bool = False
     # A shaft is open to the sky but WALLED all round — O.T.S, light/vent
     # shafts, ducts. Without this it counts as just another open area and the
     # walls enclosing it get stripped away.

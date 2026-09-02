@@ -510,10 +510,17 @@ def _stacks(plan, pts, runs, soil_out, waste_out, add, pipe):
                      "trap tees into the nearest waste line (shortest "
                      "route); cleanout CO-2 at its base.")
     if site is not None and (soil_out or waste_out):
-        notes.append("Row-house rule: both stacks drop AGAINST THE WALL by "
-                     f"the {site['porch'].name}, to one side clear of the "
-                     "entry — the same point on every floor, directly over "
-                     "the gully trap / chamber line.")
+        if site.get("shaft") is not None:
+            notes.append("SHAFT rule: the plan draws a shaft "
+                         f"({site['shaft'].name or 'SHAFT'}) — both stacks "
+                         "drop INSIDE it, the same point on every floor; "
+                         "the gully trap / chamber line stays in the "
+                         f"{site['porch'].name}, connected underground.")
+        else:
+            notes.append("Row-house rule: both stacks drop AGAINST THE WALL "
+                         f"by the {site['porch'].name}, to one side clear of "
+                         "the entry — the same point on every floor, "
+                         "directly over the gully trap / chamber line.")
     return notes
 
 
@@ -546,11 +553,30 @@ def _porch_front(plan: Plan, porch) -> str:
     return min(cand, key=lambda k: d[k])
 
 
+def _plumb_shaft(plan: Plan):
+    """The plumbing SHAFT drawn on the plan — a duct / shaft / O.T.S void.
+    USER RULE: where the plan shows a shaft, THAT is where the pipes come
+    down. The smallest such room is the service shaft (a big O.T.S is a
+    court). None when the plan draws no shaft."""
+    import re
+    cands = []
+    for r in plan.rooms:
+        nm = (r.name or "").lower()
+        if "terrace" in nm or "porch" in nm or "parking" in nm:
+            continue
+        if r.void or re.search(r"shaft|duct|o\.?\s?t\.?\s?s|open\s*to\s*sky",
+                               nm):
+            if 0.8 <= r.w <= 12 and 0.8 <= r.h <= 12:
+                cands.append(r)
+    return min(cands, key=lambda r: r.w * r.h) if cands else None
+
+
 def _stack_site(plan: Plan):
-    """The ONE place the house's stacks come down: against the wall where the
-    building meets the porch, to ONE SIDE — clear of the entry — so every
-    floor drops its pipes at the SAME x,y, straight over the gully trap and
-    the chamber line below (user rule: 'pipe wall ke sahare utrenge')."""
+    """The ONE place the house's stacks come down. USER RULE first: a SHAFT
+    drawn on the plan is the drop — the stacks stand in it. Otherwise:
+    against the wall where the building meets the porch, to ONE SIDE — clear
+    of the entry — so every floor drops its pipes at the SAME x,y, straight
+    over the gully trap and the chamber line below."""
     porch = _porch(plan)
     if porch is None:
         return None
@@ -596,8 +622,19 @@ def _stack_site(plan: Plan):
     else:
         sx_ = (px1 - 0.4) if front == "W" else (px0 + 0.4)
         ss, ws = (sx_, side_v), (sx_, side_v + away)
-    return {"porch": porch, "front": front, "horiz": horiz,
+    site = {"porch": porch, "front": front, "horiz": horiz,
             "ss": ss, "ws": ws, "side_v": side_v}
+    sh = _plumb_shaft(plan)
+    if sh is not None:
+        # stacks stand IN the drawn shaft; the porch-side points are kept for
+        # the gully trap / chamber line, which stays outside in the porch
+        scx, scy = sh.x + sh.w / 2, sh.y + sh.h / 2
+        off = min(0.6, sh.w / 4, sh.h / 4)
+        site["gt_ss"], site["gt_ws"] = site["ss"], site["ws"]
+        site["ss"] = (scx - off, scy)
+        site["ws"] = (scx + off, scy)
+        site["shaft"] = sh
+    return site
 
 
 def _drainage_porch(plan, porch, pts, runs, add, pipe):
@@ -622,20 +659,31 @@ def _drainage_porch(plan, porch, pts, runs, add, pipe):
         return [], notes
     dvx, dvy = {"S": (0, -1), "N": (0, 1),
                 "W": (-1, 0), "E": (1, 0)}[front]     # toward the road
+    # in SHAFT mode the stacks stand in the drawn shaft while the gully trap
+    # and chambers keep their place in the porch — connected underground
+    gss = site.get("gt_ss")
+    gws = site.get("gt_ws")
     chambers = []
     if ss is not None:
-        ic = add("IC", ss.x + dvx * 1.6, ss.y + dvy * 1.6, porch.name,
+        bx, by = gss if gss else (ss.x, ss.y)
+        ic = add("IC", bx + dvx * 1.6, by + dvy * 1.6, porch.name,
                  "SOIL", P.D_SOIL)
         chambers.append(ic)
         pipe("SOIL", [(ss.x, ss.y), (ic.x, ic.y)], P.D_SOIL,
+             "soil stack drops in the shaft, underground DIRECT to the "
+             "chamber" if gss else
              "soil stack drops by the wall, DIRECT to the chamber")
     if ws is not None:
-        gt = add("GT", ws.x + dvx * 1.6, ws.y + dvy * 1.6, porch.name,
+        bx, by = gws if gws else (ws.x, ws.y)
+        gt = add("GT", bx + dvx * 1.6, by + dvy * 1.6, porch.name,
                  "WASTE", P.D_WASTE_STACK)
         pipe("WASTE", [(ws.x, ws.y), (gt.x, gt.y)], P.D_WASTE_STACK,
+             "waste stack drops in the shaft, underground to the gully trap"
+             if gws else
              "waste stack drops by the wall to the gully trap")
-        base = ss if ss is not None else ws
-        ic = add("IC", base.x + dvx * 3.4, base.y + dvy * 3.4, porch.name,
+        bx, by = (gss if gss else (ss.x, ss.y)) if ss is not None else \
+                 (gws if gws else (ws.x, ws.y))
+        ic = add("IC", bx + dvx * 3.4, by + dvy * 3.4, porch.name,
                  "WASTE", P.D_EXT_DRAIN)
         chambers.append(ic)
         pipe("WASTE", [(gt.x, gt.y), (ic.x, ic.y)], P.D_EXT_DRAIN,

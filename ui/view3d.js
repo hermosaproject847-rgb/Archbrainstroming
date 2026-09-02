@@ -2810,7 +2810,9 @@
             .map(r => [r.x - 0.05, r.y - 0.05,
                        r.x + r.w + 0.05, r.y + r.h + 0.05]))
           .concat((((below || {}).rooms) || [])
-            .filter(r => r.void || SHAFT_RE.test(r.name || ""))
+            .filter(r => r.void || r.double_height
+              || /double\s*height/i.test(r.name || "")
+              || SHAFT_RE.test(r.name || ""))
             .map(r => [r.x + dAl.x - 0.05, r.y + dAl.y - 0.05,
                        r.x + r.w + dAl.x + 0.05,
                        r.y + r.h + dAl.y + 0.05]));
@@ -2840,8 +2842,11 @@
       // an OPEN TERRACE is open to the sky on EVERY floor - the slab of the
       // storey above is cut out over it and follows its outline; a porch /
       // parking below keeps its slab (the terrace above stands on it)
+      // a DOUBLE-HEIGHT room (full-room X on the sketch) has NO slab over
+      // it — the volume runs two storeys (user rule)
+      const dblH = r => r.double_height || /double\s*height/i.test(r.name || "");
       const holes = (plan.rooms || []).filter(r =>
-        r.void || shaft(r) || TERRACE_RE.test(r.name || ""));
+        r.void || dblH(r) || shaft(r) || TERRACE_RE.test(r.name || ""));
       for (const st of (plan.stairs || []).concat(holes)) {
         const hole = [st.x - 0.25, st.y - 0.25,
                       st.x + st.w + 0.25, st.y + st.h + 0.25];
@@ -2927,10 +2932,68 @@
           fwells.push([st.x + dA2.x, st.y + dA2.y,
                        st.x + st.w + dA2.x, st.y + st.h + dA2.y]);
         for (const r of ((((below2 || {}).rooms) || [])
-            .filter(r2 => r2.void || SHAFT_RE2.test(r2.name || ""))))
+            .filter(r2 => r2.void || r2.double_height
+              || /double\s*height/i.test(r2.name || "")
+              || SHAFT_RE2.test(r2.name || ""))))
           fwells.push([r.x + dA2.x - 0.05, r.y + dA2.y - 0.05,
                        r.x + r.w + dA2.x + 0.05,
                        r.y + r.h + dA2.y + 0.05]);
+        // a DOUBLE-HEIGHT room below leaves a cutout on THIS floor — a
+        // RAILING guards its open boundary (user rule), but only along
+        // stretches where this floor has no wall of its own
+        const dhRooms = ((((below2 || {}).rooms) || []).filter(r2 =>
+          r2.double_height || /double\s*height/i.test(r2.name || "")));
+        if (dhRooms.length) {
+          const mRailP = new THREE.MeshLambertMaterial({ color: 0x2f3338 });
+          const wallNear = (x, y) => (plan.walls || []).some(w2 => {
+            const dx = w2.x2 - w2.x1, dy = w2.y2 - w2.y1;
+            const L2 = dx * dx + dy * dy || 1e-9;
+            let t = ((x - w2.x1) * dx + (y - w2.y1) * dy) / L2;
+            t = Math.max(0, Math.min(1, t));
+            return Math.hypot(w2.x1 + dx * t - x, w2.y1 + dy * t - y) < 0.9;
+          });
+          for (const r of dhRooms) {
+            const rx = r.x + dA2.x, ry = r.y + dA2.y;
+            const edges = [
+              [rx, ry, rx + r.w, ry],
+              [rx, ry + r.h, rx + r.w, ry + r.h],
+              [rx, ry, rx, ry + r.h],
+              [rx + r.w, ry, rx + r.w, ry + r.h]];
+            for (const [ex0, ey0, ex1, ey1] of edges) {
+              const dx = ex1 - ex0, dy = ey1 - ey0;
+              const L3 = Math.hypot(dx, dy); if (L3 < 1) continue;
+              const ux = dx / L3, uy = dy / L3;
+              const spans = []; let run = null;
+              for (let d = 0; d <= L3; d += 0.5) {
+                const x = ex0 + ux * d, y = ey0 + uy * d;
+                if (!wallNear(x, y)) { if (!run) run = [d, d]; else run[1] = d; }
+                else if (run) {
+                  if (run[1] - run[0] > 1.2) spans.push(run);
+                  run = null;
+                }
+              }
+              if (run && run[1] - run[0] > 1.2) { run[1] = L3; spans.push(run); }
+              const horiz = Math.abs(ux) >= Math.abs(uy);
+              for (const [a, b] of spans) {
+                const Lr = b - a, hR = 3.5;
+                const cxr = ex0 + ux * (a + b) / 2;
+                const cyr = ey0 + uy * (a + b) / 2;
+                L.walls.add(horiz
+                  ? box(Lr, 0.16, 0.16, cxr, cyr, z0 + hR, mRailP)
+                  : box(0.16, Lr, 0.16, cxr, cyr, z0 + hR, mRailP));
+                L.walls.add(horiz
+                  ? box(Lr, 0.08, 0.08, cxr, cyr, z0 + hR * 0.55, mRailP)
+                  : box(0.08, Lr, 0.08, cxr, cyr, z0 + hR * 0.55, mRailP));
+                const nP = Math.max(2, Math.round(Lr / 4) + 1);
+                for (let i = 0; i < nP; i++) {
+                  const d2 = a + (Lr * i) / (nP - 1);
+                  L.walls.add(box(0.12, 0.12, hR,
+                    ex0 + ux * d2, ey0 + uy * d2, z0 + hR / 2, mRailP));
+                }
+              }
+            }
+          }
+        }
       }
       addFlooring(L.floor, plan, z0, fwells);
       addFurniture(L.furn, plan, z0);

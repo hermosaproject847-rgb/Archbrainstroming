@@ -155,6 +155,18 @@ invented suffix does not match the drawing.
    or "GARDEN" in its `name` and set `"open_area": true`. The software then
    fills it with grass and nothing else: no floor tiles, no ceiling and no
    electrical. Do not put furniture, fixtures or a tiled floor in it.
+   **A full-room X means DOUBLE HEIGHT.** On the ground (or any lower) floor,
+   any habitable space — living, dining, lounge, VESTIBULE, foyer, lobby —
+   whose WHOLE area is crossed corner-to-corner with one big X (two
+   diagonals spanning the entire room) is a double-height volume: set
+   `"double_height": true` on that room. There is NO slab over it; the floor
+   above is open at that footprint, and the floor above gets a RAILING along
+   the cutout's boundary wherever it has no wall of its own (the software
+   adds it — if the upper sketch already draws that railing, list it as a
+   `"railing": true` wall as usual). Do not confuse the double-height X with
+   the small solid X of a column block, or the stair's own cross inside the
+   stair rectangle — the double-height X spans the whole room and the room
+   keeps its normal name and label.
 2. **Openings sit at their exact position.** `pos` is the distance in feet from
    the wall's start point to the opening's near jamb. Never auto-centre an
    opening: if the sketch shows a door hard against a partition, `pos` puts it
