@@ -3742,11 +3742,29 @@ if ($("#btnOpenFloors")) $("#btnOpenFloors").onclick = async () => {
   } else r = await api().pick_sketches();
   if (!r.ok) return fail(r);
   if (r.cancelled) return;
-  const paths = r.paths || [], names = r.names || [];
+  let paths = r.paths || [], names = r.names || [];
   if (!paths.length) return;
   if (paths.length === 1) { status("only one file picked — use Open Drawing"); }
-  // one floor per file
-  S.floors = paths.map((p, i) => ({ name: _nextFloorNameAt(i), plan: null }));
+  // ORDER BY NAME (user rule): ground first, then first, second, third,
+  // terrace on top — whatever order the files were picked in, the stack
+  // must build bottom-up or nothing above lines up.
+  const floorRank = nm => {
+    const s = String(nm || "").toLowerCase();
+    if (/terrace|mumty|roof/.test(s)) return 90;
+    if (/\bthird\b|3rd|floor[-_ ]?3|\b3f\b/.test(s)) return 3;
+    if (/\bsecond\b|2nd|floor[-_ ]?2|\b2f\b|\bsf\b/.test(s)) return 2;
+    if (/\bfirst\b|1st|floor[-_ ]?1|\b1f\b|\bff\b/.test(s)) return 1;
+    if (/ground|\bgf\b|g\.f|floor[-_ ]?0/.test(s)) return 0;
+    return 50;                       // unknown: keep the picked order
+  };
+  const order = paths.map((p, i) => ({ p, n: names[i] || "", i }))
+    .sort((a, b) => (floorRank(a.n) - floorRank(b.n)) || (a.i - b.i));
+  paths = order.map(o => o.p); names = order.map(o => o.n);
+  const rankName = { 0: "Ground Floor", 1: "First Floor", 2: "Second Floor",
+                     3: "Third Floor", 90: "Terrace Floor" };
+  // one floor per file, named by what the FILE says it is
+  S.floors = paths.map((p, i) => ({
+    name: rankName[floorRank(names[i])] || _nextFloorNameAt(i), plan: null }));
   S.active = 0; S.undo = []; S.redo = [];
   let okCount = 0;
   for (let i = 0; i < paths.length; i++) {
