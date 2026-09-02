@@ -801,6 +801,22 @@ def draw_rooms(plan: Plan, dl: DrawList) -> None:
                       for s in plan.stairs)
         if rb.area > 0 and covered / rb.area > 0.5:
             cy = r.y - 1.0
+        # a PERGOLA reads as its slat lines on the plan — the overhead MS
+        # fabrication frame, drawn across the short way (user rule)
+        import re as _re0
+        if _re0.search(r"pergola", r.name or "", _re0.I) \
+                and r.w > 1.0 and r.h > 1.0:
+            along_x = r.w >= r.h
+            span = r.w if along_x else r.h
+            n = max(3, int(span / 1.35))
+            for i in range(n + 1):
+                d = 0.35 + (span - 0.7) * i / n
+                if along_x:
+                    dl.line(r.x + d, r.y + 0.15, r.x + d,
+                            r.y + r.h - 0.15, layer="TEXT-SUB")
+                else:
+                    dl.line(r.x + 0.15, r.y + d, r.x + r.w - 0.15,
+                            r.y + d, layer="TEXT-SUB")
         # an O.T.S / shaft / duct / lift carries its corner-to-corner CROSS
         # on the sheet — the standard open-to-sky / no-slab mark
         import re as _re

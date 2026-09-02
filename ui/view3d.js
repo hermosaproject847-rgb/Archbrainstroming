@@ -2961,9 +2961,13 @@
       // own) — only the TERRACE slab runs over it (user rule)
       const lift = r => /lift|elevator/i.test(r.name || "") &&
         f < P.floors - 1;
+      // a SEMI COVERED area DOES get its slab (user rule) even when its
+      // name also says terrace/court; a PERGOLA gets slats, never a slab
+      const semiC = r => /semi\s*cover/i.test(r.name || "");
+      const perg = r => /pergola/i.test(r.name || "");
       const holes = (plan.rooms || []).filter(r =>
-        r.void || dblH(r) || lift(r) || shaft(r)
-        || TERRACE_RE.test(r.name || ""));
+        !semiC(r) && (r.void || dblH(r) || lift(r) || shaft(r) || perg(r)
+        || TERRACE_RE.test(r.name || "")));
       for (const st of (plan.stairs || []).concat(holes)) {
         const hole = [st.x - 0.25, st.y - 0.25,
                       st.x + st.w + 0.25, st.y + st.h + 0.25];
@@ -2982,6 +2986,30 @@
         if (r[2] - r[0] < 0.1 || r[3] - r[1] < 0.1) continue;
         slabG.add(box(r[2] - r[0], r[3] - r[1], P.slab,
           (r[0] + r[2]) / 2, (r[1] + r[3]) / 2, z0 + H + P.slab / 2, M.slab));
+      }
+      // a PERGOLA room carries an MS fabrication slat frame at slab level
+      // instead of the slab: two edge beams + slats across the short way
+      for (const r of (plan.rooms || []).filter(perg)) {
+        const mPg = new THREE.MeshLambertMaterial({ color: 0x3a3f45 });
+        const zP = z0 + H + 0.2;
+        const alongX = r.w >= r.h;               // slats run across the width
+        const cxp = r.x + r.w / 2, cyp = r.y + r.h / 2;
+        if (alongX) {
+          slabG.add(box(r.w, 0.35, 0.5, cxp, r.y + 0.2, zP, mPg));
+          slabG.add(box(r.w, 0.35, 0.5, cxp, r.y + r.h - 0.2, zP, mPg));
+        } else {
+          slabG.add(box(0.35, r.h, 0.5, r.x + 0.2, cyp, zP, mPg));
+          slabG.add(box(0.35, r.h, 0.5, r.x + r.w - 0.2, cyp, zP, mPg));
+        }
+        const span = alongX ? r.w : r.h;
+        const n = Math.max(3, Math.floor(span / 1.35));
+        for (let i = 0; i <= n; i++) {
+          const d = 0.35 + (span - 0.7) * i / n;
+          if (alongX)
+            slabG.add(box(0.28, r.h, 0.4, r.x + d, cyp, zP + 0.05, mPg));
+          else
+            slabG.add(box(r.w, 0.28, 0.4, cxp, r.y + d, zP + 0.05, mPg));
+        }
       }
       // MUMTY over the top-floor staircase: its own little room on the roof —
       // walls round the stair well, a door gap where the flight arrives, and

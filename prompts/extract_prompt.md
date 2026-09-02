@@ -194,6 +194,18 @@ invented suffix does not match the drawing.
    do NOT list it in `walls`: record the plot extent in `"plot"` only. Only
    the ground floor lists the compound wall (with its gate) as walls.
 
+   **SEMI COVERED means a slab.** A room labelled "SEMI COVERED" (semi
+   covered area / sit-out / terrace) DOES get the slab over it — keep the
+   words SEMI COVERED in its `name` and do NOT mark it void; even when the
+   name also says terrace, the slab is cast.
+
+   **PERGOLA stays a pergola.** Where "PERGOLA", "PERGOLA IN FABRICATION"
+   or "MS PERGOLA" is written (often arrow-labelled, often drawn as
+   parallel slat lines), keep PERGOLA in the room's `name` with
+   `"open_area": true`. It is an overhead open slat frame: the software
+   draws the slats on the plan and builds the MS frame in 3D — never a
+   slab, never a floor of its own.
+
    **A LIFT is a continuous shaft.** A room labelled LIFT / ELEVATOR keeps
    that name and its walls as drawn. NO slab is ever cast inside it through
    the floors (its pit, sill and machine detail is a separate drawing);
