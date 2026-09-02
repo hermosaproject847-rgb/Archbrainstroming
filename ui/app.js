@@ -922,6 +922,17 @@ function _cand(axis) {
     if (axis === "x") s.push(it.x, it.x + w / 2, it.x + w); else s.push(it.y, it.y + h / 2, it.y + h);
   }));
   (S.plan.elec || []).forEach(e => { if (e === skip) return; s.push(axis === "x" ? e.x : e.y); });
+  // window / door JAMBS — a column dragged to a window's edge must land
+  // exactly ON that edge (user rule)
+  (S.plan.openings || []).forEach(o => {
+    const w = (S.plan.walls || []).find(x => x.id === o.wall_id);
+    if (!w) return;
+    const L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) || 1e-6;
+    const ux = (w.x2 - w.x1) / L, uy = (w.y2 - w.y1) / L;
+    for (const d of [o.pos, o.pos + (+o.width || 0)]) {
+      s.push(axis === "x" ? w.x1 + ux * d : w.y1 + uy * d);
+    }
+  });
   ((S.plan && S.plan.refs) || []).forEach(r => { if (r.axis === (axis === "x" ? "v" : "h")) s.push(r.at); });
   return s;
 }
@@ -942,6 +953,23 @@ function snapY(y) {
   for (const v of _cand("y")) { const d = Math.abs(y - v); if (d < bd) { bd = d; best = v; } }
   if (best !== null) { _guides.push({ axis: "h", at: best }); return best; }
   return snapG(y);
+}
+/* EDGE-AWARE snap for a centre-based box (a column): its centre OR either
+   FACE may land on a candidate line — whichever is nearest wins, so a
+   column pulls flush onto a window jamb / wall line instead of overshooting */
+function snapBoxAxis(v, half, axis) {
+  let best = null, bd = _snapTol(), adj = 0;
+  for (const c of _cand(axis)) {
+    for (const [p, a] of [[v, 0], [v - half, half], [v + half, -half]]) {
+      const d = Math.abs(p - c);
+      if (d < bd) { bd = d; best = c; adj = a; }
+    }
+  }
+  if (best !== null) {
+    _guides.push({ axis: axis === "x" ? "v" : "h", at: best });
+    return best + adj;
+  }
+  return snapG(v);
 }
 function orthoEnd(mx, my, ox, oy) {              // snap a wall end to H/V + grid
   const a = ((Math.atan2(my - oy, mx - ox) * 180 / Math.PI) % 180 + 180) % 180;
@@ -1171,7 +1199,13 @@ function startDrag(e, spec) {
 function applyDrag(d, mx, my) {
   const it = d.it, sp = d.spec, I = d.init;
   _guides = [];                                  // rebuilt by snapX/snapY this move
-  if (sp.role === "pt-move") { it.x = r4(snapX(mx)); it.y = r4(snapY(my)); }
+  if (sp.role === "pt-move") {
+    if (_sel && _sel.key === "columns") {
+      // a column snaps by its centre OR its faces — flush onto jambs/lines
+      it.x = r4(snapBoxAxis(mx, ((+it.w || 0.8) / 2), "x"));
+      it.y = r4(snapBoxAxis(my, ((+it.h || 0.8) / 2), "y"));
+    } else { it.x = r4(snapX(mx)); it.y = r4(snapY(my)); }
+  }
   else if (sp.role === "rotate") {
     // drag the stalk round the piece's centre; the handle rests at the top
     // (90°) when angle = 0, and the angle snaps every 15°
