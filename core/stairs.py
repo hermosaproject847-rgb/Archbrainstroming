@@ -101,17 +101,22 @@ def _three_flight(s) -> dict:
     n2 = max(1, s.steps_f3 or 2)                 # the short middle flight
 
     first = s.start_step
+    # the LANDING is numbered as a step too (user rule): flight 1 ends, the
+    # landing takes the next number, the next flight carries on after it
+    la_n = (first + n1) if first else 0
+    lb_n = (first + n1 + 1 + n2) if first else 0
     flights = [
         {"rect": f1, "axis": axis, "dir": d, "steps": n1, "first": first},
         {"rect": mid, "axis": mid_axis, "dir": mid_d, "steps": n2,
-         "first": (first + n1) if first else 0},
+         "first": (first + n1 + 1) if first else 0},
         {"rect": f3, "axis": axis, "dir": -d, "steps": n3,
-         "first": (first + n1 + n2) if first else 0},
+         "first": (first + n1 + n2 + 2) if first else 0},
     ]
 
     return {"flights": flights,
             "landing": la,
             "landings": [la, lb],
+            "landing_nums": [la_n, lb_n],
             "winders": [],
             "well": None,
             "arrows": _arrows(s, [flights[0], flights[2]], True)}
@@ -217,9 +222,16 @@ def _turn(s, half: bool) -> dict:
 
     flights = [{"rect": f1, "axis": axis, "dir": d, "steps": n1,
                 "first": s.start_step}]
+    # a plain (no-winder) U turn numbers its LANDING as a step too (user
+    # rule); with winders the turn treads carry the numbers instead, and an
+    # L's landing IS its second flight, so neither takes an extra number
+    land_num = (s.start_step + n1) if (s.start_step and half and not wind) \
+        else 0
     if half:
         flights.append({"rect": f2, "axis": axis, "dir": -d, "steps": n2,
-                        "first": (s.start_step + n1 + wind) if s.start_step else 0})
+                        "first": (s.start_step + n1 + wind
+                                  + (1 if land_num else 0))
+                        if s.start_step else 0})
     else:
         # L: the second flight runs along the landing, perpendicular
         ax2 = "y" if axis == "x" else "x"
@@ -233,6 +245,7 @@ def _turn(s, half: bool) -> dict:
                   if half else ([], [], []))
     return {"flights": flights,
             "landing": landing,
+            "landing_nums": [land_num] if land_num else [],
             "winders": wl,
             "winder_polys": wp,
             "winder_nums": wn,

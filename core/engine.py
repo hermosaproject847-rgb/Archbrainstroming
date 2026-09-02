@@ -659,15 +659,25 @@ def draw_stairs(plan: Plan, dl: DrawList) -> None:
         # a three-flight stair has two landings; the others have one
         # the office sheets draw NO landing box when the turn is winders —
         # the diagonals and the well-line strip ARE the turn
-        for (lx, ly, lw, lh) in ([] if g.get("winder_polys")
-                                 else (g.get("landings")
-                                 or ([g["landing"]] if g["landing"] else []))):
+        _lnums = g.get("landing_nums") or []
+        for li, (lx, ly, lw, lh) in enumerate(
+                [] if g.get("winder_polys")
+                else (g.get("landings")
+                      or ([g["landing"]] if g["landing"] else []))):
             dl.rect(lx, ly, lw, lh, layer="STAIR")
+            num = _lnums[li] if li < len(_lnums) else 0
             if g.get("landings"):
-                # name them: a landing is not a step, and its size is its own
-                dl.text(lx + lw / 2, ly + lh / 2, "LANDING", h=0.34,
-                        layer="TEXT-SUB",
+                # named AND numbered — the landing takes its own step number
+                # in the run (user rule)
+                dl.text(lx + lw / 2, ly + lh / 2 + (0.32 if num else 0),
+                        "LANDING", h=0.34, layer="TEXT-SUB",
                         angle=0 if lw >= lh else 90)
+                if num:
+                    dl.text(lx + lw / 2, ly + lh / 2 - 0.34, str(num),
+                            h=0.34, layer="TEXT-SUB")
+            elif num:
+                dl.text(lx + lw / 2, ly + lh / 2, str(num), h=0.34,
+                        layer="TEXT-SUB")
 
         for fi, f in enumerate(g["flights"]):
             fx, fy, fw, fh = f["rect"]
