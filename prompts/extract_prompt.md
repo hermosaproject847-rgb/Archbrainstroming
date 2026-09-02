@@ -183,6 +183,21 @@ invented suffix does not match the drawing.
    walls of its own. It is an overhead projection: the software draws it as
    a dashed outline with its label — no floor, no furniture.
 
+   Identify the chajja by its SHAPE, and trace it EXACTLY:
+   - a chajja is a NARROW strip, typically 1'-0" to 2'-6" deep, usually
+     drawn DASHED (it hangs overhead), running ALONG the OUTSIDE of a wall
+     or over a window / door / sitout edge — its long edge sits ON the wall
+     line it projects from;
+   - take its rectangle digit-for-digit off the drawn strip. It must never
+     grow to room size, never drift into the room beside it, and never tilt
+     off the wall line;
+   - a dashed line that outlines a SITOUT / verandah / porch boundary is
+     that space's own open edge, NOT a chajja — do not turn it into one,
+     and do not let a chajja swallow it. The sitout stays its own room with
+     its own name; the chajja (if the arrow marks one) is a separate thin
+     strip along or above that edge;
+   - several chajja strips = several separate CHAJJA rooms, one per strip.
+
    **An outer PLANTER's boundary wall is 1 foot high.** Where "PLANTER" is
    written on a strip on the OUTER side of the building, list its boundary
    walls with `"height_ft": 1` — a low planter kerb, not a full wall.
