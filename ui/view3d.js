@@ -1652,6 +1652,8 @@
       // paved on the ground already — no floor finish up on the plinth
       if (z0 <= 2.5 && GRND_RE.test(r.name || "")) continue;
       if (/chajja/i.test(r.name || "")) continue;   // overhead projection
+      // a LIFT shaft has no floor finish — its pit / sill detail is its own
+      if (/lift|elevator/i.test(r.name || "")) continue;
       const material = spec ? (spec.material || "tile") : "tile";
       // the floor sits AT ITS LEVEL: a mentioned drop (wet room, balcony)
       // steps the finish down, a raise steps it up (user rule)
@@ -2955,8 +2957,13 @@
       // a DOUBLE-HEIGHT room (full-room X on the sketch) has NO slab over
       // it — the volume runs two storeys (user rule)
       const dblH = r => r.double_height || /double\s*height/i.test(r.name || "");
+      // a LIFT shaft NEVER gets a slab through the floors (its detail is its
+      // own) — only the TERRACE slab runs over it (user rule)
+      const lift = r => /lift|elevator/i.test(r.name || "") &&
+        f < P.floors - 1;
       const holes = (plan.rooms || []).filter(r =>
-        r.void || dblH(r) || shaft(r) || TERRACE_RE.test(r.name || ""));
+        r.void || dblH(r) || lift(r) || shaft(r)
+        || TERRACE_RE.test(r.name || ""));
       for (const st of (plan.stairs || []).concat(holes)) {
         const hole = [st.x - 0.25, st.y - 0.25,
                       st.x + st.w + 0.25, st.y + st.h + 0.25];
@@ -3027,7 +3034,7 @@
       // on an upper floor the stair from BELOW arrives through the floor —
       // its well is cut out of the finish; every O.T.S. / shaft (own and
       // below) is open to sky too — never tiled over
-      const SHAFT_RE2 = /o\.?\s?t\.?\s?s|open\s*to\s*sky|shaft|duct/i;
+      const SHAFT_RE2 = /o\.?\s?t\.?\s?s|open\s*to\s*sky|shaft|duct|lift|elevator/i;
       const fwells = (plan.rooms || [])
         .filter(r => r.void || SHAFT_RE2.test(r.name || ""))
         .map(r => [r.x - 0.05, r.y - 0.05,

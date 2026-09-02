@@ -191,6 +191,12 @@ invented suffix does not match the drawing.
    do NOT list it in `walls`: record the plot extent in `"plot"` only. Only
    the ground floor lists the compound wall (with its gate) as walls.
 
+   **A LIFT is a continuous shaft.** A room labelled LIFT / ELEVATOR keeps
+   that name and its walls as drawn. NO slab is ever cast inside it through
+   the floors (its pit, sill and machine detail is a separate drawing);
+   only the terrace slab runs over the shaft. Do not floor it, do not put
+   anything in it.
+
    **An ELE / ELV ceiling cutout is the electrical shaft.** A small ceiling
    cutout labelled "ELE", "ELV" or "ELECTRICAL" (usually arrow-labelled) is
    where the light wiring travels between floors. Give it as a room keeping
