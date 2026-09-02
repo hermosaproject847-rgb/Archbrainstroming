@@ -877,6 +877,7 @@ function showSvg(svg, info) {
   S.plInfo = info;
   buildHandles(info);          // draggable handles on top of the drawing
   drawRefs(info);              // persistent reference / guide lines
+  if (typeof drawTextGrips === "function") drawTextGrips(info);
 }
 
 /* ── canvas direct-manipulation ───────────────────────────────────────
@@ -1345,6 +1346,7 @@ let _annMode = null;
 window._dimSegs = [];                 // visible auto-dim bays, from render
 function annOff() {
   _annMode = null;
+  if (typeof clearTextGrips === "function") clearTextGrips();
   ["btnTxtAdd", "btnDimAdd", "btnAnnDel"].forEach(i => {
     const b = $("#" + i); if (b) b.classList.remove("primary");
   });
@@ -1354,6 +1356,7 @@ function annStart(kind, btn, extra) {
   annOff();
   _annMode = Object.assign({ kind }, extra || {});
   const b = $("#" + btn); if (b) b.classList.add("primary");
+  if (typeof drawTextGrips === "function") drawTextGrips(S.plInfo);
 }
 if ($("#btnTxtAdd")) $("#btnTxtAdd").onclick = () => {
   if (!S.plan) return status("read or load a plan first");
@@ -1460,7 +1463,8 @@ function annTextBox(m, idx) {
       <button id="te-save" class="btn primary btn-sm" style="flex:1">Save</button>
       ${idx != null ? '<button id="te-del" class="btn btn-sm" style="color:#f87171">Delete</button>' : ""}
       <button id="te-cancel" class="btn ghost btn-sm">✕</button>
-    </div>`;
+    </div>
+    ${t && t.leader ? '<button id="te-nolead" class="btn ghost btn-sm" data-off="0">Leader hatao ↗</button>' : ""}`;
   holder.appendChild(box);
   const inp = box.querySelector("#te-text");
   inp.focus(); inp.select();
@@ -1473,7 +1477,11 @@ function annTextBox(m, idx) {
       h: +box.querySelector("#te-size").value || 0.6, angle: (t && t.angle) || 0,
       color: box.querySelector("#te-color").value,
       font: box.querySelector("#te-font").value,
+      leader: !!(t && t.leader), lx: (t && t.lx) || 0, ly: (t && t.ly) || 0,
     };
+    if (box.querySelector("#te-nolead") && box.querySelector("#te-nolead").dataset.off === "1") {
+      rec.leader = false; rec.lx = 0; rec.ly = 0;
+    }
     if (idx != null) S.plan.texts[idx] = rec;
     else (S.plan.texts = S.plan.texts || []).push(rec);
     closeTextBox(); annOff(); markDirty(); redraw();
@@ -1485,6 +1493,12 @@ function annTextBox(m, idx) {
     if (e.key === "Escape") closeTextBox();
   });
   box.querySelector("#te-cancel").onclick = () => closeTextBox();
+  const nl = box.querySelector("#te-nolead");
+  if (nl) nl.onclick = () => {
+    nl.dataset.off = nl.dataset.off === "1" ? "0" : "1";
+    nl.style.opacity = nl.dataset.off === "1" ? "0.5" : "1";
+    nl.textContent = nl.dataset.off === "1" ? "Leader hatega ✓" : "Leader hatao ↗";
+  };
   const del = box.querySelector("#te-del");
   if (del) del.onclick = () => {
     pushUndo(); S.plan.texts.splice(idx, 1);
@@ -1493,8 +1507,89 @@ function annTextBox(m, idx) {
   };
 }
 
+/* text MOVE + LEADER grips — live while ＋T Text mode is on. Drag the
+   orange square to MOVE the text; drag the arrow grip to stretch its
+   LEADER — the head sits at the tip and faces wherever you pull it. */
+let _tdrag = null;
+function clearTextGrips() {
+  const o = document.getElementById("txtGrips"); if (o) o.remove();
+}
+function drawTextGrips(info) {
+  clearTextGrips();
+  if (!_annMode || _annMode.kind !== "text" || !S.plan || !info) return;
+  const holder = $("#plHolder"), draw = holder.querySelector("svg");
+  if (!draw) return;
+  const ov = document.createElementNS(NS_SVG, "svg");
+  ov.id = "txtGrips";
+  ov.setAttribute("viewBox", `0 0 ${info.w_mm} ${info.h_mm}`);
+  ov.setAttribute("width", draw.getAttribute("width"));
+  ov.setAttribute("height", draw.getAttribute("height"));
+  ov.style.cssText =
+    "position:absolute;left:0;top:0;pointer-events:none;overflow:visible";
+  holder.appendChild(ov);
+  const z = (S.pl && S.pl.z) || 1;
+  const G = Math.max(0.55, Math.max(1.7, info.w_mm * 0.009) / z);
+  const down = (i, kind) => e => {
+    e.preventDefault(); e.stopPropagation();
+    pushUndo();
+    const t = S.plan.texts[i];
+    if (kind === "newlead") {
+      t.leader = true; t.lx = r4(t.x + 2.5); t.ly = r4(t.y - 2);
+      kind = "tip";
+    }
+    _tdrag = { i, kind };
+  };
+  const grip = (mx, my, i, kind, fill, stroke, dash) => {
+    const [sx, sy] = m2s(info, mx, my);
+    const r = document.createElementNS(NS_SVG, "rect");
+    r.setAttribute("x", sx - G / 2); r.setAttribute("y", sy - G / 2);
+    r.setAttribute("width", G); r.setAttribute("height", G);
+    r.setAttribute("fill", fill); r.setAttribute("stroke", stroke);
+    r.setAttribute("stroke-width", "1.2");
+    r.setAttribute("vector-effect", "non-scaling-stroke");
+    if (dash) r.setAttribute("stroke-dasharray", "3 2");
+    r.style.pointerEvents = "auto";
+    r.style.cursor = kind === "move" ? "move" : "crosshair";
+    const dn = down(i, kind);
+    r.addEventListener("mousedown", dn);
+    r.addEventListener("touchstart", dn, { passive: false });
+    ov.appendChild(r);
+  };
+  (S.plan.texts || []).forEach((t, i) => {
+    if (t.leader) {
+      const [ax, ay] = m2s(info, t.x, t.y);
+      const [bx, by] = m2s(info, t.lx, t.ly);
+      const l = document.createElementNS(NS_SVG, "line");
+      l.setAttribute("x1", ax); l.setAttribute("y1", ay);
+      l.setAttribute("x2", bx); l.setAttribute("y2", by);
+      l.setAttribute("stroke", "#f59e0b"); l.setAttribute("stroke-width", "1");
+      l.setAttribute("stroke-dasharray", "4 3");
+      l.setAttribute("vector-effect", "non-scaling-stroke");
+      l.setAttribute("opacity", ".6");
+      ov.appendChild(l);
+      grip(t.lx, t.ly, i, "tip", "#f59e0b", "#ffffff");
+    } else {
+      // dashed stub: drag it OUT to grow a leader arrow from this note
+      grip(t.x + 1.6 / z, t.y - 1.2 / z, i, "newlead", "none", "#f59e0b", true);
+    }
+    grip(t.x, t.y, i, "move", "#ffffff", "#f59e0b");
+  });
+}
+addEventListener("mousemove", e => {
+  if (!_tdrag) return;
+  const m = screenToModel(e.clientX, e.clientY); if (!m) return;
+  const t = (S.plan.texts || [])[_tdrag.i]; if (!t) return;
+  if (_tdrag.kind === "move") { t.x = r4(m[0]); t.y = r4(m[1]); }
+  else { const p = annSnap(m); t.lx = r4(p[0]); t.ly = r4(p[1]); }
+  drawTextGrips(S.plInfo);          // the grips + preview track live
+});
+addEventListener("mouseup", () => {
+  if (_tdrag) { _tdrag = null; markDirty(); redraw(); }
+});
+
 function annClick(m) {
   if (!S.plan) return;
+  if (_tdrag) return;                             // that was a grip drag
   if (document.getElementById("txtEd")) return;   // editor open — finish it
   if (_annMode.kind === "text") {
     // clicking near an existing note EDITS it; otherwise a new one here
@@ -1662,7 +1757,9 @@ addEventListener("touchcancel", _dragEnd);
     if (!dn) return;
     const p = e.changedTouches ? e.changedTouches[0] : e;
     const moved = Math.hypot(p.clientX - dn.x, p.clientY - dn.y);
-    const onHandle = dn.t && dn.t.closest && dn.t.closest("#plHandles");
+    const onHandle = dn.t && dn.t.closest
+      && (dn.t.closest("#plHandles") || dn.t.closest("#txtGrips")
+          || dn.t.closest("#txtEd"));
     const wasDn = dn; dn = null;
     if (moved > 5 || onHandle || _hdrag) return;      // a pan or a handle drag
     const beamEdit = S.beamView && !S.structView && activeEditKey() === "beams";

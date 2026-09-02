@@ -464,6 +464,11 @@ class TextNote:
     angle: float = 0.0
     color: str = ""             # "" = default sheet text colour
     font: str = ""              # "" = Arial
+    # AutoCAD-style LEADER: an arrow from the text to (lx, ly) — the head
+    # sits AT the tip, so it faces whichever way the tip is stretched
+    leader: bool = False
+    lx: float = 0.0
+    ly: float = 0.0
 
 
 @dataclass

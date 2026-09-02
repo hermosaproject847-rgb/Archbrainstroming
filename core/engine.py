@@ -1113,14 +1113,38 @@ def draw_auto_dims(plan: Plan, dl: DrawList) -> None:
 
 
 def draw_texts(plan: Plan, dl: DrawList) -> None:
-    """User-placed free text annotations, wherever they were clicked."""
+    """User-placed free text annotations, wherever they were clicked — with
+    an optional AutoCAD-style LEADER: the arrow runs from the text to the
+    tip, head AT the tip, facing whichever way the tip was stretched."""
     for t in getattr(plan, "texts", []) or []:
         if not (t.text or "").strip():
             continue
+        col = getattr(t, "color", "") or ""
         dl.text(t.x, t.y, t.text, h=(t.h or 0.6), layer="TEXT",
-                angle=(t.angle or 0.0),
-                color=getattr(t, "color", "") or "",
+                angle=(t.angle or 0.0), color=col,
                 font=getattr(t, "font", "") or "")
+        if getattr(t, "leader", False):
+            lx, ly = float(getattr(t, "lx", 0)), float(getattr(t, "ly", 0))
+            dx, dy = lx - t.x, ly - t.y
+            L = math.hypot(dx, dy)
+            if L < 0.4:
+                continue
+            ux, uy = dx / L, dy / L
+            # start clear of the text: half its width along x, half a line
+            # height along y — whichever way the leader leaves
+            h = t.h or 0.6
+            half_w = min(len(t.text) * h * 0.30, L - 0.3)
+            off = abs(ux) * (half_w + 0.25) + abs(uy) * (h * 0.85)
+            off = min(off, L - 0.3)
+            x0, y0 = t.x + ux * off, t.y + uy * off
+            dl.line(x0, y0, lx, ly, layer="TEXT")
+            # filled arrowhead AT the tip, facing the stretch direction
+            ah, aw = 0.55, 0.20
+            bx, by = lx - ux * ah, ly - uy * ah
+            nx, ny = -uy, ux
+            dl.fill([(lx, ly), (bx + nx * aw, by + ny * aw),
+                     (bx - nx * aw, by - ny * aw)], color=col or "#333333",
+                    layer="TEXT")
 
 
 def draw_mdims(plan: Plan, dl: DrawList) -> None:
