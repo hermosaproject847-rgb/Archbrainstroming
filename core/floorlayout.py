@@ -92,6 +92,7 @@ def design(plan_dict: dict) -> tuple[dict, list[str]]:
                  if (not r.void or OTS_RE.search(r.name or ""))
                  and not r.is_lawn
                  and "chajja" not in r.name.lower()     # an overhead projection
+                 and "lower" not in r.name.lower()      # built on the floor below
                  and "lift" not in r.name.lower()       # shaft — own detail
                  and "elevator" not in r.name.lower()
                  and "stair" not in r.name.lower()      # counted as treads/risers

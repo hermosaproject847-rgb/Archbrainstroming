@@ -777,6 +777,13 @@ def _number_steps(dl: DrawList, f: dict, only: str | None = None) -> None:
         dl.text(b[0], b[1], str(last), h=0.34, layer="TEXT-SUB")
 
 
+def _lower_ref(r) -> bool:
+    """A LOWER TERRACE (or anything marked 'lower ...') was built on the
+    floor BELOW — on this floor's sheet it is reference only."""
+    import re
+    return bool(re.search(r"\blower\b", r.name or "", re.I))
+
+
 def draw_rooms(plan: Plan, dl: DrawList) -> None:
     for r in plan.rooms:
         cx, cy = r.centre
@@ -800,6 +807,13 @@ def draw_rooms(plan: Plan, dl: DrawList) -> None:
                       for s in plan.stairs)
         if rb.area > 0 and covered / rb.area > 0.5:
             cy = r.y - 1.0
+        # a LOWER TERRACE was BUILT on the floor below — on this sheet it is
+        # only a faint reference: thin grey outline + a light name, frozen
+        # (no flooring, no furniture, no treatment — user rule)
+        if _lower_ref(r):
+            dl.rect(r.x, r.y, r.w, r.h, layer="PLOT", dashed=True)
+            dl.text(cx, cy, r.name.upper(), h=0.4, layer="PLOT")
+            continue
         # a PERGOLA reads as its slat lines on the plan — the overhead MS
         # fabrication frame, drawn across the short way (user rule)
         import re as _re0

@@ -195,6 +195,14 @@ invented suffix does not match the drawing.
    invent extra labels from them: the software draws each element's own
    representation. Only real room names and size labels print on the sheet.
 
+   **What was BUILT BELOW shows faint on an upper sheet, frozen.** A LOWER
+   TERRACE (its slab is the floor below's roof), like the boundary wall,
+   already exists below. On an upper floor keep the words "LOWER TERRACE"
+   in the room's `name` with `"open_area": true` and list NO walls for it —
+   its parapet belongs to the floor below's plan. The software draws it as
+   a thin light reference outline and treats it as nothing on this floor:
+   no flooring, no furniture, no parapet.
+
    **The boundary / compound wall belongs to the GROUND floor only.** An
    upper floor's sheet (FIRST / SECOND / TERRACE) usually still shows the
    plot-line or compound-wall rectangle running around the plan — that is

@@ -1654,6 +1654,8 @@
       if (/chajja/i.test(r.name || "")) continue;   // overhead projection
       // a LIFT shaft has no floor finish — its pit / sill detail is its own
       if (/lift|elevator/i.test(r.name || "")) continue;
+      // a LOWER terrace's finish was laid by the floor below — frozen here
+      if (/\blower\b/i.test(r.name || "")) continue;
       const material = spec ? (spec.material || "tile") : "tile";
       // the floor sits AT ITS LEVEL: a mentioned drop (wet room, balcony)
       // steps the finish down, a raise steps it up (user rule)
@@ -2026,6 +2028,9 @@
     const H = Math.max(P.para, 3.0), t2 = 0.38;
     for (const r of (plan.rooms || [])) {
       if (r.void || !TERRACE_RE.test(r.name || "")) continue;
+      // a LOWER terrace was built on the floor BELOW — frozen here, its
+      // parapet belongs to that floor's plan (user rule)
+      if (/\blower\b/i.test(r.name || "")) continue;
       const edges = [
         [r.x, r.y, r.x + r.w, r.y], [r.x, r.y + r.h, r.x + r.w, r.y + r.h],
         [r.x, r.y, r.x, r.y + r.h], [r.x + r.w, r.y, r.x + r.w, r.y + r.h],
