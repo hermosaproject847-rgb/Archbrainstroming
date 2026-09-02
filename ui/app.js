@@ -1502,6 +1502,15 @@ function measSnap(m) {
   }
   return best || [m[0], m[1]];
 }
+/* a nearly-level pair straightens to a TRUE horizontal / vertical reading —
+   two face snaps a few inches apart in y must read the clear width, not a
+   diagonal (user rule) */
+function orthoPair(p1, p2) {
+  const dx = Math.abs(p2[0] - p1[0]), dy = Math.abs(p2[1] - p1[1]);
+  if (dy <= Math.max(0.45, dx * 0.22)) return [p2[0], p1[1]];   // horizontal
+  if (dx <= Math.max(0.45, dy * 0.22)) return [p1[0], p2[1]];   // vertical
+  return [p2[0], p2[1]];                                        // true diagonal
+}
 function _segDist(m, x1, y1, x2, y2) {
   const dx = x2 - x1, dy = y2 - y1, L2 = dx * dx + dy * dy || 1e-9;
   let t = ((m[0] - x1) * dx + (m[1] - y1) * dy) / L2;
@@ -1706,10 +1715,11 @@ function annClick(m) {
       status("first point set — click the SECOND point");
       return;
     }
-    const p1 = _annMode.p1, dx = Math.abs(p[0] - p1[0]),
-      dy = Math.abs(p[1] - p1[1]);
+    const p1 = _annMode.p1;
+    const p2o = orthoPair(p1, p);
+    const dx = Math.abs(p2o[0] - p1[0]), dy = Math.abs(p2o[1] - p1[1]);
     const d = Math.hypot(dx, dy);
-    drawMeasure(p1, p);
+    drawMeasure(p1, p2o);
     status(`📏 ${toDisp(d)}  (↔ ${toDisp(dx)}, ↕ ${toDisp(dy)}) — `
       + "click for the next measurement, Esc to stop");
     _annMode.p1 = null;                 // ready for the next pair
@@ -1722,10 +1732,8 @@ function annClick(m) {
       status("first point set — click the SECOND point");
       return;
     }
-    let [x2, y2] = p;
-    // near-orthogonal picks straighten out to a clean orthogonal dimension
-    if (Math.abs(x2 - _annMode.p1[0]) < 0.4) x2 = _annMode.p1[0];
-    if (Math.abs(y2 - _annMode.p1[1]) < 0.4) y2 = _annMode.p1[1];
+    // near-orthogonal picks straighten to a TRUE horizontal / vertical dim
+    let [x2, y2] = orthoPair(_annMode.p1, p);
     if (Math.hypot(x2 - _annMode.p1[0], y2 - _annMode.p1[1]) < 0.2) {
       status("points are the same — click a different second point");
       return;
