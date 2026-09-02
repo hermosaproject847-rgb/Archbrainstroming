@@ -966,6 +966,15 @@ def design(plan_dict: dict) -> tuple[dict, list[str]]:
     db = _place_db(plan, out, notes)
     if db:
         out.append(db)
+    # the ELE/ELV ceiling cutout, when the plan draws one, is the wiring's
+    # floor-to-floor route (user rule) — noted here, drawn by the engine
+    from . import engine as _eng
+    _sh = _eng._elec_shaft(plan)
+    if _sh is not None:
+        notes.append(f"Floor-to-floor wiring rises and drops through the "
+                     f"{(_sh.name or 'ELE').upper()} ceiling cutout — the "
+                     "mains feed to the DB runs from that shaft at ceiling "
+                     "level, the same point on every floor.")
 
     # Boards, fans, ACs and exhausts are numbered ACROSS THE PLAN, not per
     # room — an electrician asks for "S.B.7", and two rooms each having their

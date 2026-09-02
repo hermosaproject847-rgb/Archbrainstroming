@@ -1279,6 +1279,26 @@
   function addElec(g, plan, z0, fh) {
     const ceil = z0 + fh - 0.15;
     const conduit = new THREE.MeshLambertMaterial({ color: 0xff8c1a });
+    // the ELE/ELV ceiling cutout is the wiring's floor-to-floor route (user
+    // rule): a vertical conduit bundle rises the full storey there, and the
+    // ceiling feed runs from it to the main DB
+    const eleSh = (plan.rooms || []).find(r =>
+      /(^|[\s./])(ele|elv|elec)([\s./]|$)|electrical\s*shaft/i.test(r.name || ""));
+    if (eleSh) {
+      const sx = eleSh.x + eleSh.w / 2, sy = eleSh.y + eleSh.h / 2;
+      for (const d of [[-0.12, -0.12], [0.12, -0.12], [0, 0.12]])
+        g.add(box(0.1, 0.1, fh, sx + d[0], sy + d[1], z0 + fh / 2, conduit));
+      const db = (plan.elec || []).find(p => p.code === "DB");
+      if (db) {
+        const midX = Math.abs(db.x - sx) >= Math.abs(db.y - sy);
+        const p1 = midX ? [db.x, sy] : [sx, db.y];
+        const leg = (ax, ay, bx, by) => g.add(box(
+          Math.max(0.08, Math.abs(bx - ax)), Math.max(0.08, Math.abs(by - ay)),
+          0.08, (ax + bx) / 2, (ay + by) / 2, ceil, conduit));
+        leg(sx, sy, p1[0], p1[1]);
+        leg(p1[0], p1[1], db.x, db.y);
+      }
+    }
     // a conduit can never drop THROUGH a window — if the vertical run at (x,y)
     // would cross a window on that wall, shift the drop beside the window
     // (0.5 ft clear of the jamb) and connect horizontally at the fitting level

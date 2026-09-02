@@ -184,6 +184,12 @@ invented suffix does not match the drawing.
    written on a strip on the OUTER side of the building, list its boundary
    walls with `"height_ft": 1` — a low planter kerb, not a full wall.
 
+   **An ELE / ELV ceiling cutout is the electrical shaft.** A small ceiling
+   cutout labelled "ELE", "ELV" or "ELECTRICAL" (usually arrow-labelled) is
+   where the light wiring travels between floors. Give it as a room keeping
+   that name with `"open_area": true` AND `"void": true`, walled as drawn —
+   the software runs the floor-to-floor wiring and the DB feed through it.
+
    **An O.T.S is paved.** Keep the O.T.S / open-to-sky rules above
    (`open_area` + `void`, walled all round) — the software floors it in
    KOTA STONE 2' x 2' at the bottom of the shaft.

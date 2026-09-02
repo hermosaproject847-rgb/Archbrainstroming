@@ -1162,6 +1162,38 @@ def _elec_room_at(plan: Plan, p):
     return best
 
 
+def _elec_shaft(plan: Plan):
+    """The ELE / ELV ceiling cutout drawn on the plan — the light wiring
+    travels floor to floor THROUGH it (user rule). Matched by room name."""
+    import re
+    for r in plan.rooms:
+        if re.search(r"(^|[\s./])(ele|elv|elec)([\s./]|$)|electrical\s*shaft",
+                     (r.name or ""), re.I):
+            return r
+    return None
+
+
+def draw_elec_feed(plan: Plan, dl: DrawList) -> None:
+    """The mains feed on this floor: a dashed run from the ELE/ELV ceiling
+    cutout to the main DB, labelled — that cutout is where the wires rise to
+    the floor above and drop to the floor below."""
+    sh = _elec_shaft(plan)
+    if sh is None:
+        return
+    db = next((p for p in plan.elec if p.code == "DB"), None)
+    scx, scy = sh.x + sh.w / 2, sh.y + sh.h / 2
+    if db is not None:
+        # an L-run, never diagonal
+        if abs(db.x - scx) >= abs(db.y - scy):
+            pts = [(scx, scy), (db.x, scy), (db.x, db.y)]
+        else:
+            pts = [(scx, scy), (scx, db.y), (db.x, db.y)]
+        for a, b in zip(pts, pts[1:]):
+            dl.line(a[0], a[1], b[0], b[1], layer="ELEC-LOOP", dashed=True)
+    dl.text(scx, scy - max(0.7, sh.h / 2 + 0.5),
+            "WIRING UP/DN VIA ELE/ELV CUTOUT", h=0.36, layer="ELEC-LOOP")
+
+
 def draw_elec_loops(plan: Plan, dl: DrawList) -> None:
     """The switch loops, drawn the way they are wired.
 
@@ -1291,6 +1323,7 @@ def build(plan: Plan, wall_tags: bool = True, furniture: bool = True,
         draw_furniture(plan, dl)
     if elec and plan.elec:
         draw_elec_loops(plan, dl)     # under the symbols, so it reads behind
+        draw_elec_feed(plan, dl)      # mains via the ELE/ELV ceiling cutout
         draw_elec(plan, dl)
     if plumb and (plan.plumb or plan.pipes):
         draw_plumbing(plan, dl)
