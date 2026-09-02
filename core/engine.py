@@ -1118,7 +1118,9 @@ def draw_texts(plan: Plan, dl: DrawList) -> None:
         if not (t.text or "").strip():
             continue
         dl.text(t.x, t.y, t.text, h=(t.h or 0.6), layer="TEXT",
-                angle=(t.angle or 0.0))
+                angle=(t.angle or 0.0),
+                color=getattr(t, "color", "") or "",
+                font=getattr(t, "font", "") or "")
 
 
 def draw_mdims(plan: Plan, dl: DrawList) -> None:

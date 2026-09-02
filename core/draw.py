@@ -136,6 +136,8 @@ class Text:
     halign: str = "center"         # left | center | right
     valign: str = "middle"         # bottom | middle | top
     bold: bool = False
+    color: str = ""                # override the layer colour ("" = layer)
+    font: str = ""                 # override the font family ("" = Arial)
 
 
 # ------------------------------------------------------- fitting text
@@ -209,9 +211,11 @@ class DrawList:
             self.items.append(Poly(list(pts), layer, closed, dashed))
 
     def text(self, x, y, s, h=0.6, layer="TEXT", angle=0.0,
-             halign="center", valign="middle", bold=False):
+             halign="center", valign="middle", bold=False,
+             color="", font=""):
         if s:
-            self.items.append(Text(x, y, str(s), h, layer, angle, halign, valign, bold))
+            self.items.append(Text(x, y, str(s), h, layer, angle, halign,
+                                   valign, bold, color or "", font or ""))
 
     def rect(self, x, y, w, h, layer="WALL-INT", dashed=False):
         self.poly([(x, y), (x + w, y), (x + w, y + h), (x, y + h)],
@@ -264,7 +268,8 @@ class DrawList:
                         it.layer, it.dashed)
             elif isinstance(it, Text):
                 out.text(it.x + dx, it.y + dy, it.s, it.h, it.layer,
-                         it.angle, it.halign, it.valign, it.bold)
+                         it.angle, it.halign, it.valign, it.bold,
+                         getattr(it, "color", ""), getattr(it, "font", ""))
             elif isinstance(it, Hatch):
                 ph = getattr(it, "phase", None)
                 if ph is not None:              # move the lattice anchor too

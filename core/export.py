@@ -77,9 +77,11 @@ def to_svg(dl: DrawList, w_mm: float, h_mm: float) -> str:
             base = {"bottom": "auto", "middle": "central", "top": "hanging"}[it.valign]
             rot = f' transform="rotate({-it.angle} {it.x:.3f} {Y(it.y):.3f})"' if it.angle else ""
             weight = ' font-weight="700"' if it.bold else ""
+            _fill = getattr(it, "color", "") or _col(it.layer)
+            _fam = getattr(it, "font", "") or "Arial, Helvetica, sans-serif"
             o.append(f'<text x="{it.x:.3f}" y="{Y(it.y):.3f}" font-size="{it.h:.2f}" '
-                     f'font-family="Arial, Helvetica, sans-serif" text-anchor="{anchor}" '
-                     f'dominant-baseline="{base}" fill="{_col(it.layer)}" stroke="none"'
+                     f'font-family="{_fam}" text-anchor="{anchor}" '
+                     f'dominant-baseline="{base}" fill="{_fill}" stroke="none"'
                      f'{weight}{rot}>{escape(it.s)}</text>')
     o.append("</g></svg>")
     return "\n".join(o)
@@ -126,7 +128,8 @@ def _mpl_figure(dl: DrawList, w_mm: float, h_mm: float):
         elif isinstance(it, Text):
             va = {"bottom": "bottom", "middle": "center", "top": "top"}[it.valign]
             ha = {"left": "left", "center": "center", "right": "right"}[it.halign]
-            ax.text(it.x, it.y, it.s, fontsize=it.h * 2.55, color=_col(it.layer),
+            ax.text(it.x, it.y, it.s, fontsize=it.h * 2.55,
+                    color=(getattr(it, "color", "") or _col(it.layer)),
                     ha=ha, va=va, rotation=it.angle,
                     fontweight="bold" if it.bold else "normal",
                     family="DejaVu Sans", rotation_mode="anchor")

@@ -97,7 +97,8 @@ def compose(plan: Plan, dl: DrawList, sheet: str = "A3",
         elif isinstance(it, Text):
             h = max(1.6, min(4.0, it.h * k))   # keep text legible at any scale
             out.text(it.x * k + ox, it.y * k + oy, it.s, h, it.layer,
-                     it.angle, it.halign, it.valign, it.bold)
+                     it.angle, it.halign, it.valign, it.bold,
+                     getattr(it, "color", ""), getattr(it, "font", ""))
         elif isinstance(it, Hatch):
             # scale the boundary AND the pattern step together so the pattern
             # keeps its density at any sheet scale — and carry the lattice

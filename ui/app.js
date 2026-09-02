@@ -1357,10 +1357,9 @@ function annStart(kind, btn, extra) {
 }
 if ($("#btnTxtAdd")) $("#btnTxtAdd").onclick = () => {
   if (!S.plan) return status("read or load a plan first");
-  const t = prompt("Text to place on the drawing:", "");
-  if (!t || !t.trim()) return;
-  annStart("text", "btnTxtAdd", { text: t.trim() });
-  status("click on the drawing where the text goes");
+  annStart("text", "btnTxtAdd");
+  status("click on the drawing — a text box opens right there "
+    + "(click an existing note to edit it)");
 };
 if ($("#btnDimAdd")) $("#btnDimAdd").onclick = () => {
   if (!S.plan) return status("read or load a plan first");
@@ -1409,14 +1408,102 @@ function _segDist(m, x1, y1, x2, y2) {
   t = Math.max(0, Math.min(1, t));
   return Math.hypot(x1 + dx * t - m[0], y1 + dy * t - m[1]);
 }
+/* floating TEXT EDITOR right where the user clicked — write the text, pick
+   its size / colour / font there (user rule: no popup prompt, a proper box) */
+function closeTextBox() {
+  const b = document.getElementById("txtEd");
+  if (b) b.remove();
+}
+function annTextBox(m, idx) {
+  closeTextBox();
+  const t = idx != null ? (S.plan.texts || [])[idx] : null;
+  const holder = $("#plView");
+  const draw = $("#plHolder").querySelector("svg");
+  let px = 40, py = 40;
+  if (draw && S.plInfo) {
+    const r = draw.getBoundingClientRect(), vr = holder.getBoundingClientRect();
+    const ppu = r.width / S.plInfo.w_mm;
+    const [sx, sy] = m2s(S.plInfo, m[0], m[1]);
+    px = Math.min(Math.max(8, r.left - vr.left + sx * ppu + 12),
+                  holder.clientWidth - 270);
+    py = Math.min(Math.max(8, r.top - vr.top + sy * ppu - 10),
+                  holder.clientHeight - 220);
+  }
+  const eA = s => String(s == null ? "" : s).replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  const FONTS = ["Arial", "Georgia", "Times New Roman", "Courier New",
+                 "Verdana"];
+  const SIZES = [[0.4, "Small"], [0.6, "Normal"], [0.9, "Big"],
+                 [1.3, "Heading"]];
+  const curH = t ? (+t.h || 0.6) : 0.6;
+  const box = document.createElement("div");
+  box.id = "txtEd";
+  box.style.cssText = `position:absolute;left:${px}px;top:${py}px;z-index:80;`
+    + "background:#1b2233;border:1px solid #45507a;border-radius:10px;"
+    + "padding:10px;width:255px;display:flex;flex-direction:column;gap:8px;"
+    + "box-shadow:0 10px 34px rgba(0,0,0,.55);font-size:13px;color:#dbe2f3";
+  box.innerHTML = `
+    <input id="te-text" placeholder="Text likhein…" value="${eA(t && t.text)}"
+      style="padding:7px 9px;border-radius:7px;border:1px solid #45507a;background:#101625;color:#fff;font-size:14px">
+    <div style="display:flex;gap:6px;align-items:center">
+      <select id="te-size" style="flex:1;padding:6px;border-radius:7px;border:1px solid #45507a;background:#101625;color:#fff">
+        ${SIZES.map(([v, l]) =>
+          `<option value="${v}" ${Math.abs(v - curH) < 0.12 ? "selected" : ""}>${l}</option>`).join("")}
+      </select>
+      <input id="te-color" type="color" value="${(t && t.color) || "#333333"}"
+        style="width:42px;height:32px;border:1px solid #45507a;border-radius:7px;background:#101625;padding:2px">
+    </div>
+    <select id="te-font" style="padding:6px;border-radius:7px;border:1px solid #45507a;background:#101625;color:#fff">
+      ${FONTS.map(f => `<option ${((t && t.font) || "Arial") === f ? "selected" : ""}>${f}</option>`).join("")}
+    </select>
+    <div style="display:flex;gap:6px">
+      <button id="te-save" class="btn primary btn-sm" style="flex:1">Save</button>
+      ${idx != null ? '<button id="te-del" class="btn btn-sm" style="color:#f87171">Delete</button>' : ""}
+      <button id="te-cancel" class="btn ghost btn-sm">✕</button>
+    </div>`;
+  holder.appendChild(box);
+  const inp = box.querySelector("#te-text");
+  inp.focus(); inp.select();
+  const save = () => {
+    const txt = inp.value.trim();
+    if (!txt) { closeTextBox(); return; }
+    pushUndo();
+    const rec = {
+      x: t ? t.x : r4(m[0]), y: t ? t.y : r4(m[1]), text: txt,
+      h: +box.querySelector("#te-size").value || 0.6, angle: (t && t.angle) || 0,
+      color: box.querySelector("#te-color").value,
+      font: box.querySelector("#te-font").value,
+    };
+    if (idx != null) S.plan.texts[idx] = rec;
+    else (S.plan.texts = S.plan.texts || []).push(rec);
+    closeTextBox(); annOff(); markDirty(); redraw();
+    status("text saved — ＋T Text se edit, 🗑 se delete");
+  };
+  box.querySelector("#te-save").onclick = save;
+  inp.addEventListener("keydown", e => {
+    if (e.key === "Enter") save();
+    if (e.key === "Escape") closeTextBox();
+  });
+  box.querySelector("#te-cancel").onclick = () => closeTextBox();
+  const del = box.querySelector("#te-del");
+  if (del) del.onclick = () => {
+    pushUndo(); S.plan.texts.splice(idx, 1);
+    closeTextBox(); annOff(); markDirty(); redraw();
+    status("text deleted — Ctrl+Z brings it back");
+  };
+}
+
 function annClick(m) {
   if (!S.plan) return;
+  if (document.getElementById("txtEd")) return;   // editor open — finish it
   if (_annMode.kind === "text") {
-    pushUndo();
-    (S.plan.texts = S.plan.texts || []).push(
-      { x: r4(m[0]), y: r4(m[1]), text: _annMode.text, h: 0.6, angle: 0 });
-    annOff(); markDirty(); redraw();
-    status(`text placed — 🗑 Text/Dim removes it`);
+    // clicking near an existing note EDITS it; otherwise a new one here
+    let idx = null, bd = 1.4;
+    (S.plan.texts || []).forEach((t, i) => {
+      const d = Math.hypot(t.x - m[0], t.y - m[1]);
+      if (d < bd) { bd = d; idx = i; }
+    });
+    annTextBox(m, idx);
     return;
   }
   if (_annMode.kind === "dim") {
@@ -1443,7 +1530,7 @@ function annClick(m) {
     return;
   }
   if (_annMode.kind === "del") {
-    let best = null, bd = 1.6;        // pick radius, feet
+    let best = null, bd = 2.2;        // pick radius, feet
     (S.plan.texts || []).forEach((t, i) => {
       const d = Math.hypot(t.x - m[0], t.y - m[1]);
       if (d < bd) { bd = d; best = { kind: "text", i }; }
@@ -1471,7 +1558,7 @@ function annClick(m) {
   }
 }
 addEventListener("keydown", e => {
-  if (e.key === "Escape" && _annMode) { annOff(); status("cancelled"); }
+  if (e.key === "Escape") { closeTextBox(); if (_annMode) { annOff(); status("cancelled"); } }
 });
 
 let _refDrag = null;

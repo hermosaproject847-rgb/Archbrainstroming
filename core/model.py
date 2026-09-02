@@ -462,6 +462,8 @@ class TextNote:
     text: str = ""
     h: float = 0.6              # text height, feet
     angle: float = 0.0
+    color: str = ""             # "" = default sheet text colour
+    font: str = ""              # "" = Arial
 
 
 @dataclass
