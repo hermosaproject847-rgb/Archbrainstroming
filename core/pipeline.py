@@ -138,7 +138,8 @@ def render_fast(plan_dict: dict, sheet_size: str = "A3",
                               schedule=_sheet_kind(plan, layer_state))
     sdl = layers.apply(sdl, layer_state)
     svg = export.to_svg(sdl, info["w_mm"], info["h_mm"])
-    return {"svg": svg, "info": info}
+    return {"svg": svg, "info": info,
+            "dim_segs": getattr(plan, "_dim_segs", [])}
 
 
 def check(plan_dict: dict, fix: bool = True) -> dict:

@@ -448,6 +448,25 @@ class DimChain:
 
 
 @dataclass
+class TextNote:
+    """A free text annotation the user places anywhere on the drawing."""
+    x: float = 0.0
+    y: float = 0.0
+    text: str = ""
+    h: float = 0.6              # text height, feet
+    angle: float = 0.0
+
+
+@dataclass
+class ManualDim:
+    """A user-placed point-to-point dimension (snapped ends, any direction)."""
+    x1: float = 0.0
+    y1: float = 0.0
+    x2: float = 0.0
+    y2: float = 0.0
+
+
+@dataclass
 class TitleBlock:
     project: str = ""
     plan_name: str = "GROUND FLOOR PLAN"
@@ -485,6 +504,10 @@ class Plan:
     raw: list = field(default_factory=list)
     dims: list[DimChain] = field(default_factory=list)
     autodim: bool = False            # draw automatic internal (clear) dimensions
+    texts: list[TextNote] = field(default_factory=list)   # user annotations
+    mdims: list[ManualDim] = field(default_factory=list)  # user dimensions
+    # auto-dimension bays the user deleted: {"h":bool,"base":ft,"a":ft,"b":ft}
+    dim_hide: list = field(default_factory=list)
     title: TitleBlock = field(default_factory=TitleBlock)
     north_deg: float = 90.0          # bearing of North on the sheet, 90 = up
     plot: dict[str, Any] | None = None   # {"x","y","w","h"} plot line, optional
@@ -563,6 +586,9 @@ class Plan:
         p.raw = list(d.get("raw", []))
         p.dims = [mk(DimChain, c) for c in d.get("dims", [])]
         p.autodim = bool(d.get("autodim", False))
+        p.texts = [mk(TextNote, t) for t in d.get("texts", [])]
+        p.mdims = [mk(ManualDim, m2) for m2 in d.get("mdims", [])]
+        p.dim_hide = list(d.get("dim_hide", []))
         t = d.get("title") or {}
         p.title = mk(TitleBlock, t) if isinstance(t, dict) else TitleBlock()
         p.north_deg = float(d.get("north_deg", 90.0))

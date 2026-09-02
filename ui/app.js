@@ -1247,6 +1247,145 @@ function autoDims() {
   markDirty(); redraw();
   status("internal (clear) dimensions added — click Dimensions again to remove");
 }
+/* ── annotations: free text, manual point-to-point dims, delete ─────────
+   ＋T Text  : type the note, then one click places it.
+   ＋⟺ Dim  : two clicks; each snaps to the nearest wall corner / opening
+              jamb / column corner within 0.8 ft.
+   🗑 Text/Dim: one click deletes the nearest text note, manual dimension,
+              or ONE auto-dimension figure (stored in plan.dim_hide).      */
+let _annMode = null;
+window._dimSegs = [];                 // visible auto-dim bays, from render
+function annOff() {
+  _annMode = null;
+  ["btnTxtAdd", "btnDimAdd", "btnAnnDel"].forEach(i => {
+    const b = $("#" + i); if (b) b.classList.remove("primary");
+  });
+}
+function annStart(kind, btn, extra) {
+  if (_annMode && _annMode.kind === kind) { annOff(); status("cancelled"); return; }
+  annOff();
+  _annMode = Object.assign({ kind }, extra || {});
+  const b = $("#" + btn); if (b) b.classList.add("primary");
+}
+if ($("#btnTxtAdd")) $("#btnTxtAdd").onclick = () => {
+  if (!S.plan) return status("read or load a plan first");
+  const t = prompt("Text to place on the drawing:", "");
+  if (!t || !t.trim()) return;
+  annStart("text", "btnTxtAdd", { text: t.trim() });
+  status("click on the drawing where the text goes");
+};
+if ($("#btnDimAdd")) $("#btnDimAdd").onclick = () => {
+  if (!S.plan) return status("read or load a plan first");
+  annStart("dim", "btnDimAdd", { p1: null });
+  status("manual dimension — click the FIRST point (snaps to corners)");
+};
+if ($("#btnAnnDel")) $("#btnAnnDel").onclick = () => {
+  if (!S.plan) return status("read or load a plan first");
+  annStart("del", "btnAnnDel");
+  status("click a text note, a manual dimension or one auto-dimension "
+    + "figure to delete it");
+};
+function annSnap(m) {
+  // snap to the nearest wall end / room corner / column corner / jamb
+  const cands = [];
+  for (const w of (S.plan.walls || [])) {
+    cands.push([w.x1, w.y1], [w.x2, w.y2]);
+  }
+  for (const r of (S.plan.rooms || [])) {
+    cands.push([r.x, r.y], [r.x + r.w, r.y],
+               [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]);
+  }
+  for (const c of (S.plan.columns || [])) {
+    const hw = (+c.w || 0.8) / 2, hh = (+c.h || 0.8) / 2;
+    cands.push([c.x - hw, c.y - hh], [c.x + hw, c.y - hh],
+               [c.x - hw, c.y + hh], [c.x + hw, c.y + hh]);
+  }
+  for (const o of (S.plan.openings || [])) {
+    const w = (S.plan.walls || []).find(x => x.id === o.wall_id);
+    if (!w) continue;
+    const L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) || 1e-6;
+    const ux = (w.x2 - w.x1) / L, uy = (w.y2 - w.y1) / L;
+    for (const d of [o.pos, o.pos + (+o.width || 0)])
+      cands.push([w.x1 + ux * d, w.y1 + uy * d]);
+  }
+  let best = null, bd = 0.8;          // snap radius, feet
+  for (const c of cands) {
+    const d = Math.hypot(c[0] - m[0], c[1] - m[1]);
+    if (d < bd) { bd = d; best = c; }
+  }
+  return best ? [best[0], best[1]] : [m[0], m[1]];
+}
+function _segDist(m, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1, L2 = dx * dx + dy * dy || 1e-9;
+  let t = ((m[0] - x1) * dx + (m[1] - y1) * dy) / L2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(x1 + dx * t - m[0], y1 + dy * t - m[1]);
+}
+function annClick(m) {
+  if (!S.plan) return;
+  if (_annMode.kind === "text") {
+    pushUndo();
+    (S.plan.texts = S.plan.texts || []).push(
+      { x: r4(m[0]), y: r4(m[1]), text: _annMode.text, h: 0.6, angle: 0 });
+    annOff(); markDirty(); redraw();
+    status(`text placed — 🗑 Text/Dim removes it`);
+    return;
+  }
+  if (_annMode.kind === "dim") {
+    const p = annSnap(m);
+    if (!_annMode.p1) {
+      _annMode.p1 = p;
+      status("first point set — click the SECOND point");
+      return;
+    }
+    let [x2, y2] = p;
+    // near-orthogonal picks straighten out to a clean orthogonal dimension
+    if (Math.abs(x2 - _annMode.p1[0]) < 0.4) x2 = _annMode.p1[0];
+    if (Math.abs(y2 - _annMode.p1[1]) < 0.4) y2 = _annMode.p1[1];
+    if (Math.hypot(x2 - _annMode.p1[0], y2 - _annMode.p1[1]) < 0.2) {
+      status("points are the same — click a different second point");
+      return;
+    }
+    pushUndo();
+    (S.plan.mdims = S.plan.mdims || []).push(
+      { x1: r4(_annMode.p1[0]), y1: r4(_annMode.p1[1]),
+        x2: r4(x2), y2: r4(y2) });
+    annOff(); markDirty(); redraw();
+    status("dimension placed — 🗑 Text/Dim removes it");
+    return;
+  }
+  if (_annMode.kind === "del") {
+    let best = null, bd = 1.6;        // pick radius, feet
+    (S.plan.texts || []).forEach((t, i) => {
+      const d = Math.hypot(t.x - m[0], t.y - m[1]);
+      if (d < bd) { bd = d; best = { kind: "text", i }; }
+    });
+    (S.plan.mdims || []).forEach((t, i) => {
+      const d = _segDist(m, t.x1, t.y1, t.x2, t.y2);
+      if (d < bd) { bd = d; best = { kind: "mdim", i }; }
+    });
+    for (const s of (window._dimSegs || [])) {
+      const d = s.h ? _segDist(m, s.a, s.base, s.b, s.base)
+                    : _segDist(m, s.base, s.a, s.base, s.b);
+      if (d < bd) { bd = d; best = { kind: "auto", s }; }
+    }
+    if (!best) { status("nothing close enough — click nearer the item"); return; }
+    pushUndo();
+    if (best.kind === "text") S.plan.texts.splice(best.i, 1);
+    else if (best.kind === "mdim") S.plan.mdims.splice(best.i, 1);
+    else (S.plan.dim_hide = S.plan.dim_hide || []).push(
+      { h: best.s.h, base: best.s.base, a: best.s.a, b: best.s.b });
+    markDirty(); redraw();
+    status(best.kind === "auto"
+      ? "dimension figure removed — Ctrl+Z brings it back"
+      : "deleted — Ctrl+Z brings it back");
+    return;
+  }
+}
+addEventListener("keydown", e => {
+  if (e.key === "Escape" && _annMode) { annOff(); status("cancelled"); }
+});
+
 let _refDrag = null;
 function drawRefs(info) {
   const old = document.getElementById("plRefs"); if (old) old.remove();
@@ -1350,6 +1489,11 @@ addEventListener("touchcancel", _dragEnd);
     if (moved > 5 || onHandle || _hdrag) return;      // a pan or a handle drag
     const beamEdit = S.beamView && !S.structView && activeEditKey() === "beams";
     if (S.sectionView || S.structView || S.elevView || (S.beamView && !beamEdit)) return;
+    if (_annMode) {                       // text / manual-dim / delete mode
+      const ma = screenToModel(p.clientX, p.clientY);
+      if (ma) annClick(ma);
+      return;
+    }
     const ek = activeEditKey(); if (!ek) return;       // no tool open → canvas just pans
     const m = screenToModel(p.clientX, p.clientY); if (!m) return;
     const hit = hitTest(m[0], m[1], ek);               // only the open tool's type
@@ -3156,6 +3300,7 @@ async function doRenderFast() {
       if (!r.ok) { fail(r); break; }
       S.sectionView = false; S.beamView = false;
       updateSecToggle();
+      window._dimSegs = r.dim_segs || [];   // for the 🗑 Text/Dim picker
       showSvg(r.svg, r.info);
     } while (_fastPending);
   } finally { _fastBusy = false; }

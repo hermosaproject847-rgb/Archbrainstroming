@@ -803,11 +803,28 @@ def _slash(dl: DrawList, x: float, y: float, horiz: bool) -> None:
     dl.line(x - s, y - s, x + s, y + s, layer="DIM")
 
 
-def _dim_chain(dl: DrawList, ticks: list[float], base: float, horiz: bool) -> None:
+def _dim_hidden(hide, horiz, base, a, b) -> bool:
+    """True when the user deleted this bay's figure (the dim_hide list)."""
+    for hd in (hide or []):
+        try:
+            if (bool(hd.get("h")) == horiz
+                    and abs(float(hd.get("base", 1e9)) - base) < 0.6
+                    and abs(float(hd.get("a", 1e9)) - a) < 0.3
+                    and abs(float(hd.get("b", 1e9)) - b) < 0.3):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _dim_chain(dl: DrawList, ticks: list[float], base: float, horiz: bool,
+               hide=None, segs=None) -> None:
     """One dimension string, drawn the way the civil layout draws it: a thin
     line with a 45-degree slash tick at every station and the bay length over
     each bay. A bay too narrow for its text lifts the text clear of the line
-    (staggered rows) so adjacent small figures never print over each other."""
+    (staggered rows) so adjacent small figures never print over each other.
+    `hide` lists user-deleted bays (their figure is skipped); every VISIBLE
+    bay is recorded in `segs` so the screen can offer it for deletion."""
     ticks = sorted(set(round(t, 4) for t in ticks))
     # a hairline bay reads as noise — merge it into its neighbour
     ticks = [t for i, t in enumerate(ticks) if i == 0 or t - ticks[i - 1] > 0.18]
@@ -820,6 +837,11 @@ def _dim_chain(dl: DrawList, ticks: list[float], base: float, horiz: bool) -> No
             _slash(dl, t, base, True)
         row = 0
         for a, b in zip(ticks, ticks[1:]):
+            if _dim_hidden(hide, True, base, a, b):
+                continue
+            if segs is not None:
+                segs.append({"h": True, "base": round(base, 3),
+                             "a": round(a, 3), "b": round(b, 3)})
             txt = _fmt_dim(b - a)
             need = len(txt) * H * 0.62       # rough text width
             if b - a >= need:
@@ -838,6 +860,11 @@ def _dim_chain(dl: DrawList, ticks: list[float], base: float, horiz: bool) -> No
             _slash(dl, base, t, False)
         row = 0
         for a, b in zip(ticks, ticks[1:]):
+            if _dim_hidden(hide, False, base, a, b):
+                continue
+            if segs is not None:
+                segs.append({"h": False, "base": round(base, 3),
+                             "a": round(a, 3), "b": round(b, 3)})
             txt = _fmt_dim(b - a)
             need = len(txt) * H * 0.62
             if b - a >= need:
@@ -866,7 +893,9 @@ def draw_dims(plan: Plan, dl: DrawList) -> None:
             base = x0 - chain.at
         else:
             base = x1 + chain.at
-        _dim_chain(dl, list(chain.ticks), base, horiz)
+        _dim_chain(dl, list(chain.ticks), base, horiz,
+                   hide=getattr(plan, 'dim_hide', None),
+                   segs=getattr(plan, '_dim_segs', None))
 
 
 def draw_auto_dims(plan: Plan, dl: DrawList) -> None:
@@ -963,11 +992,49 @@ def draw_auto_dims(plan: Plan, dl: DrawList) -> None:
             base = cross + OFF if cross >= my else cross - OFF
         else:
             base = cross + OFF if cross >= mx else cross - OFF
-        _dim_chain(dl, merged, base, horiz)
+        _dim_chain(dl, merged, base, horiz,
+                   hide=getattr(plan, 'dim_hide', None),
+                   segs=getattr(plan, '_dim_segs', None))
 
     # overall size on the top & right
-    _dim_chain(dl, [x0, x1], y1 + 2.4, True)
-    _dim_chain(dl, [y0, y1], x1 + 2.4, False)
+    _dim_chain(dl, [x0, x1], y1 + 2.4, True,
+               hide=getattr(plan, 'dim_hide', None),
+               segs=getattr(plan, '_dim_segs', None))
+    _dim_chain(dl, [y0, y1], x1 + 2.4, False,
+               hide=getattr(plan, 'dim_hide', None),
+               segs=getattr(plan, '_dim_segs', None))
+
+
+def draw_texts(plan: Plan, dl: DrawList) -> None:
+    """User-placed free text annotations, wherever they were clicked."""
+    for t in getattr(plan, "texts", []) or []:
+        if not (t.text or "").strip():
+            continue
+        dl.text(t.x, t.y, t.text, h=(t.h or 0.6), layer="TEXT",
+                angle=(t.angle or 0.0))
+
+
+def draw_mdims(plan: Plan, dl: DrawList) -> None:
+    """User-placed point-to-point dimensions: an aligned dimension line with
+    a tick at each snapped end and the true length written along it."""
+    for m in getattr(plan, "mdims", []) or []:
+        L = math.hypot(m.x2 - m.x1, m.y2 - m.y1)
+        if L < 0.1:
+            continue
+        ux, uy = (m.x2 - m.x1) / L, (m.y2 - m.y1) / L
+        nx, ny = -uy, ux
+        dl.line(m.x1, m.y1, m.x2, m.y2, layer="DIM")
+        for (px, py) in ((m.x1, m.y1), (m.x2, m.y2)):
+            # a 45-degree slash in the dimension's own frame
+            sx, sy = (ux + nx) * 0.18, (uy + ny) * 0.18
+            dl.line(px - sx, py - sy, px + sx, py + sy, layer="DIM")
+        ang = math.degrees(math.atan2(uy, ux))
+        if ang > 90 or ang <= -90:
+            ang += 180                     # keep the figure readable
+            nx, ny = -nx, -ny
+        dl.text((m.x1 + m.x2) / 2 + nx * 0.55,
+                (m.y1 + m.y2) / 2 + ny * 0.55,
+                _fmt_dim(L), h=0.40, layer="DIM", angle=ang % 360)
 
 
 def draw_north(plan: Plan, dl: DrawList) -> None:
@@ -1161,6 +1228,7 @@ def build(plan: Plan, wall_tags: bool = True, furniture: bool = True,
           elec: bool = True, plumb: bool = True, floor: bool = True,
           sections: bool = True) -> DrawList:
     dl = DrawList()
+    plan._dim_segs = []          # visible auto-dim bays, for on-screen delete
 
     # an imported DXF is drawn verbatim; the walls/rooms/dims it carries are
     # already IN the raw geometry, so we do not regenerate (and re-thicken)
@@ -1200,6 +1268,8 @@ def build(plan: Plan, wall_tags: bool = True, furniture: bool = True,
         draw_dims(plan, dl)
         if getattr(plan, "autodim", False):
             draw_auto_dims(plan, dl)
+    draw_texts(plan, dl)          # user annotations, on every view
+    draw_mdims(plan, dl)          # user point-to-point dimensions
     # No north point in the drawing area — the sheet's title strip carries it,
     # and a second one both duplicates it and pushes the plan's extents out,
     # costing a scale step.
