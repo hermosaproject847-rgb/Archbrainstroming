@@ -1589,6 +1589,56 @@
   }
 
   /* ---------------------------------- flooring with REAL-looking texture */
+  /* a plan-drawn RAILING wall, built by its type (user rule):
+     ""/"ms"       MS posts + top and mid rails
+     "glass"       glass balustrade with an SS cap on spigots
+     "parapet_ms"  a 4 ft parapet wall with an MS BOX handrail on top      */
+  function addRailWall(g, w, z0, M) {
+    const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
+    const Lr = Math.hypot(dx, dy); if (Lr < 0.3) return;
+    const ux = dx / Lr, uy = dy / Lr;
+    const cx = (w.x1 + w.x2) / 2, cy = (w.y1 + w.y2) / 2;
+    const horiz = Math.abs(ux) >= Math.abs(uy);
+    const seg = (wid, hgt, zc, mat, len) => g.add(horiz
+      ? box(len || Lr, wid, hgt, cx, cy, zc, mat)
+      : box(wid, len || Lr, hgt, cx, cy, zc, mat));
+    const post = (t, wSz, hSz, zc, mat) => g.add(box(wSz, wSz, hSz,
+      w.x1 + ux * t, w.y1 + uy * t, zc, mat));
+    const mMS = new THREE.MeshLambertMaterial({ color: 0x2f3338 });
+    const rt = (w.railing_type || "").toLowerCase();
+    if (rt === "glass") {
+      const h = 3.5;
+      const mGl = new THREE.MeshLambertMaterial({
+        color: 0x9fd4e2, transparent: true, opacity: 0.35 });
+      const mSS = new THREE.MeshLambertMaterial({ color: 0xb9c0c6 });
+      seg(0.08, h - 0.35, z0 + 0.25 + (h - 0.35) / 2, mGl);
+      seg(0.14, 0.14, z0 + h, mSS);                  // SS cap rail
+      const n = Math.max(2, Math.round(Lr / 3.3) + 1);
+      for (let i = 0; i < n; i++)                     // spigots at the base
+        post(Math.min(Lr - 0.3, 0.3 + (Lr - 0.6) * i / (n - 1)),
+             0.16, 0.5, z0 + 0.25, mSS);
+    } else if (rt === "parapet_ms") {
+      const hP = 4.0;                                 // the 4 ft parapet
+      const th = Math.max(0.35, ((+w.thickness_in || 4.5) / 12));
+      seg(th, hP, z0 + hP / 2, M.ext);
+      seg(th + 0.1, 0.12, z0 + hP + 0.06, M.ext);     // coping
+      // the MS BOX-SECTION handrail running on top, on short stubs
+      seg(0.2, 0.24, z0 + hP + 0.62, mMS);
+      const n = Math.max(2, Math.round(Lr / 4) + 1);
+      for (let i = 0; i < n; i++)
+        post(Math.min(Lr - 0.3, 0.3 + (Lr - 0.6) * i / (n - 1)),
+             0.12, 0.5, z0 + hP + 0.31, mMS);
+    } else {                                          // MS posts + rails
+      const h = 3.5;
+      seg(0.16, 0.16, z0 + h, mMS);
+      seg(0.08, 0.08, z0 + h * 0.55, mMS);
+      const n = Math.max(2, Math.round(Lr / 4) + 1);
+      for (let i = 0; i < n; i++)
+        post(Math.min(Lr - 0.2, 0.2 + (Lr - 0.4) * i / (n - 1)),
+             0.12, h, z0 + h / 2, mMS);
+    }
+  }
+
   function addFlooring(g, plan, z0, wells) {
     const rooms = plan.rooms || [];
     const GRND_RE = /porch|parking|drive|court|lawn|garden|entry|ramp/i;
@@ -1603,6 +1653,9 @@
       if (z0 <= 2.5 && GRND_RE.test(r.name || "")) continue;
       if (/chajja/i.test(r.name || "")) continue;   // overhead projection
       const material = spec ? (spec.material || "tile") : "tile";
+      // the floor sits AT ITS LEVEL: a mentioned drop (wet room, balcony)
+      // steps the finish down, a raise steps it up (user rule)
+      const zR = z0 - ((spec && +spec.drop_mm) || 0) * MM;
       const t = floorTex(material).clone();
       t.needsUpdate = true;
       const tileFt = spec && spec.tile_w ? Math.max(0.8, spec.tile_w * MM)
@@ -1628,7 +1681,7 @@
       for (const q of pieces) {
         if (q[2] - q[0] < 0.12 || q[3] - q[1] < 0.12) continue;
         g.add(box(q[2] - q[0], q[3] - q[1], 0.07, (q[0] + q[2]) / 2,
-          (q[1] + q[3]) / 2, z0 + 0.045, mat));
+          (q[1] + q[3]) / 2, zR + 0.045, mat));
       }
       // SKIRTING: a darker strip round the room, 75 mm high — BROKEN at every
       // door (skirting never runs across an opening) and carried AROUND every
@@ -1657,9 +1710,9 @@
           for (const [a, b] of spans) {
             if (b - a < 0.25) continue;
             if (horiz)
-              g.add(box(b - a, 0.08, hSk, (a + b) / 2, edgeC + off, z0 + hSk / 2, sk));
+              g.add(box(b - a, 0.08, hSk, (a + b) / 2, edgeC + off, zR + hSk / 2, sk));
             else
-              g.add(box(0.08, b - a, hSk, edgeC + off, (a + b) / 2, z0 + hSk / 2, sk));
+              g.add(box(0.08, b - a, hSk, edgeC + off, (a + b) / 2, zR + hSk / 2, sk));
           }
         };
         const cutDoors = (a0, a1, horiz, edgeC) => {
@@ -1728,10 +1781,10 @@
           if (c.x < r.x - 0.2 || c.x > r.x + r.w + 0.2 ||
               c.y < r.y - 0.2 || c.y > r.y + r.h + 0.2) continue;
           const cw2 = (+c.w || 0.8) / 2 + 0.06, ch2 = (+c.h || 0.8) / 2 + 0.06;
-          g.add(box(cw2 * 2, 0.08, hSk, c.x, c.y - ch2, z0 + hSk / 2, sk));
-          g.add(box(cw2 * 2, 0.08, hSk, c.x, c.y + ch2, z0 + hSk / 2, sk));
-          g.add(box(0.08, ch2 * 2, hSk, c.x - cw2, c.y, z0 + hSk / 2, sk));
-          g.add(box(0.08, ch2 * 2, hSk, c.x + cw2, c.y, z0 + hSk / 2, sk));
+          g.add(box(cw2 * 2, 0.08, hSk, c.x, c.y - ch2, zR + hSk / 2, sk));
+          g.add(box(cw2 * 2, 0.08, hSk, c.x, c.y + ch2, zR + hSk / 2, sk));
+          g.add(box(0.08, ch2 * 2, hSk, c.x - cw2, c.y, zR + hSk / 2, sk));
+          g.add(box(0.08, ch2 * 2, hSk, c.x + cw2, c.y, zR + hSk / 2, sk));
         }
       }
     }
@@ -2712,8 +2765,32 @@
                                w: c.w, h: c.h }))
         : (plan.columns || []));
       (plan.walls || []).forEach(w => {
-        if (w.railing) return;
+        if (w.railing) { addRailWall(L.walls, w, z0, M); return; }
         if (f === 0 && BW_IDS.has(w.id)) return;     // it is the boundary wall
+        // ONE combined bungalow: the BOUNDARY (compound) wall exists only on
+        // the ground — an upper sketch re-drawing the plot line is skipped
+        if (f > 0) {
+          const bwG = (base.walls || []).filter(w2 => BW_IDS.has(w2.id));
+          if (bwG.length) {
+            const gx1 = w.x1 + alF.x, gy1 = w.y1 + alF.y;
+            const gx2 = w.x2 + alF.x, gy2 = w.y2 + alF.y;
+            const hz = Math.abs(gx2 - gx1) >= Math.abs(gy2 - gy1);
+            const onBW = bwG.some(b2 => {
+              const hb = Math.abs(b2.x2 - b2.x1) >= Math.abs(b2.y2 - b2.y1);
+              if (hb !== hz) return false;
+              const cW = hz ? (gy1 + gy2) / 2 : (gx1 + gx2) / 2;
+              const cB = hb ? (b2.y1 + b2.y2) / 2 : (b2.x1 + b2.x2) / 2;
+              if (Math.abs(cW - cB) > 0.9) return false;
+              const a1 = hz ? Math.min(gx1, gx2) : Math.min(gy1, gy2);
+              const a2 = hz ? Math.max(gx1, gx2) : Math.max(gy1, gy2);
+              const b1 = hb ? Math.min(b2.x1, b2.x2) : Math.min(b2.y1, b2.y2);
+              const b3 = hb ? Math.max(b2.x1, b2.x2) : Math.max(b2.y1, b2.y2);
+              return Math.min(a2, b3) - Math.max(a1, b1) >
+                     Math.min(a2 - a1, 2);
+            });
+            if (onBW) return;
+          }
+        }
         const isTerr = TERR_FLOOR && f === P.floors - 1;
         let bw = null;
         if (f === 0 && BW_SPANS[w.id]) bw = { spans: BW_SPANS[w.id], h: BW_H };

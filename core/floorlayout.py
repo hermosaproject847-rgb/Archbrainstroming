@@ -641,7 +641,11 @@ def _label(dl, room, clear, s):
     cx = (x0 + x1) / 2
     cy = y0 + 0.95
     mat = F.MATERIALS[s.material]["label"]
-    lvl = "FFL +/-0.000" if abs(s.drop_mm) < 1e-6 else f"FFL {s.drop_mm:+.0f}"
+    # drop_mm is how far the floor sits BELOW datum (wet rooms/balconies),
+    # so a 50 drop prints (-)50 — the sheet shows every mentioned drop
+    lvl = ("FFL +/-0.000" if abs(s.drop_mm) < 1e-6 else
+           f"FFL (-){s.drop_mm:g}" if s.drop_mm > 0 else
+           f"FFL (+){-s.drop_mm:g}")
     sk = f"SK {s.skirting_mm:g}" if s.skirting_mm > 0 else "dado"
     line1 = f"{s.code}  {mat} {s.tile_w:g}x{s.tile_h:g}"
     line2 = f"{lvl}  ·  joint {s.spacer_mm:g}  ·  {sk}"

@@ -46,6 +46,10 @@ class Wall:
     # but it is NOT wall: it encloses nothing and no opening is punched
     # through it, so it stays out of the wall solid entirely.
     railing: bool = False
+    # how a railing is built: "" / "ms" = MS posts + rails, "glass" = glass
+    # balustrade with an SS cap, "parapet_ms" = a 4 ft parapet wall with an
+    # MS box-section handrail running on top (balcony scene, user rule)
+    railing_type: str = ""
     # a JAALI screen wall (arrow-labelled on the sketch): "fabrication" or
     # "terracotta". It encloses like a wall but draws with a lattice + label.
     jaali: str = ""

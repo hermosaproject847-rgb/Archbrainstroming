@@ -129,10 +129,14 @@ def draw_walls(plan: Plan, dl: DrawList) -> None:
             px, py = w.x1 + ux * t, w.y1 + uy * t
             dl.line(px + nx * g, py + ny * g, px - nx * g, py - ny * g,
                     layer="RAILING")
-        # named on the drawing, as the sketch names it
+        # named on the drawing, by its build type
         mx, my = (w.x1 + w.x2) / 2, (w.y1 + w.y2) / 2
         ang = 0 if abs(ux) >= abs(uy) else 90
-        dl.text(mx - nx * 0.75, my - ny * 0.75, "RAILING", h=0.4,
+        rt = (getattr(w, "railing_type", "") or "").lower()
+        name = ("GLASS RAILING" if rt == "glass" else
+                "4'-0\" PARAPET + MS BOX HANDRAIL" if rt == "parapet_ms"
+                else "RAILING")
+        dl.text(mx - nx * 0.75, my - ny * 0.75, name, h=0.4,
                 layer="TEXT-SUB", angle=ang)
 
     # JAALI screen walls: the wall itself is in the solid (it encloses), and a

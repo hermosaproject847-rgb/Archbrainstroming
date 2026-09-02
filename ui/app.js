@@ -1862,6 +1862,7 @@ const COLS = {
     ["height_ft", "Height (ft)", "num"],
     ["exterior", "Ext", "bool"],
     ["railing", "Railing", "bool"],
+    ["railing_type", "Rail type", ["", "ms", "glass", "parapet_ms"]],
     ["jaali", "Jaali", ["", "fabrication", "terracotta"]],
   ],
   openings: [
