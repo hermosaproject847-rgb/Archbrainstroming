@@ -188,6 +188,10 @@ invented suffix does not match the drawing.
      drawn DASHED (it hangs overhead), running ALONG the OUTSIDE of a wall
      or over a window / door / sitout edge — its long edge sits ON the wall
      line it projects from;
+   - it projects off the BUILDING's wall, NEVER off a boundary / compound
+     wall: the dashed line is its FREE outer edge, so the strip runs from
+     the building wall face OUT to that dashed line — take the building
+     side, not the boundary side;
    - take its rectangle digit-for-digit off the drawn strip. It must never
      grow to room size, never drift into the room beside it, and never tilt
      off the wall line;
