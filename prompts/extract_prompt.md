@@ -184,6 +184,13 @@ invented suffix does not match the drawing.
    written on a strip on the OUTER side of the building, list its boundary
    walls with `"height_ft": 1` — a low planter kerb, not a full wall.
 
+   **The boundary / compound wall belongs to the GROUND floor only.** An
+   upper floor's sheet (FIRST / SECOND / TERRACE) usually still shows the
+   plot-line or compound-wall rectangle running around the plan — that is
+   the GROUND floor's boundary wall, drawn for reference. On an upper floor
+   do NOT list it in `walls`: record the plot extent in `"plot"` only. Only
+   the ground floor lists the compound wall (with its gate) as walls.
+
    **An ELE / ELV ceiling cutout is the electrical shaft.** A small ceiling
    cutout labelled "ELE", "ELV" or "ELECTRICAL" (usually arrow-labelled) is
    where the light wiring travels between floors. Give it as a room keeping
