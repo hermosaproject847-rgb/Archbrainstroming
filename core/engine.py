@@ -920,13 +920,30 @@ def _dim_chain(dl: DrawList, ticks: list[float], base: float, horiz: bool,
     if len(ticks) < 2:
         return
     H = 0.40                                 # text height, feet
+    bays = list(zip(ticks, ticks[1:]))
+    vis = [not _dim_hidden(hide, horiz, base, a, b) for a, b in bays]
+    if not any(vis):
+        return
+    # a DELETED bay disappears completely — its line piece and its ticks go
+    # with the figure, so the chain only spans the bays that remain
+    runs, cur = [], None
+    for (a, b), v in zip(bays, vis):
+        if v:
+            cur = [a, b] if cur is None else [cur[0], b]
+        elif cur:
+            runs.append(cur)
+            cur = None
+    if cur:
+        runs.append(cur)
+    tickpts = sorted({t for (a, b), v in zip(bays, vis) if v for t in (a, b)})
     if horiz:
-        dl.line(ticks[0], base, ticks[-1], base, layer="DIM")
-        for t in ticks:
+        for a, b in runs:
+            dl.line(a, base, b, base, layer="DIM")
+        for t in tickpts:
             _slash(dl, t, base, True)
         row = 0
-        for a, b in zip(ticks, ticks[1:]):
-            if _dim_hidden(hide, True, base, a, b):
+        for (a, b), v in zip(bays, vis):
+            if not v:
                 continue
             if segs is not None:
                 segs.append({"h": True, "base": round(base, 3),
@@ -944,12 +961,13 @@ def _dim_chain(dl: DrawList, ticks: list[float], base: float, horiz: bool,
                 if row >= 2:
                     row = 0
     else:
-        dl.line(base, ticks[0], base, ticks[-1], layer="DIM")
-        for t in ticks:
+        for a, b in runs:
+            dl.line(base, a, base, b, layer="DIM")
+        for t in tickpts:
             _slash(dl, base, t, False)
         row = 0
-        for a, b in zip(ticks, ticks[1:]):
-            if _dim_hidden(hide, False, base, a, b):
+        for (a, b), v in zip(bays, vis):
+            if not v:
                 continue
             if segs is not None:
                 segs.append({"h": False, "base": round(base, 3),
