@@ -1369,6 +1369,57 @@ if ($("#btnDimAdd")) $("#btnDimAdd").onclick = () => {
   annStart("dim", "btnDimAdd", { p1: null });
   status("manual dimension — click the FIRST point (snaps to corners)");
 };
+if ($("#btnMeasure")) $("#btnMeasure").onclick = () => {
+  if (!S.plan) return status("read or load a plan first");
+  annStart("measure", "btnMeasure", { p1: null });
+  clearMeasure();
+  status("measure — click the FIRST point (snaps to corners/jambs)");
+};
+function clearMeasure() {
+  const o = document.getElementById("measOv"); if (o) o.remove();
+}
+function drawMeasure(p1, p2) {
+  clearMeasure();
+  const info = S.plInfo, holder = $("#plHolder");
+  const draw = holder && holder.querySelector("svg");
+  if (!draw || !info) return;
+  const ov = document.createElementNS(NS_SVG, "svg");
+  ov.id = "measOv";
+  ov.setAttribute("viewBox", `0 0 ${info.w_mm} ${info.h_mm}`);
+  ov.setAttribute("width", draw.getAttribute("width"));
+  ov.setAttribute("height", draw.getAttribute("height"));
+  ov.style.cssText =
+    "position:absolute;left:0;top:0;pointer-events:none;overflow:visible";
+  holder.appendChild(ov);
+  const [ax, ay] = m2s(info, p1[0], p1[1]);
+  const mk = (x, y) => {
+    const c = document.createElementNS(NS_SVG, "circle");
+    c.setAttribute("cx", x); c.setAttribute("cy", y); c.setAttribute("r", 1.1);
+    c.setAttribute("fill", "#e11d48");
+    ov.appendChild(c);
+  };
+  mk(ax, ay);
+  if (!p2) return;
+  const [bx, by] = m2s(info, p2[0], p2[1]);
+  mk(bx, by);
+  const l = document.createElementNS(NS_SVG, "line");
+  l.setAttribute("x1", ax); l.setAttribute("y1", ay);
+  l.setAttribute("x2", bx); l.setAttribute("y2", by);
+  l.setAttribute("stroke", "#e11d48"); l.setAttribute("stroke-width", "1.4");
+  l.setAttribute("stroke-dasharray", "5 3");
+  l.setAttribute("vector-effect", "non-scaling-stroke");
+  ov.appendChild(l);
+  const t = document.createElementNS(NS_SVG, "text");
+  const z = (S.pl && S.pl.z) || 1;
+  t.setAttribute("x", (ax + bx) / 2); t.setAttribute("y", (ay + by) / 2 - 3 / z);
+  t.setAttribute("font-size", Math.max(2.4, 4.5 / z));
+  t.setAttribute("text-anchor", "middle");
+  t.setAttribute("fill", "#e11d48");
+  t.setAttribute("font-weight", "700");
+  t.setAttribute("style", "paint-order:stroke;stroke:#ffffff;stroke-width:2px");
+  t.textContent = toDisp(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]));
+  ov.appendChild(t);
+}
 if ($("#btnAnnDel")) $("#btnAnnDel").onclick = () => {
   if (!S.plan) return status("read or load a plan first");
   annStart("del", "btnAnnDel");
@@ -1601,6 +1652,23 @@ function annClick(m) {
     annTextBox(m, idx);
     return;
   }
+  if (_annMode.kind === "measure") {
+    const p = annSnap(m);
+    if (!_annMode.p1) {
+      _annMode.p1 = p;
+      drawMeasure(p, null);
+      status("first point set — click the SECOND point");
+      return;
+    }
+    const p1 = _annMode.p1, dx = Math.abs(p[0] - p1[0]),
+      dy = Math.abs(p[1] - p1[1]);
+    const d = Math.hypot(dx, dy);
+    drawMeasure(p1, p);
+    status(`📏 ${toDisp(d)}  (↔ ${toDisp(dx)}, ↕ ${toDisp(dy)}) — `
+      + "click for the next measurement, Esc to stop");
+    _annMode.p1 = null;                 // ready for the next pair
+    return;
+  }
   if (_annMode.kind === "dim") {
     const p = annSnap(m);
     if (!_annMode.p1) {
@@ -1653,7 +1721,7 @@ function annClick(m) {
   }
 }
 addEventListener("keydown", e => {
-  if (e.key === "Escape") { closeTextBox(); if (_annMode) { annOff(); status("cancelled"); } }
+  if (e.key === "Escape") { closeTextBox(); if (typeof clearMeasure === "function") clearMeasure(); if (_annMode) { annOff(); status("cancelled"); } }
 });
 
 let _refDrag = null;
