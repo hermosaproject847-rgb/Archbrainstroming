@@ -1456,6 +1456,52 @@ function annSnap(m) {
   }
   return best ? [best[0], best[1]] : [m[0], m[1]];
 }
+/* FACE snap for measuring / manual dims: a draftsman measures wall FACE to
+   wall FACE, so the click projects onto the nearest wall face line (either
+   side, anywhere along it), or lands on a face corner / jamb face point /
+   column face corner — never on a centre-line endpoint. */
+function measSnap(m) {
+  let best = null, bd = 0.9;
+  const take = (px, py) => {
+    const d = Math.hypot(px - m[0], py - m[1]);
+    if (d < bd) { bd = d; best = [px, py]; }
+  };
+  for (const w of ((S.plan && S.plan.walls) || [])) {
+    const L = Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
+    if (L < 0.1) continue;
+    const ux = (w.x2 - w.x1) / L, uy = (w.y2 - w.y1) / L;
+    const nx = -uy, ny = ux;
+    const th = ((+w.thickness_in || 4.5) / 12) / 2;
+    for (const sgn of [-1, 1]) {
+      const fx = w.x1 + nx * th * sgn, fy = w.y1 + ny * th * sgn;
+      let t = (m[0] - fx) * ux + (m[1] - fy) * uy;
+      t = Math.max(0, Math.min(L, t));
+      take(fx + ux * t, fy + uy * t);          // anywhere ON the face
+      take(fx, fy);                            // face end corners
+      take(fx + ux * L, fy + uy * L);
+    }
+    // jambs at their FACE points, both sides of the wall
+    for (const o of ((S.plan.openings || []))) {
+      if (o.wall_id !== w.id) continue;
+      for (const d0 of [o.pos, o.pos + (+o.width || 0)]) {
+        const jx = w.x1 + ux * d0, jy = w.y1 + uy * d0;
+        for (const sgn of [-1, 1])
+          take(jx + nx * th * sgn, jy + ny * th * sgn);
+      }
+    }
+  }
+  for (const c of ((S.plan && S.plan.columns) || [])) {
+    const hw = (+c.w || 0.8) / 2, hh = (+c.h || 0.8) / 2;
+    take(c.x - hw, c.y - hh); take(c.x + hw, c.y - hh);
+    take(c.x - hw, c.y + hh); take(c.x + hw, c.y + hh);
+    // and anywhere along the column faces
+    const px = Math.max(c.x - hw, Math.min(c.x + hw, m[0]));
+    const py = Math.max(c.y - hh, Math.min(c.y + hh, m[1]));
+    take(c.x - hw, py); take(c.x + hw, py);
+    take(px, c.y - hh); take(px, c.y + hh);
+  }
+  return best || [m[0], m[1]];
+}
 function _segDist(m, x1, y1, x2, y2) {
   const dx = x2 - x1, dy = y2 - y1, L2 = dx * dx + dy * dy || 1e-9;
   let t = ((m[0] - x1) * dx + (m[1] - y1) * dy) / L2;
@@ -1653,7 +1699,7 @@ function annClick(m) {
     return;
   }
   if (_annMode.kind === "measure") {
-    const p = annSnap(m);
+    const p = measSnap(m);
     if (!_annMode.p1) {
       _annMode.p1 = p;
       drawMeasure(p, null);
@@ -1670,7 +1716,7 @@ function annClick(m) {
     return;
   }
   if (_annMode.kind === "dim") {
-    const p = annSnap(m);
+    const p = measSnap(m);
     if (!_annMode.p1) {
       _annMode.p1 = p;
       status("first point set — click the SECOND point");
