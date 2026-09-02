@@ -166,7 +166,10 @@ invented suffix does not match the drawing.
    `"railing": true` wall as usual). Do not confuse the double-height X with
    the small solid X of a column block, or the stair's own cross inside the
    stair rectangle — the double-height X spans the whole room and the room
-   keeps its normal name and label.
+   keeps its normal name and label. An O.T.S / SHAFT / DUCT / LIFT also
+   carries a full-room X and has no slab, but that is NOT double height:
+   a room whose label reads O.T.S, SHAFT, DUCT or LIFT keeps its own name
+   and its `open_area`/`void` flags — the label wins over the X.
    **An arrow-labelled JAALI is a jaali, never masonry.** Where the sketch
    points an arrow at a wall with "FABRICATION JAALI", "TERRACOTTA JAALI",
    "MS JAALI" or just "JAALI", list that wall normally but set

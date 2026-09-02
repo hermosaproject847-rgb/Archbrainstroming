@@ -801,6 +801,14 @@ def draw_rooms(plan: Plan, dl: DrawList) -> None:
                       for s in plan.stairs)
         if rb.area > 0 and covered / rb.area > 0.5:
             cy = r.y - 1.0
+        # an O.T.S / shaft / duct / lift carries its corner-to-corner CROSS
+        # on the sheet — the standard open-to-sky / no-slab mark
+        import re as _re
+        if (r.void or getattr(r, "double_height", False) or _re.search(
+                r"o\.?\s?t\.?\s?s|open\s*to\s*sky|shaft|duct|lift|elevator",
+                r.name or "", _re.I)) and r.w > 1.0 and r.h > 1.0:
+            dl.line(r.x, r.y, r.x + r.w, r.y + r.h, layer="TEXT-SUB")
+            dl.line(r.x, r.y + r.h, r.x + r.w, r.y, layer="TEXT-SUB")
         # the user can drag the label off the centre (stored offset, feet)
         cx += getattr(r, "label_dx", 0.0) or 0.0
         cy += getattr(r, "label_dy", 0.0) or 0.0
