@@ -167,6 +167,26 @@ invented suffix does not match the drawing.
    the small solid X of a column block, or the stair's own cross inside the
    stair rectangle — the double-height X spans the whole room and the room
    keeps its normal name and label.
+   **An arrow-labelled JAALI is a jaali, never masonry.** Where the sketch
+   points an arrow at a wall with "FABRICATION JAALI", "TERRACOTTA JAALI",
+   "MS JAALI" or just "JAALI", list that wall normally but set
+   `"jaali": "fabrication"` or `"jaali": "terracotta"` on it. It encloses
+   like a wall (openings, rooms behave normally) and the software draws the
+   lattice and its name over it.
+
+   **An arrow-labelled CHAJJA is a chajja, never a room or a wall.** Where
+   the sketch points an arrow at a projecting strip labelled "CHAJJA", give
+   it as a room whose `name` contains CHAJJA with `"open_area": true` and NO
+   walls of its own. It is an overhead projection: the software draws it as
+   a dashed outline with its label — no floor, no furniture.
+
+   **An outer PLANTER's boundary wall is 1 foot high.** Where "PLANTER" is
+   written on a strip on the OUTER side of the building, list its boundary
+   walls with `"height_ft": 1` — a low planter kerb, not a full wall.
+
+   **An O.T.S is paved.** Keep the O.T.S / open-to-sky rules above
+   (`open_area` + `void`, walled all round) — the software floors it in
+   KOTA STONE 2' x 2' at the bottom of the shaft.
 2. **Openings sit at their exact position.** `pos` is the distance in feet from
    the wall's start point to the opening's near jamb. Never auto-centre an
    opening: if the sketch shows a door hard against a partition, `pos` puts it
@@ -195,6 +215,9 @@ invented suffix does not match the drawing.
    arrive. Trace that break — leave a gap in the wall over the steps' width,
    or put an `"open"` opening there. Do not run the wall across the steps.
 
+   Read the steps EXACTLY as drawn — the tread count, the run direction and
+   every level mark, verbatim. The software builds each tread AT its written
+   level, so a missing or invented level puts a step at the wrong height.
    For each run of entry steps give the footprint, how many treads, which way
    they run, the side you step on from, and the levels written on them in
    ascending order:

@@ -108,6 +108,15 @@
       g.strokeStyle = "rgba(25,26,30,.8)"; g.lineWidth = 3;
       g.strokeRect(1, 1, 254, 254);
     });
+    else if (material === "kota") t = texOf(g => {     // Kota stone: blue-green
+      g.fillStyle = "#7d8b83"; g.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 300; i++) {
+        g.fillStyle = ["#8d9a91", "#6e7c74", "#95a29a", "#657069"][i % 4];
+        g.fillRect(Math.random() * 256, Math.random() * 256, 5, 2.5);
+      }
+      g.strokeStyle = "rgba(40,48,44,.75)"; g.lineWidth = 3;
+      g.strokeRect(1, 1, 254, 254);                    // stone joint
+    });
     else t = texOf(g => {                              // vitrified TILE
       g.fillStyle = "#ddd9d2"; g.fillRect(0, 0, 256, 256);
       g.fillStyle = "rgba(255,255,255,.35)";
@@ -1564,11 +1573,15 @@
     const rooms = plan.rooms || [];
     const GRND_RE = /porch|parking|drive|court|lawn|garden|entry|ramp/i;
     for (const r of rooms) {
-      if (r.void) continue;
-      // paved on the ground already — no floor finish up on the plinth
-      if (z0 <= 2.5 && GRND_RE.test(r.name || "")) continue;
       const spec = (plan.flooring || []).find(f =>
         (f.room || "").trim().toLowerCase() === (r.name || "").trim().toLowerCase());
+      // a shaft is void — but a PAVED O.T.S (kota, user rule) keeps its
+      // floor at the BOTTOM of the shaft, so only on the ground storey
+      if (r.void && !(spec && z0 <= 2.5 &&
+          /o\.?\s?t\.?\s?s|open\s*to\s*sky/i.test(r.name || ""))) continue;
+      // paved on the ground already — no floor finish up on the plinth
+      if (z0 <= 2.5 && GRND_RE.test(r.name || "")) continue;
+      if (/chajja/i.test(r.name || "")) continue;   // overhead projection
       const material = spec ? (spec.material || "tile") : "tile";
       const t = floorTex(material).clone();
       t.needsUpdate = true;

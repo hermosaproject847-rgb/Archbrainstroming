@@ -1862,6 +1862,7 @@ const COLS = {
     ["height_ft", "Height (ft)", "num"],
     ["exterior", "Ext", "bool"],
     ["railing", "Railing", "bool"],
+    ["jaali", "Jaali", ["", "fabrication", "terracotta"]],
   ],
   openings: [
     ["type", "Type", ["single_door", "double_door", "sliding_door",
@@ -1935,7 +1936,7 @@ const COLS = {
   ],
   flooring: [
     ["room", "Room", "text", 1.4],
-    ["material", "Material", ["tile", "marble", "wood", "granite"]],
+    ["material", "Material", ["tile", "marble", "wood", "granite", "kota"]],
     ["tile_w", "W mm", "num"], ["tile_h", "H mm", "num"],
     ["spacer_mm", "Spacer mm", "num"],
     ["start", "Start", ["symmetry", "entry", "corner-sw", "corner-se",
@@ -2056,6 +2057,8 @@ const FLOOR_DEFAULTS = {
   wood:    { tile_w: 1200, tile_h: 190, spacer_mm: 0, finish: "Matt lacquer",
              skirting_mm: 75, skirting_type: "wooden beading" },
   granite: { tile_w: 1200, tile_h: 600, spacer_mm: 3, finish: "Polished",
+             skirting_mm: 75, skirting_type: "surface" },
+  kota:    { tile_w: 600, tile_h: 600, spacer_mm: 3, finish: "Mirror polished",
              skirting_mm: 75, skirting_type: "surface" },
 };
 

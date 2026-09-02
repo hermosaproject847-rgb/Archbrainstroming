@@ -135,6 +135,33 @@ def draw_walls(plan: Plan, dl: DrawList) -> None:
         dl.text(mx - nx * 0.75, my - ny * 0.75, "RAILING", h=0.4,
                 layer="TEXT-SUB", angle=ang)
 
+    # JAALI screen walls: the wall itself is in the solid (it encloses), and a
+    # 45-degree lattice + its name overlays it so the sheet reads it as a
+    # jaali, not masonry (user rule: arrow-labelled jaali stays a jaali)
+    for w in plan.walls:
+        jt = (getattr(w, "jaali", "") or "").strip().lower()
+        if not jt:
+            continue
+        L = w.length or 1e-9
+        ux, uy = (w.x2 - w.x1) / L, (w.y2 - w.y1) / L
+        nx, ny = -uy, ux
+        h = w.th / 2.0
+        step = 0.55
+        n = max(2, int(L / step))
+        for i in range(n + 1):
+            t = min(L, i * step)
+            px, py = w.x1 + ux * t, w.y1 + uy * t
+            dl.line(px - (ux + nx) * h, py - (uy + ny) * h,
+                    px + (ux + nx) * h, py + (uy + ny) * h, layer="RAILING")
+            dl.line(px - (ux - nx) * h, py - (uy - ny) * h,
+                    px + (ux - nx) * h, py + (uy - ny) * h, layer="RAILING")
+        mx, my = (w.x1 + w.x2) / 2, (w.y1 + w.y2) / 2
+        ang = 0 if abs(ux) >= abs(uy) else 90
+        name = ("TERRACOTTA JAALI" if "terra" in jt else
+                "FABRICATION JAALI" if "fab" in jt else "JAALI")
+        dl.text(mx - nx * (h + 0.55), my - ny * (h + 0.55), name, h=0.4,
+                layer="TEXT-SUB", angle=ang)
+
     # jambs: close each opening's cut with two short lines across the wall depth
     for o in plan.openings:
         w = plan.wall(o.wall_id)
@@ -749,6 +776,17 @@ def _number_steps(dl: DrawList, f: dict, only: str | None = None) -> None:
 def draw_rooms(plan: Plan, dl: DrawList) -> None:
     for r in plan.rooms:
         cx, cy = r.centre
+        # a CHAJJA is an overhead projection, not a floor: a dashed outline
+        # and its name — no fill, no tiles, no furniture (user rule)
+        if "chajja" in (r.name or "").lower():
+            pts = [(r.x, r.y), (r.x + r.w, r.y),
+                   (r.x + r.w, r.y + r.h), (r.x, r.y + r.h)]
+            for i in range(4):
+                a, b = pts[i], pts[(i + 1) % 4]
+                dl.line(a[0], a[1], b[0], b[1], layer="TEXT-SUB", dashed=True)
+            ang = 0 if r.w >= r.h else 90
+            dl.text(cx, cy, "CHAJJA", h=0.42, layer="TEXT-SUB", angle=ang)
+            continue
         # A stair that fills its own room would sit under that room's label, so
         # the label moves clear. Only when the stair really does fill the room:
         # a stair merely overlapping a corner of a large room must not push

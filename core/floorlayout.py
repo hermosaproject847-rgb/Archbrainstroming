@@ -86,11 +86,19 @@ def design(plan_dict: dict) -> tuple[dict, list[str]]:
     plan = Plan.from_dict(plan_dict)
     notes: list[str] = []
 
-    floorable = [r for r in plan.rooms if not r.void and not r.is_lawn
+    import re as _re
+    OTS_RE = _re.compile(r"o\.?\s?t\.?\s?s|open\s*to\s*sky", _re.I)
+    floorable = [r for r in plan.rooms
+                 if (not r.void or OTS_RE.search(r.name or ""))
+                 and not r.is_lawn
+                 and "chajja" not in r.name.lower()     # an overhead projection
                  and "stair" not in r.name.lower()      # counted as treads/risers
                  and not _clear(plan, r).is_empty
                  and _clear(plan, r).area >= 4]
     floorable.sort(key=lambda r: (-round(r.y + r.h, 1), round(r.x, 1)))
+    # USER RULE: an O.T.S is paved too — KOTA STONE 2' x 2' by default
+    ots_rooms = [r for r in floorable if OTS_RE.search(r.name or "")]
+    floorable = [r for r in floorable if r not in ots_rooms]
 
     # rooms that open into one another (no partition) share ONE flooring —
     # same material, tile and code — so the floor reads as one continuous area.
@@ -108,6 +116,15 @@ def design(plan_dict: dict) -> tuple[dict, list[str]]:
             cx, cy = room.x + room.w / 2, room.y + room.h / 2
             specs.append(FloorSpec(room=room.name, rx=cx, ry=cy, code=code,
                                    **d, start="symmetry"))
+    for r in ots_rooms:
+        km = F.MATERIALS["kota"]
+        codes["KS"] = codes.get("KS", 0) + 1
+        specs.append(FloorSpec(
+            room=r.name, rx=r.x + r.w / 2, ry=r.y + r.h / 2,
+            code=f"KS-{codes['KS']:02d}", material="kota",
+            tile_w=600.0, tile_h=600.0, spacer_mm=km["spacer"],
+            finish=km["finish"], skirting_mm=km["skirt"],
+            skirting_type=km["skirt_type"], start="symmetry"))
     # keep the drawing order sensible (top-left first)
     specs.sort(key=lambda s: (-round(s.ry, 1), round(s.rx, 1)))
 
@@ -142,9 +159,12 @@ def _report(plan: Plan, specs) -> list[str]:
 
 
 def _room_at(plan: Plan, x: float, y: float):
+    import re as _re
     best, bd = None, 1e18
     for r in plan.rooms:
-        if r.void:
+        # a shaft is void — but a PAVED O.T.S still owns its kota floor
+        if r.void and not _re.search(r"o\.?\s?t\.?\s?s|open\s*to\s*sky",
+                                     r.name or "", _re.I):
             continue
         dx = max(r.x - x, 0, x - (r.x + r.w))
         dy = max(r.y - y, 0, y - (r.y + r.h))

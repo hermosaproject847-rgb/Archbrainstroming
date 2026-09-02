@@ -41,6 +41,15 @@ MATERIALS = {
         "slip": "R9", "skirt": 75.0, "skirt_type": "wooden beading",
         "bedding": "Floating + IXPE underlay + DPM (IS 303)",
     },
+    "kota": {
+        "label": "Kota stone", "size": (600, 600),   # 2' x 2' the default
+        "sizes": [(600, 600), (600, 300), (450, 450), (900, 600),
+                  (300, 300), (600, 900), (750, 750)],
+        "spacer": 3.0, "wastage": 0.07, "code": "KS",
+        "finish": "Mirror polished",
+        "slip": "R10", "skirt": 75.0, "skirt_type": "surface",
+        "bedding": "CM 1:4 with neat cement slurry (IS 1130)",
+    },
     "granite": {
         "label": "Granite", "size": (1200, 600),
         "sizes": [(1200, 600), (900, 600), (600, 600), (600, 300)],

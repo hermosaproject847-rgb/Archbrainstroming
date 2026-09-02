@@ -46,6 +46,9 @@ class Wall:
     # but it is NOT wall: it encloses nothing and no opening is punched
     # through it, so it stays out of the wall solid entirely.
     railing: bool = False
+    # a JAALI screen wall (arrow-labelled on the sketch): "fabrication" or
+    # "terracotta". It encloses like a wall but draws with a lattice + label.
+    jaali: str = ""
     # which room this wall belongs to, filled in by the numbering pass so the
     # table shows the same grouping the numbers follow
     room: str = ""
