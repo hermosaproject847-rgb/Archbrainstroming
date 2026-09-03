@@ -417,7 +417,7 @@ def _seed_users():
     if not raw or os.path.isfile(USERS_FILE):
         return
     try:
-        json.loads(raw)             # must be valid JSON before we trust it
+        _json.loads(raw)            # must be valid JSON before we trust it
         with open(USERS_FILE, "w", encoding="utf-8") as fh:
             fh.write(raw)
         print("users.json seeded from USERS_JSON.")
