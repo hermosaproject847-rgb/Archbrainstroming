@@ -1,15 +1,22 @@
-# Render.com blueprint — deploy SketchToPlan as a web service.
-# New + → "Blueprint" → connect this repo, or create a Web Service manually with
-# the same Build / Start commands below.
+# Render.com blueprint — ARCH BRAIN STORMING as a Docker web service
+# (Python server + Claude Code CLI, so AI Read works with the PC switched off).
+# Dashboard: New + → Blueprint → connect this repo → Apply.
 services:
   - type: web
-    name: sketchtoplan
-    runtime: python
+    name: archbrain
+    runtime: docker
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python webserver.py
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
     envVars:
       - key: MPLBACKEND
         value: Agg
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: DATA_DIR
+        value: /app
+      # paste in the dashboard (Environment tab) — never commit them:
+      - key: CLAUDE_CREDENTIALS   # content of ~/.claude/.credentials.json (GET-CLAUDE-SECRET.bat)
+        sync: false
+      - key: USERS_JSON           # content of users.json (GET-USERS-SECRET.bat)
+        sync: false

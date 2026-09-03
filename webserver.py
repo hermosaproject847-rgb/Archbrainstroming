@@ -57,7 +57,13 @@ _DESKTOP_ONLY = {"pick_sketch", "pick_sketches", "load_plan_json",
 # NOTE: passwords are stored as typed so the admin can SEE them in the panel
 # (an explicit product requirement for handing logins to paying clients). Keep
 # users.json private; it is git-ignored. Sessions are in-memory tokens.
-USERS_FILE = os.path.join(os.environ.get("DATA_DIR") or ROOT, "users.json")
+_DATA_DIR = os.environ.get("DATA_DIR")
+if _DATA_DIR:
+    try:
+        os.makedirs(_DATA_DIR, exist_ok=True)
+    except Exception:
+        _DATA_DIR = None            # host without a /data disk (Render etc.)
+USERS_FILE = os.path.join(_DATA_DIR or ROOT, "users.json")
 _users_lock = _threading.Lock()
 SESSIONS: dict = {}                 # token -> {"user":..., "role":...}
 
