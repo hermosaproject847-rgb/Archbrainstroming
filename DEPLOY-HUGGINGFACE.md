@@ -67,10 +67,24 @@ rakhta hai — repo chhota rahega.
   aur admin ka password badal lo.
 - **Read Sketch (AI)** test karo — Claude cloud se hi padhega, PC band rakho.
 
-## saradigitalstudios.com se jodna (optional)
-Cloudflare DNS me `saradigitalstudios.com` par ek **Redirect Rule** bana do jo
-HF URL par bheje (Cloudflare dashboard → Rules → Redirect Rules → static
-redirect 301). Free hai. (Direct custom-domain HF free me nahi deta.)
+## Step 7 — saradigitalstudios.com se jodna (URL bar me domain hi rahega)
+HF free me custom domain nahi deta, isliye Cloudflare ka free **Worker** beech me
+proxy banega (Space **Private** hi rah sakta hai):
+
+1. Cloudflare dashboard → **Workers & Pages → Create → Create Worker** → naam
+   `archbrain` → Deploy.
+2. **Edit code** → is folder ki `cloudflare-worker.js` ka pura content paste →
+   Deploy.
+3. Worker → **Settings → Variables and Secrets**:
+   - `SPACE_HOST` (Text) = `<APKA-USERNAME>-arch-brain-storming.hf.space`
+   - `HF_TOKEN` (Secret) = HF access token (Read) — sirf Private Space ke liye
+4. Worker → **Settings → Domains & Routes → Add → Custom domain** →
+   `saradigitalstudios.com` daalo, phir `www.saradigitalstudios.com` bhi.
+   (Purana cloudflared tunnel wala DNS record Cloudflare khud hata/badal dega —
+   pooche to "replace" karo.)
+5. 2–5 min me https://saradigitalstudios.com Space se chalne lagega — PC band.
+
+Worker free limit: 1,00,000 requests/din — bahut kaafi.
 
 ---
 
