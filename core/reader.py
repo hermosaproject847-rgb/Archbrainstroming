@@ -129,8 +129,8 @@ def prepare(path: str, workdir: str, dpi: int = 300) -> list[str]:
         # Cap the rendered long side. An A1 sheet at 400 dpi is 13000 px wide
         # (~370 MB as RGB) and on a 512 MB cloud box that alone restarts the
         # container mid-read; the vision model never sees more than a few
-        # thousand px anyway. MAX_PAGE_PX overrides (default 4200).
-        max_px = int(os.environ.get("MAX_PAGE_PX", "4200"))
+        # thousand px anyway. MAX_PAGE_PX overrides (default 6000).
+        max_px = int(os.environ.get("MAX_PAGE_PX", "6000"))
         for i in range(len(pdf)):
             page = pdf[i]
             w_pt, h_pt = page.get_size()
@@ -187,7 +187,7 @@ def prepare(path: str, workdir: str, dpi: int = 300) -> list[str]:
         img = img.convert("RGB")
     # upscale small phone photos so the dimension text stays readable
     long_side = max(img.size)
-    max_px = int(os.environ.get("MAX_PAGE_PX", "4200"))
+    max_px = int(os.environ.get("MAX_PAGE_PX", "6000"))
     if long_side < 2000:
         k = 2000 / long_side
         img = img.resize((int(img.width * k), int(img.height * k)),
