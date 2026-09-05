@@ -1781,7 +1781,7 @@ addEventListener("keydown", e => {
 let _refDrag = null;
 function drawRefs(info) {
   const old = document.getElementById("plRefs"); if (old) old.remove();
-  if (!S.plan || !info || !S.plan.refs || !S.plan.refs.length) return;
+  if (!S.plan || !info || !S.plan.refs || !S.plan.refs.length) { closeRefBox(); return; }
   const holder = $("#plHolder"), draw = holder.querySelector("svg"); if (!draw) return;
   const ov = document.createElementNS(NS_SVG, "svg");
   ov.id = "plRefs";
@@ -1794,6 +1794,7 @@ function drawRefs(info) {
   // in no longer blows the boxes up over the very thing being edited
   const _z = (S.pl && S.pl.z) || 1;
   const G = Math.max(0.55, Math.max(1.7, info.w_mm * 0.009) / _z);
+  if (S.refSel == null || _refDrag != null) closeRefBox(); else refOffsetBox(S.refSel);
   S.plan.refs.forEach((r, i) => {
     let x1, y1, x2, y2;
     if (r.axis === "v") { const sx = r.at * info.k + info.ox; x1 = x2 = sx; y1 = 0; y2 = info.h_mm; }
@@ -1822,6 +1823,85 @@ function drawRefs(info) {
     }
   });
 }
+/* ── offset box: type a distance, place a PARALLEL ref line exactly that far
+   from the selected one (AutoCAD "offset"). The new line becomes selected, so
+   typing again chains 2'-6" → 2'-6" → … from the last line. Also lets you type
+   the selected line's own position (from the plan origin) to the digit.    */
+let _refOffLast = "";
+function closeRefBox() { const b = document.getElementById("refOff"); if (b) b.remove(); }
+function refOffsetBox(i) {
+  if (!S.plan || !S.plan.refs || i == null || !S.plInfo) { closeRefBox(); return; }
+  const r = S.plan.refs[i]; if (!r) { closeRefBox(); return; }
+  const holder = $("#plView"), draw = $("#plHolder").querySelector("svg");
+  if (!holder || !draw) return;
+  const rc = draw.getBoundingClientRect(), vr = holder.getBoundingClientRect();
+  const ppu = rc.width / S.plInfo.w_mm;
+  let px, py;
+  if (r.axis === "v") {
+    const sx = r.at * S.plInfo.k + S.plInfo.ox;
+    px = rc.left - vr.left + sx * ppu + 10; py = 48;
+  } else {
+    const sy = S.plInfo.h_mm - (r.at * S.plInfo.k + S.plInfo.oy);
+    px = 48; py = rc.top - vr.top + sy * ppu + 10;
+  }
+  px = Math.min(Math.max(8, px), holder.clientWidth - 250);
+  py = Math.min(Math.max(8, py), holder.clientHeight - 90);
+  const have = document.getElementById("refOff");
+  if (have && have.dataset.i === String(i)) {      // same line: just follow it,
+    have.style.left = px + "px"; have.style.top = py + "px";   // keep typing
+    const at = have.querySelector("#ro-at"); if (at && document.activeElement !== at) at.value = toDisp(r.at);
+    return;
+  }
+  if (have) { const d = have.querySelector("#ro-d"); if (d) _refOffLast = d.value; }
+  closeRefBox();
+  const V = r.axis === "v";
+  const eQ = v => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  const box = document.createElement("div");
+  box.id = "refOff"; box.dataset.i = String(i);
+  box.style.cssText = `position:absolute;left:${px}px;top:${py}px;z-index:80;`
+    + "background:#1b2233;border:1px solid #45507a;border-radius:10px;padding:8px;"
+    + "width:236px;display:flex;flex-direction:column;gap:6px;"
+    + "box-shadow:0 10px 34px rgba(0,0,0,.55);font-size:12px;color:#dbe2f3";
+  const inp = "padding:6px 8px;border-radius:7px;border:1px solid #45507a;background:#101625;color:#fff;font-size:13px;flex:1;min-width:0";
+  const btn = "padding:6px 9px;border-radius:7px;border:1px solid #45507a;background:#263047;color:#fff;cursor:pointer;font-size:14px";
+  box.innerHTML = `
+    <div style="display:flex;gap:6px;align-items:center">
+      <span style="opacity:.75;white-space:nowrap">Offset</span>
+      <input id="ro-d" type="${lenInputType()}" placeholder="${DUNIT === "ft" ? "2'-6&quot;" : "0"}" value="${eQ(_refOffLast)}" style="${inp}">
+      <button id="ro-neg" title="${V ? "left" : "down"} side" style="${btn}">${V ? "◀" : "▼"}</button>
+      <button id="ro-pos" title="${V ? "right" : "up"} side" style="${btn}">${V ? "▶" : "▲"}</button>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center">
+      <span style="opacity:.75;white-space:nowrap">Position</span>
+      <input id="ro-at" type="${lenInputType()}" value="${eQ(toDisp(r.at))}" style="${inp}" title="exact ${V ? "X" : "Y"} of this line">
+      <button id="ro-set" style="${btn}" title="move this line to the typed position">✔</button>
+    </div>`;
+  holder.appendChild(box);
+  const stop = e => e.stopPropagation();
+  ["mousedown", "touchstart", "keydown", "wheel"].forEach(ev => box.addEventListener(ev, stop));
+  const place = sign => {
+    const d = Math.abs(fromDisp($("#ro-d").value));
+    if (!(d > 0)) { toast && toast("Distance likhein"); $("#ro-d").focus(); return; }
+    _refOffLast = $("#ro-d").value;
+    S.plan.refs.push({ axis: r.axis, at: r4(r.at + sign * d) });
+    S.refSel = S.plan.refs.length - 1;
+    markDirty && markDirty(); drawRefs(S.plInfo);
+    status && status(`ref line ${toDisp(d)} ${V ? (sign > 0 ? "right" : "left") : (sign > 0 ? "up" : "down")} of the last one`);
+  };
+  $("#ro-pos").onclick = () => place(+1);
+  $("#ro-neg").onclick = () => place(-1);
+  $("#ro-d").addEventListener("keydown", e => {
+    if (e.key === "Enter") place(e.shiftKey ? -1 : +1);
+    if (e.key === "Escape") { S.refSel = null; drawRefs(S.plInfo); }
+  });
+  const setAt = () => {
+    r.at = r4(fromDisp($("#ro-at").value));
+    markDirty && markDirty(); drawRefs(S.plInfo);
+  };
+  $("#ro-set").onclick = setAt;
+  $("#ro-at").addEventListener("keydown", e => { if (e.key === "Enter") setAt(); });
+  setTimeout(() => { const d = $("#ro-d"); if (d) { d.focus(); d.select(); } }, 0);
+}
 function startRefDrag(e, i) {
   e.preventDefault(); e.stopPropagation();
   S.refSel = i; _refDrag = i; drawRefs(S.plInfo);
@@ -1836,7 +1916,7 @@ function _refMove(e) {
   drawRefs(S.plInfo); drawGuides(S.plInfo);
   if (e.cancelable) e.preventDefault();
 }
-function _refEnd() { if (_refDrag == null) return; _refDrag = null; _guides = []; clearGuides(); markDirty && markDirty(); }
+function _refEnd() { if (_refDrag == null) return; _refDrag = null; _guides = []; clearGuides(); markDirty && markDirty(); drawRefs(S.plInfo); }
 addEventListener("mousemove", _refMove);
 addEventListener("touchmove", _refMove, { passive: false });
 addEventListener("mouseup", _refEnd);
