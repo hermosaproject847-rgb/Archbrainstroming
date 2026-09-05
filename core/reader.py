@@ -126,10 +126,22 @@ def prepare(path: str, workdir: str, dpi: int = 300) -> list[str]:
         import pypdfium2 as pdfium
         pdf = pdfium.PdfDocument(path)
         out = []
+        # Cap the rendered long side. An A1 sheet at 400 dpi is 13000 px wide
+        # (~370 MB as RGB) and on a 512 MB cloud box that alone restarts the
+        # container mid-read; the vision model never sees more than a few
+        # thousand px anyway. MAX_PAGE_PX overrides (default 4200).
+        max_px = int(os.environ.get("MAX_PAGE_PX", "4200"))
         for i in range(len(pdf)):
-            img = pdf[i].render(scale=max(dpi, 400) / 72.0).to_pil()
+            page = pdf[i]
+            w_pt, h_pt = page.get_size()
+            scale = max(dpi, 400) / 72.0
+            long_pt = max(w_pt, h_pt) or 1.0
+            if long_pt * scale > max_px:
+                scale = max_px / long_pt
+            img = page.render(scale=scale).to_pil()
             p = os.path.join(workdir, f"page_{i + 1:02d}.png")
             img.convert("RGB").save(p)
+            img.close()
             out.append(p)
         return out
 
@@ -175,8 +187,13 @@ def prepare(path: str, workdir: str, dpi: int = 300) -> list[str]:
         img = img.convert("RGB")
     # upscale small phone photos so the dimension text stays readable
     long_side = max(img.size)
+    max_px = int(os.environ.get("MAX_PAGE_PX", "4200"))
     if long_side < 2000:
         k = 2000 / long_side
+        img = img.resize((int(img.width * k), int(img.height * k)),
+                         Image.LANCZOS)
+    elif long_side > max_px:            # huge scans: same memory cap as PDFs
+        k = max_px / long_side
         img = img.resize((int(img.width * k), int(img.height * k)),
                          Image.LANCZOS)
     p = os.path.join(workdir, "page_01.png")

@@ -324,7 +324,10 @@ class Api:
     def read_async_status(self, job: str = "") -> dict:
         j = Api._read_jobs.get(job)
         if not j:
-            return {"ok": False, "error": "unknown job"}
+            return {"ok": False, "error":
+                    "The server restarted while reading (it ran out of "
+                    "memory on this hosting plan). Try again with a "
+                    "smaller / single-page drawing, or upgrade the server."}
         if not j["done"]:
             return {"ok": True, "done": False}
         # keep the finished result so a retried poll still gets it; prune other
