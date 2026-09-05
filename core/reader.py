@@ -163,18 +163,44 @@ def prepare(path: str, workdir: str, dpi: int = 300) -> list[str]:
         import matplotlib.pyplot as plt
         doc = ezdxf.readfile(path)
         msp = doc.modelspace()
+        # CAD text styles name SHX fonts the renderer lacks; its stand-in draws
+        # letters like 'O' as boxes, which garbles the room names the reader
+        # depends on. Point every style at a real TrueType face instead.
+        try:
+            for st in doc.styles:
+                st.dxf.font = "DejaVuSans.ttf"
+        except Exception:
+            pass
         cfg = _dcfg.Configuration(
             background_policy=_dcfg.BackgroundPolicy.WHITE,
             color_policy=_dcfg.ColorPolicy.MONOCHROME_LIGHT_BG,
             lineweight_scaling=2.2,
             min_lineweight=1.2,
         )
-        fig = plt.figure()
+        # Long side ~MAX_PAGE_PX (same memory cap as PDFs): figure inches x dpi.
+        max_px = int(os.environ.get("MAX_PAGE_PX", "6000"))
+        side = max(8.0, max_px / float(dpi))
+        fig = plt.figure(figsize=(side, side))   # tight bbox trims the rest
         ax = fig.add_axes([0, 0, 1, 1])
         ax.set_axis_off()
         ctx = RenderContext(doc)
+        # HATCH fills (solid fills from a PDF conversion, dense CAD hatches)
+        # make the matplotlib backend crawl for hours on a 5000-entity sheet
+        # and add nothing the reader needs: lines, text and openings are
+        # what it reads. They are skipped.
         Frontend(ctx, MatplotlibBackend(ax), config=cfg).draw_layout(
-            msp, finalize=True)
+            msp, finalize=True,
+            filter_func=lambda e: e.dxftype() != "HATCH")
+        # size the figure to the drawing's own aspect so the long side really
+        # comes out at ~max_px (a bare square figure left a portrait plan at
+        # a third of that)
+        try:
+            (x0, x1), (y0, y1) = ax.get_xlim(), ax.get_ylim()
+            w, h = abs(x1 - x0) or 1.0, abs(y1 - y0) or 1.0
+            k = side / max(w, h)
+            fig.set_size_inches(max(2.0, w * k), max(2.0, h * k))
+        except Exception:
+            pass
         p = os.path.join(workdir, "page_01.png")
         fig.savefig(p, dpi=dpi, facecolor="white",
                     bbox_inches="tight", pad_inches=0.1)
