@@ -370,12 +370,19 @@ def read_sketch(sketch_path: str, workdir: str | None = None,
     # console child like claude.exe pops its OWN black console window. CREATE_NO_
     # WINDOW keeps it hidden. (0 on Linux, so the cloud build is unaffected.)
     _no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    # Cloud (Render free, 512 MB): cap the CLI's node heap so a heavy read
+    # fails inside the child instead of the host killing the whole container.
+    env = dict(os.environ)
+    if os.environ.get("CLAUDE_NODE_HEAP_MB") or os.environ.get("RENDER"):
+        mb = os.environ.get("CLAUDE_NODE_HEAP_MB") or "300"
+        env["NODE_OPTIONS"] = (env.get("NODE_OPTIONS", "") +
+                               " --max-old-space-size=" + mb).strip()
     try:
         proc = subprocess.Popen(
             [exe, "-p", prompt, "--permission-mode", "acceptEdits"],
             cwd=workdir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace",
-            creationflags=_no_window)
+            creationflags=_no_window, env=env)
     except Exception as e:
         return {"plan": None, "pages": pages, "log": "",
                 "error": f"Could not start the Claude CLI: {e}"}

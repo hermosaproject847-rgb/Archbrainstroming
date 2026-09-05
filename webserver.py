@@ -65,7 +65,59 @@ if _DATA_DIR:
         _DATA_DIR = None            # host without a /data disk (Render etc.)
 USERS_FILE = os.path.join(_DATA_DIR or ROOT, "users.json")
 _users_lock = _threading.Lock()
-SESSIONS: dict = {}                 # token -> {"user":..., "role":...}
+
+
+# ---------------------------------------------------------------- sessions
+# The session lives INSIDE the cookie (HMAC-signed: user|role|expiry|sig), not
+# in server memory. On Render's 512 MB free box a heavy AI read can restart the
+# container; with memory sessions every client was thrown back to the login
+# page mid-read. A signed cookie survives restarts and redeploys. The signing
+# secret comes from SESSION_SECRET, else is derived from the USERS_JSON secret
+# (stable across restarts on the cloud), else from a file next to users.json.
+def _session_secret() -> bytes:
+    import hashlib as _hl
+    env = os.environ.get("SESSION_SECRET") or os.environ.get("USERS_JSON")
+    if env:
+        return _hl.sha256(("abs-sess|" + env).encode("utf-8")).digest()
+    fn = os.path.join(_DATA_DIR or ROOT, ".session_secret")
+    try:
+        with open(fn, "rb") as fh:
+            k = fh.read().strip()
+        if len(k) >= 32:
+            return k
+    except Exception:
+        pass
+    k = _secrets.token_bytes(32)
+    try:
+        with open(fn, "wb") as fh:
+            fh.write(k)
+    except Exception:
+        pass
+    return k
+
+
+def _sign(msg: str) -> str:
+    import hmac as _hmac, hashlib as _hl
+    return _hmac.new(_session_secret(), msg.encode("utf-8"), _hl.sha256).hexdigest()
+
+
+def _make_token(user: str, role: str, days: int = 7) -> str:
+    import time as _t
+    msg = "%s|%s|%d" % (user, role, int(_t.time()) + 86400 * days)
+    return msg + "|" + _sign(msg)
+
+
+def _parse_token(tok: str):
+    import hmac as _hmac, time as _t
+    try:
+        user, role, exp, sig = tok.split("|")
+        if not _hmac.compare_digest(sig, _sign("%s|%s|%s" % (user, role, exp))):
+            return None
+        if int(exp) < _t.time():
+            return None
+        return {"user": user, "role": role}
+    except Exception:
+        return None
 
 
 def _default_users():
@@ -100,7 +152,18 @@ def _find_user(uname):
 
 def _current():
     tok = request.get_cookie("abs_sess")
-    return SESSIONS.get(tok) if tok else None
+    if not tok:
+        return None
+    s = _parse_token(tok)
+    if not s:
+        return None
+    # a blocked / deleted user is refused on the next request (no logout sweep
+    # needed): the user list is tiny, this read is cheap
+    u = _find_user(s["user"])
+    if not u or not u.get("active", True):
+        return None
+    s["role"] = u.get("role", "client")
+    return s
 
 
 def _is_admin():
@@ -191,18 +254,14 @@ def do_login():
     if not u.get("active", True):
         return {"ok": False,
                 "error": "This login is blocked — contact admin to renew."}
-    tok = _secrets.token_hex(24)
-    SESSIONS[tok] = {"user": u["username"], "role": u.get("role", "client")}
+    tok = _make_token(u["username"], u.get("role", "client"))
     response.set_cookie("abs_sess", tok, path="/", httponly=True,
-                        max_age=86400 * 7)
+                        max_age=86400 * 7, samesite="lax")
     return {"ok": True, "user": u["username"], "role": u.get("role", "client")}
 
 
 @web.post("/logout")
 def do_logout():
-    tok = request.get_cookie("abs_sess")
-    if tok:
-        SESSIONS.pop(tok, None)
     response.delete_cookie("abs_sess", path="/")
     return {"ok": True}
 
@@ -255,11 +314,7 @@ def admin_setactive():
                 x["active"] = (not x.get("active", True)) if d.get("toggle") \
                     else bool(d.get("active"))
         save_users(data)
-    # drop any live session of a just-blocked user so the block is immediate
-    for tok, s in list(SESSIONS.items()):
-        u = _find_user(s["user"])
-        if not u or not u.get("active", True):
-            SESSIONS.pop(tok, None)
+    # a blocked user is refused on their very next request (see _current)
     return {"ok": True}
 
 
@@ -275,9 +330,7 @@ def admin_delete():
                          if not (x["username"].lower() == uname
                                  and x.get("role") != "admin")]
         save_users(data)
-    for tok, s in list(SESSIONS.items()):
-        if s["user"].lower() == uname:
-            SESSIONS.pop(tok, None)
+    # the deleted user's cookie fails the user lookup in _current from now on
     return {"ok": True}
 
 
