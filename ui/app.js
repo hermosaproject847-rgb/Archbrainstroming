@@ -4143,7 +4143,9 @@ $("#btnOpen").onclick = async () => {
                    : "plan loaded from JSON — edit any row and it redraws");
       return;
     }
-    const isImg = /\.(png|jpe?g|pdf)$/i.test(f.name || "");
+    // a layer-less DXF (e.g. one made by PDF -> DXF) also ends up in the AI
+    // reader, so it takes the same background-job route as a photo / PDF
+    const isImg = /\.(png|jpe?g|pdf|dxf)$/i.test(f.name || "");
     let rr;
     if (isImg) {
       // AI read takes ~1-2 min — run it as a background JOB and poll, so the

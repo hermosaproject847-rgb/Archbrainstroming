@@ -108,6 +108,16 @@ def cli_status() -> dict:
 
 
 # ------------------------------------------------------------ input prep
+def _max_page_px() -> int:
+    """Long-side cap for the page image handed to the vision reader. 6000 px
+    on a PC; 4000 px on the 512 MB cloud box (RENDER is set there), where a
+    bigger Agg canvas plus the Claude CLI's node process tips it over."""
+    v = os.environ.get("MAX_PAGE_PX")
+    if v:
+        return int(v)
+    return 4000 if os.environ.get("RENDER") else 6000
+
+
 def prepare(path: str, workdir: str, dpi: int = 300) -> list[str]:
     """Normalise the input to a list of high-DPI PNG page images."""
     os.makedirs(workdir, exist_ok=True)
@@ -130,7 +140,7 @@ def prepare(path: str, workdir: str, dpi: int = 300) -> list[str]:
         # (~370 MB as RGB) and on a 512 MB cloud box that alone restarts the
         # container mid-read; the vision model never sees more than a few
         # thousand px anyway. MAX_PAGE_PX overrides (default 6000).
-        max_px = int(os.environ.get("MAX_PAGE_PX", "6000"))
+        max_px = _max_page_px()
         for i in range(len(pdf)):
             page = pdf[i]
             w_pt, h_pt = page.get_size()
@@ -178,7 +188,7 @@ def prepare(path: str, workdir: str, dpi: int = 300) -> list[str]:
             min_lineweight=1.2,
         )
         # Long side ~MAX_PAGE_PX (same memory cap as PDFs): figure inches x dpi.
-        max_px = int(os.environ.get("MAX_PAGE_PX", "6000"))
+        max_px = _max_page_px()
         side = max(8.0, max_px / float(dpi))
         fig = plt.figure(figsize=(side, side))   # tight bbox trims the rest
         ax = fig.add_axes([0, 0, 1, 1])
@@ -213,7 +223,7 @@ def prepare(path: str, workdir: str, dpi: int = 300) -> list[str]:
         img = img.convert("RGB")
     # upscale small phone photos so the dimension text stays readable
     long_side = max(img.size)
-    max_px = int(os.environ.get("MAX_PAGE_PX", "6000"))
+    max_px = _max_page_px()
     if long_side < 2000:
         k = 2000 / long_side
         img = img.resize((int(img.width * k), int(img.height * k)),
