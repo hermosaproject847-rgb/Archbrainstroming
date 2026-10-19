@@ -11,8 +11,12 @@ On a host:     the platform sets $PORT; bind 0.0.0.0.
 
 from __future__ import annotations
 
+import gzip as _gzip
+import hashlib as _hashlib
 import json as _json
+import mimetypes as _mimetypes
 import os
+import re as _re
 import secrets as _secrets
 import sys
 import threading as _threading
@@ -179,25 +183,91 @@ def _no_cache(resp):
     return resp
 
 
+# ---------------------------------------------------------------- fast statics
+# Opening the software used to re-download ~1.4 MB (three.min.js, app.js,
+# view3d.js, style.css, login-bg.jpg) UNCOMPRESSED on every visit, because
+# everything was sent no-store. Now: gzip for text assets (≈4× smaller),
+# ETag + 304 for revalidation, and versioned (?v=<content hash>) assets are
+# cached by the browser for a year — a new deploy changes the hash.
+_TEXT_EXT = {".js", ".css", ".html", ".json", ".svg", ".txt", ".md"}
+_ASSETS = {}                        # path -> (mtime, size, etag, raw, gz)
+_ASSETS_LOCK = _threading.Lock()
+
+
+def _asset(path):
+    st = os.stat(path)
+    c = _ASSETS.get(path)
+    if c and c[0] == st.st_mtime and c[1] == st.st_size:
+        return c
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    gz = None
+    if os.path.splitext(path)[1].lower() in _TEXT_EXT and len(raw) > 1024:
+        gz = _gzip.compress(raw, 6)
+    c = (st.st_mtime, st.st_size, _hashlib.md5(raw).hexdigest()[:12], raw, gz)
+    with _ASSETS_LOCK:
+        _ASSETS[path] = c
+    return c
+
+
+def _send_bytes(raw, gz, etag, ctype, cache):
+    """cache: 'immutable' (versioned URL), 'day' (rarely-changing image), or
+    'revalidate' (HTML — always asks, but a 304 costs no body)."""
+    cc = {"immutable": "private, max-age=31536000, immutable",
+          "day": "private, max-age=86400",
+          "revalidate": "no-cache"}[cache]
+    tag = '"%s"' % etag
+    if request.headers.get("If-None-Match", "") == tag:
+        r = HTTPResponse(status=304)
+    else:
+        use_gz = gz is not None and "gzip" in request.headers.get(
+            "Accept-Encoding", "")
+        r = HTTPResponse(body=gz if use_gz else raw)
+        if use_gz:
+            r.set_header("Content-Encoding", "gzip")
+        r.set_header("Content-Type", ctype)
+    r.set_header("ETag", tag)
+    r.set_header("Vary", "Accept-Encoding")
+    r.set_header("Cache-Control", cc)
+    return r
+
+
+def _send_file(filepath, cache=None):
+    ap = os.path.abspath(os.path.join(UI, filepath))
+    if not ap.startswith(os.path.abspath(UI) + os.sep) or not os.path.isfile(ap):
+        return HTTPResponse(status=404, body="not found")
+    _, _, etag, raw, gz = _asset(ap)
+    ctype = _mimetypes.guess_type(ap)[0] or "application/octet-stream"
+    if ctype.startswith("text/") or ctype.endswith(("javascript", "json")):
+        ctype += "; charset=utf-8"
+    if cache is None:
+        cache = "immutable" if request.query.get("v") else "revalidate"
+    return _send_bytes(raw, gz, etag, ctype, cache)
+
+
+_ASSET_REF = _re.compile(
+    r'((?:src|href)=")((?:vendor/)?[\w.\-]+\.(?:js|css))(?:\?v=[^"]*)?"')
+
+
 def _serve_app_html():
-    """The software UI (index.html) with a mtime version query on app.js /
-    style.css so Cloudflare's edge never serves a stale build."""
+    """The software UI (index.html) with a content-hash version query on every
+    local script / stylesheet, so a deploy is picked up at once while unchanged
+    files come straight from the browser cache."""
     try:
         with open(os.path.join(UI, "index.html"), encoding="utf-8") as fh:
             html = fh.read()
 
-        def _v(fn):
+        def _v(m):
             try:
-                return str(int(os.path.getmtime(os.path.join(UI, fn))))
+                tag = _asset(os.path.join(UI, m.group(2)))[2]
             except Exception:
-                return "1"
+                return m.group(0)
+            return '%s%s?v=%s"' % (m.group(1), m.group(2), tag)
 
-        html = html.replace('src="app.js"', 'src="app.js?v=%s"' % _v("app.js"))
-        html = html.replace('href="style.css"',
-                            'href="style.css?v=%s"' % _v("style.css"))
-        r = HTTPResponse(body=html)
-        r.set_header("Content-Type", "text/html; charset=utf-8")
-        return _no_cache(r)
+        raw = _ASSET_REF.sub(_v, html).encode("utf-8")
+        return _send_bytes(raw, _gzip.compress(raw, 6),
+                           _hashlib.md5(raw).hexdigest()[:12],
+                           "text/html; charset=utf-8", "revalidate")
     except Exception:
         return _no_cache(static_file("index.html", root=UI))
 
@@ -205,13 +275,13 @@ def _serve_app_html():
 # ---------------------------------------------------------------- pages
 @web.get("/")
 def login_page():
-    return _no_cache(static_file("login.html", root=UI))
+    return _send_file("login.html", "revalidate")
 
 
 # login-page assets must be public (the visitor is not signed in yet)
 @web.get("/login-bg.jpg")
 def login_bg():
-    return _no_cache(static_file("login-bg.jpg", root=UI))
+    return _send_file("login-bg.jpg", "day")
 
 
 @web.get("/favicon.ico")
@@ -437,7 +507,7 @@ def statics(filepath):
     # login page is self-contained; every other UI asset needs a session
     if not _current():
         return redirect("/")
-    return _no_cache(static_file(filepath, root=UI))
+    return _send_file(filepath)
 
 
 def _seed_claude_credentials():

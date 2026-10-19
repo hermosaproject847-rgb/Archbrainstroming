@@ -94,6 +94,11 @@ def cli_status() -> dict:
                          "or set the path in core/reader.py."}
     if os.environ.get("ANTHROPIC_API_KEY"):
         return {"ok": True, "exe": exe, "auth": "api-key"}
+    # cloud: a long-lived token from `claude setup-token` (1 year). Unlike a
+    # copied .credentials.json it is not invalidated when the PC's CLI
+    # refreshes its own session, so the hosted site stops "expiring".
+    if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+        return {"ok": True, "exe": exe, "auth": "oauth-token"}
     cred = os.path.join(HOME, ".claude", ".credentials.json")
     try:
         with open(cred, encoding="utf-8") as fh:
